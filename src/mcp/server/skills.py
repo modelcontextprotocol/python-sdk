@@ -13,7 +13,7 @@ does not discover, read, or hash skills from a filesystem — a server author
 supplies handlers that answer `skills/list`/`skills/get`/`resources/directory/read`
 however their catalog is stored, and serves the underlying `skill://` file
 content through the server's ordinary resource-registration APIs
-(`MCPServer.add_resource`, `add_resource_template`, ...).
+(`MCPServer.add_resource`, or an `@mcp.resource(...)` template).
 
     async def list_skills(ctx, params):
         return ListSkillsResult(skills=[...])

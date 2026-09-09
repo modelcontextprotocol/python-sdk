@@ -14,12 +14,12 @@ The SDK ships this as the built-in `Skills` extension (`io.modelcontextprotocol/
 advertisement, and SEP-2640 conformance validation. It does not discover, read, or hash skills
 from a filesystem — you supply handlers that answer from wherever your catalog actually lives
 (a database, a generated index, an in-memory list, or a directory you walk yourself), and serve
-each skill's files as ordinary resources through `MCPServer.add_resource` or
-`add_resource_template`.
+each skill's files as ordinary resources through `MCPServer.add_resource` or an
+`@mcp.resource(...)` template handler.
 
 ## Serving a skill
 
-```python title="server.py" hl_lines="19-20 39-40 42"
+```python title="server.py" hl_lines="31-41 44-51 55"
 --8<-- "docs_src/skills/tutorial001.py"
 ```
 
@@ -41,15 +41,16 @@ optional (below).
 
 ## Fetching a skill
 
-```python title="client.py" hl_lines="4"
+```python title="client.py" hl_lines="5"
 --8<-- "docs_src/skills/tutorial001_client.py"
 ```
 
 `list_skills` and `read_directory` follow `nextCursor` to completion, so you get every page's
-skills or resources in one call. `get_skill` and `read_skill_uri` (a thin, discoverable alias for
-`resources/read`) each cost exactly one request. All four validate the server's response against
-the SEP-2640 conformance rules before returning it — a name that doesn't match its URI, a digest
-in the wrong shape, or an incomplete manifest raises `ValueError` rather than reaching your code.
+skills or resources in one call; `get_skill` costs exactly one request. These three validate the
+server's response against the SEP-2640 conformance rules before returning it — a name that doesn't
+match its URI, a digest in the wrong shape, or an incomplete manifest raises `ValueError` rather
+than reaching your code. `read_skill_uri` is the exception: a thin, discoverable alias for
+`resources/read` that returns bytes and validates nothing itself (see the next paragraph).
 
 `verify_skill_resource(skill, uri, content)` checks a file's bytes — size, then SHA-256 digest —
 against the entry you hold for it. Call it after `read_skill_uri` and before treating the content
