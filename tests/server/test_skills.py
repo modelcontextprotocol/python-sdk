@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import INVALID_PARAMS, METHOD_NOT_FOUND, Resource
+from mcp_types import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, Resource
 from pydantic import BaseModel, ConfigDict
 
 from mcp.client.client import Client
@@ -135,8 +135,8 @@ async def test_skills_list_handler_setting_cache_scope_explicitly_is_not_overrid
 
 async def test_skills_list_rejects_a_handler_result_with_an_invalid_skill() -> None:
     """SDK-defined: a `list_skills` handler bug (a non-conformant skill entry) is caught
-    before it reaches the client, as an Invalid params error rather than a silently
-    non-conformant listing."""
+    before it reaches the client, as an Internal error — the fault is the server's, not the
+    caller's params — rather than a silently non-conformant listing."""
 
     async def bad_list(ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
         return ListSkillsResult(
@@ -147,7 +147,7 @@ async def test_skills_list_rejects_a_handler_result_with_an_invalid_skill() -> N
     async with Client(server) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.session.send_request(ListSkillsRequest(), ListSkillsResult)
-    assert exc_info.value.code == INVALID_PARAMS
+    assert exc_info.value.code == INTERNAL_ERROR
 
 
 async def test_skills_get_returns_the_matching_skill() -> None:
@@ -196,7 +196,7 @@ async def test_skills_get_rejects_a_uri_that_does_not_end_in_skill_md() -> None:
 
 async def test_skills_get_rejects_a_handler_that_returns_a_mismatched_uri() -> None:
     """SDK-defined: a `get_skill` handler bug (returning the wrong skill) is caught before
-    it reaches the client, as an Invalid params error rather than a silently wrong answer."""
+    it reaches the client, as an Internal error rather than a silently wrong answer."""
 
     async def wrong_skill(ctx: ServerRequestContext[Any, Any], params: GetSkillParams) -> GetSkillResult:
         return GetSkillResult(skill=_git_workflow_skill())
@@ -207,12 +207,12 @@ async def test_skills_get_rejects_a_handler_that_returns_a_mismatched_uri() -> N
             await client.session.send_request(
                 GetSkillRequest(params=GetSkillParams(uri="skill://other/SKILL.md")), GetSkillResult
             )
-    assert exc_info.value.code == INVALID_PARAMS
+    assert exc_info.value.code == INTERNAL_ERROR
 
 
 async def test_skills_get_rejects_a_matching_but_non_conformant_skill() -> None:
     """SDK-defined: a `get_skill` handler bug (a non-conformant skill body, distinct from a
-    URI mismatch) is caught the same way, as an Invalid params error."""
+    URI mismatch) is caught the same way, as an Internal error."""
 
     async def bad_skill(ctx: ServerRequestContext[Any, Any], params: GetSkillParams) -> GetSkillResult:
         return GetSkillResult(
@@ -223,7 +223,7 @@ async def test_skills_get_rejects_a_matching_but_non_conformant_skill() -> None:
     async with Client(server) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.session.send_request(GetSkillRequest(params=GetSkillParams(uri=_SKILL_URI)), GetSkillResult)
-    assert exc_info.value.code == INVALID_PARAMS
+    assert exc_info.value.code == INTERNAL_ERROR
 
 
 async def test_missing_uri_param_is_rejected_before_the_handler_runs() -> None:
@@ -277,6 +277,9 @@ async def test_directory_read_rejects_a_trailing_slash_uri() -> None:
 
 
 async def test_directory_read_rejects_a_handler_result_with_a_grandchild() -> None:
+    """SDK-defined: a `read_directory` handler bug (a non-direct child) is a server fault,
+    surfaced as an Internal error, not the caller's Invalid params."""
+
     async def bad_directory(ctx: ServerRequestContext[Any, Any], params: ReadDirectoryParams) -> ReadDirectoryResult:
         return ReadDirectoryResult(resources=[Resource(uri="skill://git-workflow/a/b/c.md", name="c.md")])
 
@@ -288,4 +291,4 @@ async def test_directory_read_rejects_a_handler_result_with_a_grandchild() -> No
             await client.session.send_request(
                 ReadDirectoryRequest(params=ReadDirectoryParams(uri="skill://git-workflow")), ReadDirectoryResult
             )
-    assert exc_info.value.code == INVALID_PARAMS
+    assert exc_info.value.code == INTERNAL_ERROR

@@ -28,10 +28,11 @@ content through the server's ordinary resource-registration APIs
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
-from mcp_types.jsonrpc import INVALID_PARAMS
+from mcp_types.jsonrpc import INTERNAL_ERROR, INVALID_PARAMS
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
 from mcp.server.context import HandlerResult, ServerRequestContext
@@ -56,6 +57,8 @@ from mcp.shared.skills import (
 )
 
 __all__ = ["Skills"]
+
+logger = logging.getLogger(__name__)
 
 ListSkillsHandler = Callable[[ServerRequestContext[Any, Any], ListSkillsParams], Awaitable[ListSkillsResult]]
 GetSkillHandler = Callable[[ServerRequestContext[Any, Any], GetSkillParams], Awaitable[GetSkillResult]]
@@ -102,24 +105,22 @@ class Skills(Extension):
         result = await self._list_skills(ctx, params)
         try:
             validate_list_result(result)
-        except ValueError as exc:
-            raise MCPError(
-                code=INVALID_PARAMS, message=f"list_skills handler returned an invalid result: {exc}"
-            ) from exc
+        except ValueError:
+            logger.exception("list_skills handler returned an invalid result")
+            raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         return _finalize_cacheable(result, ctx.protocol_version)
 
     async def _handle_get(self, ctx: ServerRequestContext[Any, Any], params: GetSkillParams) -> HandlerResult:
         _require_skill_md_uri(params.uri)
         result = await self._get_skill(ctx, params)
         if result.skill.uri != params.uri:
-            raise MCPError(
-                code=INVALID_PARAMS,
-                message=f"get_skill handler returned {result.skill.uri!r} for requested {params.uri!r}",
-            )
+            logger.error("get_skill handler returned %r for requested %r", result.skill.uri, params.uri)
+            raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result")
         try:
             validate_skill(result.skill)
-        except ValueError as exc:
-            raise MCPError(code=INVALID_PARAMS, message=f"get_skill handler returned an invalid result: {exc}") from exc
+        except ValueError:
+            logger.exception("get_skill handler returned an invalid result")
+            raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         return result
 
     async def _handle_read_directory(
@@ -130,10 +131,9 @@ class Skills(Extension):
         result = await self._read_directory(ctx, params)
         try:
             validate_directory_result(params.uri, result)
-        except ValueError as exc:
-            raise MCPError(
-                code=INVALID_PARAMS, message=f"read_directory handler returned an invalid result: {exc}"
-            ) from exc
+        except ValueError:
+            logger.exception("read_directory handler returned an invalid result")
+            raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         return result
 
 
