@@ -57,11 +57,14 @@ async def list_skills(session: ClientSession, params: ListSkillsParams | None = 
             its response is not SEP-2640 conformant.
     """
     _require_extension(session)
-    cursor = params.cursor if params is not None else None
+    base = params if params is not None else ListSkillsParams()
+    cursor = base.cursor
     skills: list[Skill] = []
-    seen_cursors: set[str] = set()
+    seen_cursors: set[str] = {cursor} if cursor is not None else set()
     while True:
-        page = await session.send_request(ListSkillsRequest(params=ListSkillsParams(cursor=cursor)), ListSkillsResult)
+        page = await session.send_request(
+            ListSkillsRequest(params=base.model_copy(update={"cursor": cursor})), ListSkillsResult
+        )
         validate_list_result(page)
         skills.extend(page.skills)
         if page.next_cursor is None:
@@ -109,12 +112,13 @@ async def read_directory(session: ClientSession, uri: str, params: ReadDirectory
             setting, or its response is not a valid child listing of `uri`.
     """
     _require_extension(session, directory_read=True)
-    cursor = params.cursor if params is not None else None
+    base = params if params is not None else ReadDirectoryParams(uri=uri)
+    cursor = base.cursor
     resources: list[Resource] = []
-    seen_cursors: set[str] = set()
+    seen_cursors: set[str] = {cursor} if cursor is not None else set()
     while True:
         page = await session.send_request(
-            ReadDirectoryRequest(params=ReadDirectoryParams(uri=uri, cursor=cursor)), ReadDirectoryResult
+            ReadDirectoryRequest(params=base.model_copy(update={"uri": uri, "cursor": cursor})), ReadDirectoryResult
         )
         validate_directory_result(uri, page)
         resources.extend(page.resources)

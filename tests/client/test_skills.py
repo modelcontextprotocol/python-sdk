@@ -253,3 +253,46 @@ async def test_list_skills_starts_from_a_caller_supplied_cursor() -> None:
     async with Client(_server()) as client:
         skills = await list_skills(client.session, ListSkillsParams(cursor="page-2"))
     assert [s.uri for s in skills] == ["skill://other/SKILL.md"]
+
+
+async def test_list_skills_detects_a_server_repeating_the_caller_supplied_cursor() -> None:
+    """The starting cursor seeds the seen-cursor set: a server that hands back the very cursor
+    the caller resumed from is caught as a repeat on the first page, not chased a second time."""
+    calls = 0
+
+    async def handler(ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
+        nonlocal calls
+        calls += 1
+        return ListSkillsResult(skills=[_skill()], next_cursor="resume-here")
+
+    server = MCPServer("catalog", extensions=[Skills(list_skills=handler, get_skill=_get_skill)])
+    async with Client(server) as client:
+        with pytest.raises(ValueError, match="repeated"):
+            await list_skills(client.session, ListSkillsParams(cursor="resume-here"))
+    assert calls == 1
+
+
+async def test_list_skills_threads_request_meta_onto_every_page() -> None:
+    """A caller-supplied `_meta` rides along with each page request, not just the first."""
+    seen_meta: list[Any] = []
+
+    async def handler(ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
+        seen_meta.append(params.meta)
+        if params.cursor is None:
+            return ListSkillsResult(skills=[_skill()], next_cursor="page-2")
+        return ListSkillsResult(
+            skills=[
+                Skill(
+                    uri="skill://other/SKILL.md", frontmatter={"name": "other", "description": "d"}, resources="dynamic"
+                )
+            ],
+            next_cursor=None,
+        )
+
+    server = MCPServer("catalog", extensions=[Skills(list_skills=handler, get_skill=_get_skill)])
+    async with Client(server) as client:
+        await list_skills(client.session, ListSkillsParams(meta={"progressToken": "t"}))
+    # The transport enriches `_meta` with its own keys; what matters is the caller's token
+    # reaching the server on both the first page and the cursor-following second one.
+    assert len(seen_meta) == 2
+    assert all(m is not None and m.get("progress_token") == "t" for m in seen_meta)
