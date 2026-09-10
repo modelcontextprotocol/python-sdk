@@ -291,7 +291,8 @@ async def test_list_skills_threads_request_meta_onto_every_page() -> None:
 
     server = MCPServer("catalog", extensions=[Skills(list_skills=handler, get_skill=_get_skill)])
     async with Client(server) as client:
-        await list_skills(client.session, ListSkillsParams(meta={"progressToken": "t"}))
+        params = ListSkillsParams.model_validate({"_meta": {"progressToken": "t"}})
+        await list_skills(client.session, params)
     # The transport enriches `_meta` with its own keys; what matters is the caller's token
     # reaching the server on both the first page and the cursor-following second one.
     assert len(seen_meta) == 2
