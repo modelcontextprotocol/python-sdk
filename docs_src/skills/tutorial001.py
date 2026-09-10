@@ -1,8 +1,6 @@
 import hashlib
 from typing import Any
 
-from mcp_types import INVALID_PARAMS
-
 from mcp.server.context import ServerRequestContext
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.resources import TextResource
@@ -16,6 +14,7 @@ from mcp.shared.skills import (
     Skill,
     SkillResource,
 )
+from mcp.types import INVALID_PARAMS
 
 SKILL_URI = "skill://git-workflow/SKILL.md"
 SKILL_MD = """\

@@ -1,8 +1,8 @@
 import anyio
-from mcp_types import TextResourceContents
 
 from mcp import Client
 from mcp.client.skills import get_skill, list_skills, read_skill_uri, verify_skill_resource
+from mcp.types import TextResourceContents
 
 
 async def main() -> None:

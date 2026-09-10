@@ -50,12 +50,14 @@ skills or resources in one call; `get_skill` costs exactly one request. These th
 server's response against the SEP-2640 conformance rules before returning it — a name that doesn't
 match its URI, a digest in the wrong shape, or an incomplete manifest raises `ValueError` rather
 than reaching your code. `read_skill_uri` is the exception: a thin, discoverable alias for
-`resources/read` that returns bytes and validates nothing itself (see the next paragraph).
+`resources/read` that returns a `ReadResourceResult` (text or blob contents) and validates nothing
+itself (see the next paragraph).
 
 `verify_skill_resource(skill, uri, content)` checks a file's bytes — size, then SHA-256 digest —
 against the entry you hold for it. Call it after `read_skill_uri` and before treating the content
 as trustworthy: `resources/read` returns whatever bytes the server sends *right now*, verification
-is what ties those bytes back to the manifest you already validated.
+is what ties those bytes back to the manifest you already validated. It applies to a static
+manifest only — a `"dynamic"` skill carries no digests, so calling it on one raises `ValueError`.
 
 !!! warning
     Skill content is untrusted model input, exactly like any other server-provided text. SEP-2640
