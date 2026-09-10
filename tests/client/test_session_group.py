@@ -287,6 +287,60 @@ async def test_client_session_group_connect_to_server_duplicate_tool_raises_erro
 
 
 @pytest.mark.anyio
+async def test_client_session_group_connect_to_server_duplicate_closes_transport():
+    """A rejected connect_to_server closes the transport it opened.
+
+    The caller never receives the session, so if the group keeps it the connection is
+    unreachable until the whole group tears down. Locks in that the session's exit stack
+    is both closed and forgotten when aggregation raises.
+    """
+    existing_tool_name = "shared_tool"
+
+    # The new server offers a colliding tool, so aggregation will reject it.
+    mock_server_info = mock.Mock(spec=types.Implementation)
+    mock_server_info.name = "ServerWithDuplicate"
+    new_session = mock.AsyncMock(spec=mcp.ClientSession)
+    duplicate_tool = mock.Mock(spec=types.Tool)
+    duplicate_tool.name = existing_tool_name
+    new_session.list_tools.return_value = mock.AsyncMock(tools=[duplicate_tool])
+    new_session.list_resources.return_value = mock.AsyncMock(resources=[])
+    new_session.list_prompts.return_value = mock.AsyncMock(prompts=[])
+
+    # Stand in for the real transport: a callback on the session's own exit stack that
+    # records whether the stack was ever closed.
+    closed = False
+
+    def _on_close() -> None:
+        nonlocal closed
+        closed = True
+
+    async def _establish_session(*_args: object, **_kwargs: object):
+        """Register the stack exactly as the real _establish_session does."""
+        session_stack = contextlib.AsyncExitStack()
+        await session_stack.__aenter__()
+        session_stack.callback(_on_close)
+        group._session_exit_stacks[new_session] = session_stack
+        await group._exit_stack.enter_async_context(session_stack)
+        return mock_server_info, new_session
+
+    async with contextlib.AsyncExitStack() as stack:
+        group = ClientSessionGroup(exit_stack=stack)
+        group._tools[existing_tool_name] = mock.Mock(spec=types.Tool)
+        group._tools[existing_tool_name].name = existing_tool_name
+
+        with mock.patch.object(group, "_establish_session", side_effect=_establish_session):
+            with pytest.raises(MCPError) as excinfo:
+                await group.connect_to_server(StdioServerParameters(command="test"))
+
+        assert "already exist " in excinfo.value.error.message
+        # The transport is closed and no longer tracked, before the group tears down.
+        assert closed, "the rejected server's transport was left open"
+        assert new_session not in group._session_exit_stacks
+        assert new_session not in group._sessions
+        assert sorted(group._tools) == [existing_tool_name]
+
+
+@pytest.mark.anyio
 async def test_client_session_group_disconnect_non_existent_server():
     """Test disconnecting a server that isn't connected."""
     session = mock.Mock(spec=mcp.ClientSession)

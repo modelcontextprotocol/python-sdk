@@ -298,7 +298,16 @@ class ClientSessionGroup:
     ) -> mcp.ClientSession:
         """Connects to a single MCP server."""
         server_info, session = await self._establish_session(server_params, session_params or ClientSessionParameters())
-        return await self.connect_with_session(server_info, session)
+        try:
+            return await self.connect_with_session(server_info, session)
+        except Exception:
+            # Aggregation rejected the server. This transport is ours: the caller never
+            # received the session and so cannot close it. Close it here rather than
+            # leave it running until the whole group tears down.
+            session_stack = self._session_exit_stacks.pop(session, None)
+            if session_stack is not None:
+                await session_stack.aclose()
+            raise
 
     async def _establish_session(
         self,
