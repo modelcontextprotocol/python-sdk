@@ -5,12 +5,15 @@ Server- and client-side end-to-end wiring live in `tests/server/test_skills.py` 
 """
 
 import hashlib
+from typing import Any
 
 import pytest
 from mcp_types import Resource
 
 from mcp.shared.skills import (
+    ListSkillsParams,
     ListSkillsResult,
+    ReadDirectoryParams,
     ReadDirectoryResult,
     Skill,
     SkillResource,
@@ -284,6 +287,26 @@ def test_validate_list_result_rejects_duplicate_skill_uris_across_entries() -> N
 def test_validate_list_result_accepts_an_empty_listing() -> None:
     """SEP-2640 Enumeration: `skills/list` MAY return an empty result."""
     validate_list_result(ListSkillsResult(skills=[]))
+
+
+@pytest.mark.parametrize(
+    ("params_type", "payload"),
+    [
+        (ListSkillsParams, {"_meta": {"progressToken": "t"}}),
+        (ReadDirectoryParams, {"uri": "skill://pdf/templates", "_meta": {"progressToken": "t"}}),
+    ],
+)
+def test_request_meta_is_camelcase_on_the_wire_but_snakecase_to_a_handler(
+    params_type: type[ListSkillsParams] | type[ReadDirectoryParams], payload: dict[str, Any]
+) -> None:
+    """A caller's `_meta.progressToken` rides the wire camelCase (its JSON alias) yet is read back
+    snake_case as `progress_token` once deserialized - two spellings, one value. This is what lets
+    `list_skills`/`read_directory` forward a caller's `_meta` to every page while a server handler
+    still finds `progress_token` in `params.meta`; both spellings working is the point."""
+    params = params_type.model_validate(payload)
+    wire = params.model_dump(by_alias=True, mode="json", exclude_none=True)
+    assert wire["_meta"] == {"progressToken": "t"}  # camelCase over the wire
+    assert params.meta is not None and params.meta.get("progress_token") == "t"  # snake_case to a handler
 
 
 @pytest.mark.parametrize("uri", ["skill://pdf/templates/", "not-a-uri"])

@@ -293,7 +293,9 @@ async def test_list_skills_threads_request_meta_onto_every_page() -> None:
     async with Client(server) as client:
         params = ListSkillsParams.model_validate({"_meta": {"progressToken": "t"}})
         await list_skills(client.session, params)
-    # The transport enriches `_meta` with its own keys; what matters is the caller's token
+    # `_meta` crosses the wire camelCase (`progressToken`), but the server deserializes it back
+    # through the meta model, which exposes the known field snake_case as `progress_token`; the
+    # transport also enriches `_meta` with its own keys. What matters is the caller's token
     # reaching the server on both the first page and the cursor-following second one.
     assert len(seen_meta) == 2
     assert all(m is not None and m.get("progress_token") == "t" for m in seen_meta)
