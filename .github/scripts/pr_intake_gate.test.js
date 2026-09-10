@@ -14,6 +14,7 @@ const gate = require('./pr_intake_gate.js');
 
 const LABEL = 'missing-issue-link';
 const BYPASS = 'bypass-issue-check';
+const REVIEW_REQUEST = '@cubic-dev-ai review this PR';
 const REPO = { owner: 'modelcontextprotocol', repo: 'python-sdk' };
 
 // People. Only the capability flags matter to the gate.
@@ -29,7 +30,8 @@ const PEOPLE = {
 // `prs` / `issues` describe the world before the event; `expect` describes each
 // PR afterwards: state, labels, and comment ('closed' = the "this PR has been
 // closed" comment, 'closed-draft' = its draft wording, 'cannot-reopen' = the
-// refused-reopen comment, null = none).
+// refused-reopen comment, null = none). `reviewRequested`, where given, is
+// whether the gate left its comment asking the review bot for a review.
 // `writes: 0` additionally asserts the gate touched nothing at all.
 
 const scenarios = [
@@ -78,7 +80,7 @@ const scenarios = [
     prs: [pr(3300, 'outsider', { state: 'closed', labels: [LABEL], body: 'Fixes #10', gateComment: true })],
     issues: [issue(10, { labels: ['help wanted'] })],
     event: edited(3300, 'outsider'),
-    expect: { 3300: { state: 'open', labels: [], comment: null } },
+    expect: { 3300: { state: 'open', labels: [], comment: null, reviewRequested: true } },
   },
   {
     name: 'gate-closed PR: maintainer assigns the author on the linked issue → reopened',
@@ -89,21 +91,21 @@ const scenarios = [
     issues: [issue(10, { assignees: ['outsider'] }), issue(99)],
     event: assigned(10, 'outsider', 'maintainer'),
     expect: {
-      3300: { state: 'open', labels: [], comment: null },
-      3301: { state: 'closed', labels: [LABEL], comment: 'closed' },
+      3300: { state: 'open', labels: [], comment: null, reviewRequested: true },
+      3301: { state: 'closed', labels: [LABEL], comment: 'closed', reviewRequested: false },
     },
   },
   {
     name: 'gate-closed PR: maintainer reopens it → stays open with the sticky bypass label',
     prs: [pr(3300, 'outsider', { state: 'open', labels: [LABEL], gateComment: true })], // payload arrives post-reopen
     event: reopened(3300, 'maintainer'),
-    expect: { 3300: { state: 'open', labels: [BYPASS], comment: null } },
+    expect: { 3300: { state: 'open', labels: [BYPASS], comment: null, reviewRequested: true } },
   },
   {
     name: 'gate-closed PR: triage-role user removes the label → reopened with the sticky bypass label',
     prs: [pr(3300, 'outsider', { state: 'closed', labels: [], gateComment: true })], // payload arrives post-unlabel
     event: unlabeled(3300, 'triager'),
-    expect: { 3300: { state: 'open', labels: [BYPASS], comment: null } },
+    expect: { 3300: { state: 'open', labels: [BYPASS], comment: null, reviewRequested: true } },
   },
   {
     name: 'gate-closed PR: some other bot strips the label → re-checked, label restored, still closed',
@@ -177,13 +179,20 @@ const scenarios = [
     prs: [pr(3300, 'outsider', { state: 'closed', labels: [LABEL], body: 'Fixes #10', gateComment: true, refuseReopen: true })],
     issues: [issue(10, { assignees: ['outsider'] })],
     event: edited(3300, 'outsider'),
-    expect: { 3300: { state: 'closed', labels: [LABEL], comment: 'cannot-reopen' } },
+    expect: { 3300: { state: 'closed', labels: [LABEL], comment: 'cannot-reopen', reviewRequested: false } },
   },
   {
     name: 'gate-closed PR: maintainer adds the bypass label → reopened, and the label sticks',
     prs: [pr(3300, 'outsider', { state: 'closed', labels: [LABEL, BYPASS], gateComment: true })], // payload arrives post-label
     event: labeled(3300, 'maintainer', BYPASS),
-    expect: { 3300: { state: 'open', labels: [BYPASS], comment: null } },
+    expect: { 3300: { state: 'open', labels: [BYPASS], comment: null, reviewRequested: true } },
+  },
+  {
+    name: 'gate-closed draft comes back → reopened, but no review is requested while it is a draft',
+    prs: [pr(3300, 'outsider', { state: 'closed', draft: true, labels: [LABEL], body: 'Fixes #10', gateComment: true })],
+    issues: [issue(10, { assignees: ['outsider'] })],
+    event: assigned(10, 'outsider', 'maintainer'),
+    expect: { 3300: { state: 'open', labels: [], comment: null, reviewRequested: false } },
   },
   {
     name: 'refused reopen after a label-removal override → both labels on, so the PR stays gate-managed',
@@ -303,6 +312,11 @@ function observe(world, expect) {
     const kind = !body ? null : body.includes("won't let it be reopened") ? 'cannot-reopen' : body.includes('still a draft') ? 'closed-draft' : 'closed';
     out[num] = { state: p.state, labels: [...p.labels].sort(), comment: kind };
     if ('foreignComments' in expect[num]) out[num].foreignComments = p.comments.length - gateComments.length;
+    if ('reviewRequested' in expect[num]) {
+      const requests = p.comments.filter((c) => c.user === 'github-actions[bot]' && c.body === REVIEW_REQUEST);
+      assert.ok(requests.length <= 1, `PR #${num} has ${requests.length} review requests`);
+      out[num].reviewRequested = requests.length === 1;
+    }
   }
   return out;
 }
