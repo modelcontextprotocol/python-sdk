@@ -224,3 +224,32 @@ async def test_get_skill_rejects_a_mismatched_uri_from_a_non_conformant_server()
     async with Client(server) as client:
         with pytest.raises(ValueError, match="returned skill"):
             await get_skill(client.session, "skill://other/SKILL.md")
+
+
+async def test_get_skill_round_trips_a_dynamic_skill() -> None:
+    """SEP-2640 Resources: the `"dynamic"` marker survives the full server -> wire -> client
+    path — validated on both ends — with the union type intact, not coerced to a list or null."""
+    dynamic = Skill(
+        uri="skill://generated/SKILL.md",
+        frontmatter={"name": "generated", "description": "instructions generated on demand"},
+        resources="dynamic",
+    )
+
+    async def get_dynamic(ctx: ServerRequestContext[Any, Any], params: GetSkillParams) -> GetSkillResult:
+        # The server's own _handle_get already enforces the requested-uri match; this test only
+        # ever asks for `dynamic.uri`, so the handler just returns it.
+        return GetSkillResult(skill=dynamic)
+
+    server = MCPServer("catalog", extensions=[Skills(list_skills=_paginated_list_handler(), get_skill=get_dynamic)])
+    async with Client(server) as client:
+        skill = await get_skill(client.session, dynamic.uri)
+    assert skill.resources == "dynamic"
+    assert skill.frontmatter["name"] == "generated"
+
+
+async def test_list_skills_starts_from_a_caller_supplied_cursor() -> None:
+    """A host resuming from a saved cursor: `list_skills` begins at that cursor rather than the
+    top, so only the pages after it come back (here, page 1's skill is skipped)."""
+    async with Client(_server()) as client:
+        skills = await list_skills(client.session, ListSkillsParams(cursor="page-2"))
+    assert [s.uri for s in skills] == ["skill://other/SKILL.md"]
