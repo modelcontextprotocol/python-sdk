@@ -157,6 +157,8 @@ def _validate_resource_uri_in_skill(skill_uri: str, resource_uri: str) -> None:
     resource_parts = urlsplit(resource_uri)
     if not resource_parts.scheme or resource_parts.query or resource_parts.fragment:
         raise ValueError(f"resource URI {resource_uri!r} is invalid")
+    if resource_uri.endswith("/"):
+        raise ValueError(f"resource URI {resource_uri!r} names a directory, not a file")
     if skill_parts.scheme != resource_parts.scheme or skill_parts.netloc != resource_parts.netloc:
         raise ValueError(f"resource URI {resource_uri!r} is outside the skill root {skill_uri!r}")
     root = skill_parts.path[: -len("/SKILL.md")]
@@ -257,7 +259,7 @@ def validate_directory_result(uri: str, result: ReadDirectoryResult) -> None:
         if child.scheme != scheme or child.netloc != netloc:
             raise ValueError(f"resource {resource.uri!r} is not a child of directory {uri!r}")
         relative = child.path.removeprefix(prefix)
-        if relative == child.path or not relative or "/" in relative:
+        if relative == child.path or not relative or "/" in relative or relative in (".", ".."):
             raise ValueError(f"resource {resource.uri!r} is not a direct child of directory {uri!r}")
         if resource.uri in seen_uris or resource.name in seen_names:
             raise ValueError(f"directory {uri!r} contains a duplicate child {resource.uri!r}")

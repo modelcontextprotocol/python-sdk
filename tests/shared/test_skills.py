@@ -158,6 +158,13 @@ def test_validate_skill_rejects_a_traversal_segment_in_a_resource_uri() -> None:
         validate_skill(skill)
 
 
+def test_validate_skill_rejects_a_resource_uri_with_a_trailing_slash() -> None:
+    """A manifest entry names a file, not a directory: a trailing slash is rejected."""
+    skill = _skill(extra_resources=[_resource("skill://git-workflow/references/")])
+    with pytest.raises(ValueError, match="names a directory"):
+        validate_skill(skill)
+
+
 def test_validate_skill_rejects_a_negative_resource_size() -> None:
     root = "skill://git-workflow/SKILL.md"
     skill = Skill(
@@ -317,6 +324,14 @@ def test_validate_directory_result_rejects_a_grandchild() -> None:
     result = ReadDirectoryResult(
         resources=[Resource(uri="skill://pdf/templates/regional/eu.md", name="eu.md", mime_type="text/markdown")]
     )
+    with pytest.raises(ValueError, match="direct child"):
+        validate_directory_result("skill://pdf/templates", result)
+
+
+@pytest.mark.parametrize("child_uri", ["skill://pdf/templates/.", "skill://pdf/templates/.."])
+def test_validate_directory_result_rejects_a_dot_segment_child(child_uri: str) -> None:
+    """A `.`/`..` child is a traversal segment, not a real direct child of the directory."""
+    result = ReadDirectoryResult(resources=[Resource(uri=child_uri, name="x")])
     with pytest.raises(ValueError, match="direct child"):
         validate_directory_result("skill://pdf/templates", result)
 
