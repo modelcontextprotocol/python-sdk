@@ -32,6 +32,7 @@ import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
+from mcp_types import CacheableResult
 from mcp_types.jsonrpc import INTERNAL_ERROR, INVALID_PARAMS
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
@@ -121,7 +122,7 @@ class Skills(Extension):
         except ValueError:
             logger.exception("get_skill handler returned an invalid result")
             raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
-        return result
+        return _finalize_cacheable(result, ctx.protocol_version)
 
     async def _handle_read_directory(
         self, ctx: ServerRequestContext[Any, Any], params: ReadDirectoryParams
@@ -151,13 +152,13 @@ def _require_directory_uri(uri: str) -> None:
         raise MCPError(code=INVALID_PARAMS, message=str(exc)) from exc
 
 
-def _finalize_cacheable(result: ListSkillsResult, protocol_version: str) -> HandlerResult:
+def _finalize_cacheable(result: CacheableResult, protocol_version: str) -> HandlerResult:
     """Gate SEP-2549's `ttlMs`/`cacheScope` to protocol version 2026-07-28+.
 
-    `skills/list` is an extension method, so — unlike a core spec method — the
-    runner's per-version surface sieve never runs on its result; nothing else
-    strips these fields for a legacy connection. `CacheableResult` defaults to
-    `cache_scope="private"`; SEP-2640 calls for `"public"` when unset.
+    `skills/list` and `skills/get` are extension methods, so — unlike a core spec
+    method — the runner's per-version surface sieve never runs on their results;
+    nothing else strips these fields for a legacy connection. `CacheableResult`
+    defaults to `cache_scope="private"`; SEP-2640 calls for `"public"` when unset.
     """
     if protocol_version in MODERN_PROTOCOL_VERSIONS:
         if "cache_scope" not in result.model_fields_set:

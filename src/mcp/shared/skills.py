@@ -12,7 +12,7 @@ import re
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from mcp_types import CacheableResult, PaginatedRequestParams, PaginatedResult, Request, RequestParams, Resource, Result
+from mcp_types import CacheableResult, PaginatedRequestParams, PaginatedResult, Request, RequestParams, Resource
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
@@ -92,8 +92,16 @@ class GetSkillParams(RequestParams):
     """URI of the skill's `SKILL.md`."""
 
 
-class GetSkillResult(Result):
-    """Result of `skills/get`."""
+class GetSkillResult(CacheableResult):
+    """Result of `skills/get`.
+
+    Like `ListSkillsResult`, this extends `CacheableResult`: the stable spec page
+    makes `GetSkillResult` carry SEP-2549's `ttl_ms`/`cache_scope`, the same
+    freshness hint `resources/read` gives. As on `skills/list`, nothing sieves
+    these fields off the wire for a pre-2026-07-28 connection automatically (see
+    `mcp.server.skills`), so a caller constructing this directly for such a
+    connection must omit them.
+    """
 
     skill: Skill
 

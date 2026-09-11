@@ -158,6 +158,27 @@ async def test_skills_get_returns_the_matching_skill() -> None:
     assert result.skill.uri == _SKILL_URI
 
 
+async def test_skills_get_carries_cache_fields_on_the_2026_07_28_wire() -> None:
+    """SEP-2640 Retrieval: on 2026-07-28+, `GetSkillResult` extends `CacheableResult`, so the
+    result carries the SEP-2549 cache fields, defaulting `cacheScope` to `"public"` when unset —
+    the same treatment `skills/list` gets."""
+    async with Client(_server(), mode="2026-07-28") as client:
+        raw = await client.session.send_request(GetSkillRequest(params=GetSkillParams(uri=_SKILL_URI)), _RawResult)
+    extra = raw.model_extra or {}
+    assert extra["cacheScope"] == "public"
+    assert extra["ttlMs"] == 0
+
+
+async def test_skills_get_omits_cache_fields_on_a_legacy_wire() -> None:
+    """As with `skills/list`, this extension method strips the SEP-2549 fields itself for a
+    pre-2026-07-28 connection, since the runner's per-version sieve only applies to core methods."""
+    async with Client(_server(), mode="legacy") as client:
+        raw = await client.session.send_request(GetSkillRequest(params=GetSkillParams(uri=_SKILL_URI)), _RawResult)
+    extra = raw.model_extra or {}
+    assert "cacheScope" not in extra
+    assert "ttlMs" not in extra
+
+
 async def test_skills_get_answers_for_a_skill_absent_from_the_listing() -> None:
     """SEP-2640 Retrieval: a server MUST answer for every skill it serves, whether or not
     that skill appears in `skills/list`."""

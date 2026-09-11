@@ -95,10 +95,10 @@ advertised the setting.
 
 ## Protocol version and caching
 
-In protocol version `2026-07-28` and later, `skills/list` results carry the base protocol's
-list-caching fields, [`ttlMs` and `cacheScope`](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549) — the
-same freshness hint `tools/list` and `resources/list` carry. `Skills` fills `cacheScope` with
-`"public"` when your handler leaves it unset, and omits both fields entirely on an
+In protocol version `2026-07-28` and later, `skills/list` and `skills/get` results carry the base
+protocol's caching fields, [`ttlMs` and `cacheScope`](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549) — the
+same freshness hint `tools/list`, `resources/list`, and `resources/read` carry. `Skills` fills
+`cacheScope` with `"public"` when your handler leaves it unset, and omits both fields entirely on an
 older connection, so you don't have to branch on protocol version yourself.
 
 ## What this SDK doesn't do
