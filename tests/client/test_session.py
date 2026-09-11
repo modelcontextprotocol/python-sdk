@@ -205,9 +205,7 @@ async def test_client_session_initialize_custom_protocol_version():
             )
 
     # Create a message handler to catch exceptions
-    async def message_handler(  # pragma: no cover
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:  # pragma: no cover
         if isinstance(message, Exception):
             raise message
 
