@@ -235,14 +235,18 @@ async def test_progress_callback_exception_does_not_fail_request(pair_factory: P
 
 @pytest.mark.anyio
 async def test_notification_handler_exception_does_not_reach_sender(pair_factory: PairFactory):
+    called = anyio.Event()
+
     async def on_notify(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> None:
+        called.set()
         raise RuntimeError("handler failed")
 
-    async with running_pair(pair_factory, client_on_notify=on_notify) as (client, *_):
+    async with running_pair(pair_factory, server_on_notify=on_notify) as (client, *_):
         with anyio.fail_after(5):
             await client.notify("notifications/message", None)
+            await called.wait()
 
 
 @pytest.mark.anyio
