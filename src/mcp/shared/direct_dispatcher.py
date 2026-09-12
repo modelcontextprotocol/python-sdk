@@ -30,6 +30,7 @@ from pydantic import ValidationError
 from mcp.shared._compat import resync_tracer
 from mcp.shared.dispatcher import (
     CallOptions,
+    DispatchContext,
     OnNotify,
     OnNotifyIntercept,
     OnRequest,
@@ -42,6 +43,30 @@ from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
 
 logger = logging.getLogger(__name__)
+
+
+def _shielded_progress(fn: ProgressFnT) -> ProgressFnT:
+    """Wrap a progress callback so its failure does not fail the request."""
+
+    async def _wrapped(progress: float, total: float | None, message: str | None) -> None:
+        try:
+            await fn(progress, total, message)
+        except Exception:
+            logger.exception("progress callback raised")
+
+    return _wrapped
+
+
+def _contained_notify(fn: OnNotify) -> OnNotify:
+    """Wrap a notification handler so its failure does not reach the sender."""
+
+    async def _wrapped(dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None) -> None:
+        try:
+            await fn(dctx, method, params)
+        except Exception:
+            logger.exception("notification handler for %r raised", method)
+
+    return _wrapped
 
 __all__ = ["DirectDispatcher", "create_direct_dispatcher_pair"]
 
@@ -206,7 +231,7 @@ class DirectDispatcher:
             _back_request=lambda m, p, o: peer._dispatch_request(m, p, o),
             _back_notify=lambda m, p: peer._dispatch_notify(m, p),
             request_id=request_id,
-            _on_progress=on_progress,
+            _on_progress=_shielded_progress(on_progress) if on_progress is not None else None,
         )
 
     async def _wait_ready(self) -> None:
@@ -301,7 +326,7 @@ class DirectDispatcher:
             return
         assert self._on_notify is not None
         dctx = self._make_context()
-        await self._on_notify(dctx, method, params)
+        await _contained_notify(self._on_notify)(dctx, method, params)
 
 
 def create_direct_dispatcher_pair(
