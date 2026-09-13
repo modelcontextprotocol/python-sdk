@@ -152,6 +152,27 @@ async def create_windows_process(
     Returns:
         Process | FallbackProcess: The spawned process with async stdin/stdout streams.
     """
+    # CreateProcess cannot run a PowerShell script directly (WinError 193);
+    # route it through a PowerShell host, preferring pwsh over Windows PowerShell.
+    if command.lower().endswith(".ps1"):
+        shell = shutil.which("pwsh") or shutil.which("powershell")
+        if shell is None:
+            raise FileNotFoundError(
+                f"Cannot launch {command!r}: it is a PowerShell script but neither"
+                " 'pwsh' nor 'powershell' was found on PATH."
+            )
+        command, args = (
+            shell,
+            [
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                command,
+                *args,
+            ],
+        )
     try:
         process = await anyio.open_process(
             [command, *args],

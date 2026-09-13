@@ -172,6 +172,36 @@ async def test_a_native_server_emitting_crlf_line_endings_round_trips_messages()
             assert received.message == JSONRPCResponse(jsonrpc="2.0", id=1, result={})
 
 
+async def test_a_powershell_script_server_round_trips_messages(tmp_path: Path) -> None:  # pragma: no cover
+    """A stdio server whose command resolves to a `.ps1` script starts and answers.
+
+    Regression for #3496: `CreateProcess` cannot run a `.ps1` directly
+    (WinError 193), so the spawn must route through a PowerShell host.
+    """
+    script = tmp_path / "echo_server.ps1"
+    script.write_text(
+        "$line = [Console]::In.ReadLine()\n"
+        "$req = $line | ConvertFrom-Json\n"
+        "$resp = @{jsonrpc='2.0'; id=$req.id; result=@{}} | ConvertTo-Json -Compress\n"
+        "[Console]::Out.WriteLine($resp)\n"
+        "[Console]::Out.Flush()\n"
+        # Keep the process alive until the client closes stdin, like a real server.
+        "while ([Console]::In.ReadLine() -ne $null) {}\n",
+        encoding="utf-8",
+    )
+    server_params = StdioServerParameters(command=str(script), args=[])
+
+    ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+
+    # Allow one cold PowerShell start on loaded CI.
+    with anyio.fail_after(20.0):
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            await write_stream.send(SessionMessage(ping))
+            received = await read_stream.receive()
+            assert isinstance(received, SessionMessage)
+            assert received.message == JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+
+
 async def test_a_tool_spawned_python_child_with_default_stdin_completes_promptly() -> None:  # pragma: no cover
     """A tool that runs a Python subprocess without redirecting stdin returns promptly.
 
