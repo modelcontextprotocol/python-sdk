@@ -32,15 +32,14 @@ def get_display_name(obj: Tool | Resource | Prompt | ResourceTemplate | Implemen
     Returns:
         The display name to use for UI presentation
     """
-    if isinstance(obj, Tool):
-        # Tools have special precedence: title > annotations.title > name
-        if hasattr(obj, "title") and obj.title is not None:
-            return obj.title
-        if obj.annotations and hasattr(obj.annotations, "title") and obj.annotations.title is not None:
+    # All objects have title-first precedence, regardless of being a Tool or not.
+    if hasattr(obj, "title") and obj.title is not None:
+        return obj.title
+
+    # Special middle branch for Tool-specific not None `annotations.title`.
+    if isinstance(obj, Tool) and obj.annotations:
+        if hasattr(obj.annotations, "title") and obj.annotations.title is not None:
             return obj.annotations.title
-        return obj.name
-    else:
-        # All other objects: title > name
-        if hasattr(obj, "title") and obj.title is not None:
-            return obj.title
-        return obj.name
+
+    # All other objects: name as last fallback.
+    return obj.name
