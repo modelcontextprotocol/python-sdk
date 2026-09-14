@@ -266,13 +266,18 @@ async def test_client_session_group_connect_to_server_duplicate_tool_raises_erro
     # Keep other lists empty for simplicity
     mock_session_new.list_resources.return_value = mock.AsyncMock(resources=[])
     mock_session_new.list_prompts.return_value = mock.AsyncMock(prompts=[])
+    mock_stack_new = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+
+    async def _establish(*_args: object, **_kwargs: object):
+        group._session_exit_stacks[mock_session_new] = mock_stack_new
+        return mock_server_info_new, mock_session_new
 
     # --- Test Execution and Assertion ---
     with pytest.raises(MCPError) as excinfo:
         with mock.patch.object(
             group,
             "_establish_session",
-            return_value=(mock_server_info_new, mock_session_new),
+            side_effect=_establish,
         ):
             await group.connect_to_server(StdioServerParameters(command="test"))
 
@@ -284,6 +289,8 @@ async def test_client_session_group_connect_to_server_duplicate_tool_raises_erro
     # Verify the duplicate tool was *not* added again (state should be unchanged)
     assert len(group._tools) == 1  # Should still only have the original
     assert group._tools[existing_tool_name] is not duplicate_tool  # Ensure it's the original mock
+    mock_stack_new.aclose.assert_awaited()
+    assert mock_session_new not in group._session_exit_stacks
 
 
 @pytest.mark.anyio
