@@ -11,7 +11,7 @@ import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
 from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequiredResult, TextContent
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from typing_extensions import NotRequired, ReadOnly, Required
 
 from mcp import MCPDeprecationWarning
@@ -1320,6 +1320,25 @@ def test_structured_output_aliases():
     assert "field_second" not in structured_content_defaults
     assert structured_content_defaults["first"] is None
     assert structured_content_defaults["second"] is None
+
+
+def test_call_tool_result_structured_content_uses_aliases():
+    """CallToolResult.structured_content is dumped with aliases, matching outputSchema."""
+
+    class AliasOut(BaseModel):
+        model_config = ConfigDict(populate_by_name=True)
+        field_first: str = Field(alias="first")
+        field_second: str = Field(alias="second")
+
+    def via_call_tool_result() -> Annotated[CallToolResult, AliasOut]:
+        return CallToolResult(
+            content=[TextContent(type="text", text="ok")],
+            structured_content={"field_first": "a", "field_second": "b"},
+        )
+
+    meta = func_metadata(via_call_tool_result)
+    converted = meta.convert_result(via_call_tool_result())
+    assert converted.structured_content == {"first": "a", "second": "b"}
 
 
 def test_basemodel_reserved_names():
