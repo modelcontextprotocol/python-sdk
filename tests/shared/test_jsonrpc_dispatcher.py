@@ -110,6 +110,42 @@ async def test_concurrent_send_raw_requests_correlate_by_id_when_responses_arriv
 
 
 @pytest.mark.anyio
+async def test_send_raw_request_omits_empty_meta():
+    """Strict servers reject `_meta: {}`. Leave the field off when it is empty."""
+    seen: dict[str, Mapping[str, Any] | None] = {}
+
+    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        seen["params"] = params
+        return {"ok": True}
+
+    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
+        await client.send_raw_request("ping", None)
+
+    params = seen["params"]
+    if params is not None:
+        assert "_meta" not in params
+
+
+@pytest.mark.anyio
+async def test_send_raw_request_keeps_progress_token_meta():
+    seen: dict[str, Mapping[str, Any] | None] = {}
+
+    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        seen["params"] = params
+        return {"ok": True}
+
+    async def on_progress(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
+        await client.send_raw_request("ping", None, {"on_progress": on_progress})
+
+    params = seen["params"]
+    assert params is not None
+    assert "progressToken" in params["_meta"]
+
+
+@pytest.mark.anyio
 async def test_handler_raising_exception_sends_code_zero_with_str_message():
     """Matches the existing server's `_handle_request`: code=0, message=str(e)."""
 
