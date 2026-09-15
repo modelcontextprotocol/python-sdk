@@ -172,7 +172,11 @@ class Server(Generic[LifespanResultT, RequestT]):
             try:
                 from importlib.metadata import version
 
-                return version(package)
+                # `version()` can return None (not just raise) on some
+                # environments, e.g. an embedded Python whose package metadata
+                # is present but unreadable; `server_version` is typed `str`,
+                # so fall back to "unknown" rather than let None crash init.
+                return version(package) or "unknown"
             except Exception:  # pragma: no cover
                 pass
 

@@ -309,3 +309,22 @@ async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
     assert any(
         "Tool 'unknown_tool' not listed, no validation will be performed" in record.message for record in caplog.records
     )
+
+
+def test_create_initialization_options_falls_back_when_package_version_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A None from importlib.metadata.version does not crash create_initialization_options.
+
+    On some environments (e.g. an embedded Python whose package metadata is present but
+    unreadable) importlib.metadata.version returns None instead of raising. server_version is
+    typed str, so without a guard that None reaches InitializationOptions and raises a
+    ValidationError, killing the server before the stdio handshake. It must fall back to
+    "unknown" instead.
+    """
+    monkeypatch.setattr("importlib.metadata.version", lambda package: None)
+
+    # No explicit version, so create_initialization_options falls back to pkg_version("mcp").
+    options = Server("test-server").create_initialization_options()
+
+    assert options.server_version == "unknown"
