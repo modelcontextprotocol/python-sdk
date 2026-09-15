@@ -483,7 +483,10 @@ class StreamableHTTPTransport:
                 # If the SSE event indicates completion, like returning response/error
                 # break the loop
                 if is_complete:
-                    await response.aclose()
+                    try:
+                        await response.aread()
+                    finally:
+                        await response.aclose()
                     return  # Normal completion, no reconnect needed
         except Exception:
             logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover
