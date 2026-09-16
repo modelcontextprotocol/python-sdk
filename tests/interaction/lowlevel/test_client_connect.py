@@ -178,6 +178,34 @@ async def test_auto_mode_probes_server_discover_and_adopts_the_result() -> None:
     assert "initialize" not in [b["method"] for b in bodies]
 
 
+@requirement("lifecycle:mode:auto-override-skips-discover")
+async def test_auto_mode_with_a_protocol_version_override_skips_discover_and_initializes() -> None:
+    """`Client(..., mode='auto', protocol_version_override=...)` sends `initialize` at the
+    override version and never probes `server/discover`, even though the mounted server answers
+    discover successfully. Regression: the override used to only reach `negotiate_auto`'s
+    `initialize()` fallback calls, so a successful discover silently dropped it and the client
+    ended up modern-negotiated at the server's latest version instead of the pinned one.
+    """
+    requests, on_request = _request_recorder()
+    server = _tools_server("discoverable")
+
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(server, on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode="auto",
+                protocol_version_override="2024-11-05",
+            ) as client,
+        ):
+            assert client.protocol_version == "2024-11-05"
+            assert client.server_info.name == "discoverable"
+
+    bodies = [json.loads(r.content)["method"] for r in requests if r.method == "POST"]
+    assert bodies[0] == "initialize"
+    assert "server/discover" not in bodies
+
+
 @requirement("lifecycle:discover:retry-on-32022")
 async def test_auto_mode_retries_discover_once_on_unsupported_protocol_version() -> None:
     """A -32022 from `server/discover` triggers exactly one retry at the highest mutual modern version.
