@@ -12,7 +12,7 @@ import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, get_args
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlsplit, urlunsplit
 
 import anyio
 import httpx2
@@ -424,7 +424,12 @@ class OAuthClientProvider(RedirectAwareAuth):
             if "offline_access" in self.context.client_metadata.scope.split():
                 auth_params["prompt"] = "consent"
 
-        authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
+        # RFC 6749 §3.1: authorization_endpoint MAY already carry a query
+        # component which MUST be retained. Merge instead of appending
+        # a second '?'. (TS SDK does the same via URL + searchParams.)
+        parts = urlsplit(auth_endpoint)
+        merged = parse_qsl(parts.query, keep_blank_values=True) + list(auth_params.items())
+        authorization_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(merged), parts.fragment))
         await self.context.redirect_handler(authorization_url)
 
         # Wait for callback
