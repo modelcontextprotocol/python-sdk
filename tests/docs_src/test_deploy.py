@@ -1,5 +1,7 @@
 """`docs/run/deploy.md`: every claim the page makes, proved against the real SDK."""
 
+from importlib import reload
+
 import anyio
 import httpx2
 import pytest
@@ -51,6 +53,7 @@ async def test_the_default_app_rejects_a_real_hostname_before_mcp_runs() -> None
 
 async def test_the_allowlisted_app_serves_its_hostname_and_still_rejects_others() -> None:
     """tutorial001: `allowed_hosts=` opens exactly the hostname you named, and nothing else."""
+    reload(tutorial001)
     transport = httpx2.ASGITransport(app=tutorial001.app)
     async with tutorial001.mcp.session_manager.run():
         async with httpx2.AsyncClient(transport=transport, base_url="https://mcp.example.com") as http:

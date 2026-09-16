@@ -1,6 +1,7 @@
 """`docs/client/identity-assertion.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
+from importlib import reload
 from urllib.parse import parse_qsl
 
 import httpx2
@@ -144,6 +145,7 @@ async def test_the_metadata_advertises_the_grant_type_and_the_id_jag_profile() -
 
 async def test_the_whole_grant_is_one_token_request() -> None:
     """The `!!! check`: a 401, the well-known fetch, one `POST /token`, the retry; the subject reaches the tool."""
+    reload(tutorial001)
     mcp = MCPServer(
         "Notes",
         token_verifier=ProviderTokenVerifier(tutorial002.provider),

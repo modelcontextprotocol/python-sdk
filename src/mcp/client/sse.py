@@ -16,6 +16,7 @@ from mcp.shared._httpx_utils import (
     McpHttpClientFactory,
     create_mcp_http_client,
     request_within_origin,
+    sse_events,
     sse_within_origin,
 )
 from mcp.shared.message import SessionMessage
@@ -76,48 +77,49 @@ async def sse_client(
 
             async def sse_reader(task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED):
                 try:
-                    async for sse in event_source:  # pragma: no branch
-                        logger.debug(f"Received SSE event: {sse.event}")
-                        match sse.event:
-                            case "endpoint":
-                                endpoint_url = urljoin(url, sse.data)
-                                logger.debug(f"Received endpoint URL: {endpoint_url}")
+                    async with sse_events(event_source) as events:
+                        async for sse in events:  # pragma: no branch
+                            logger.debug(f"Received SSE event: {sse.event}")
+                            match sse.event:
+                                case "endpoint":
+                                    endpoint_url = urljoin(url, sse.data)
+                                    logger.debug(f"Received endpoint URL: {endpoint_url}")
 
-                                url_parsed = urlparse(url)
-                                endpoint_parsed = urlparse(endpoint_url)
-                                if (  # pragma: no cover
-                                    url_parsed.netloc != endpoint_parsed.netloc
-                                    or url_parsed.scheme != endpoint_parsed.scheme
-                                ):
-                                    error_msg = (  # pragma: no cover
-                                        f"Endpoint origin does not match connection origin: {endpoint_url}"
-                                    )
-                                    logger.error(error_msg)  # pragma: no cover
-                                    raise ValueError(error_msg)  # pragma: no cover
+                                    url_parsed = urlparse(url)
+                                    endpoint_parsed = urlparse(endpoint_url)
+                                    if (  # pragma: no cover
+                                        url_parsed.netloc != endpoint_parsed.netloc
+                                        or url_parsed.scheme != endpoint_parsed.scheme
+                                    ):
+                                        error_msg = (  # pragma: no cover
+                                            f"Endpoint origin does not match connection origin: {endpoint_url}"
+                                        )
+                                        logger.error(error_msg)  # pragma: no cover
+                                        raise ValueError(error_msg)  # pragma: no cover
 
-                                if on_session_created:
-                                    session_id = _extract_session_id_from_endpoint(endpoint_url)
-                                    if session_id:
-                                        on_session_created(session_id)
+                                    if on_session_created:
+                                        session_id = _extract_session_id_from_endpoint(endpoint_url)
+                                        if session_id:
+                                            on_session_created(session_id)
 
-                                task_status.started(endpoint_url)
+                                    task_status.started(endpoint_url)
 
-                            case "message":
-                                # Skip empty data (keep-alive pings)
-                                if not sse.data:
-                                    continue
-                                try:
-                                    message = types.jsonrpc_message_adapter.validate_json(sse.data, by_name=False)
-                                    logger.debug(f"Received server message: {message}")
-                                except Exception as exc:  # pragma: no cover
-                                    logger.exception("Error parsing server message")  # pragma: no cover
-                                    await read_stream_writer.send(exc)  # pragma: no cover
-                                    continue  # pragma: no cover
+                                case "message":
+                                    # Skip empty data (keep-alive pings)
+                                    if not sse.data:
+                                        continue
+                                    try:
+                                        message = types.jsonrpc_message_adapter.validate_json(sse.data, by_name=False)
+                                        logger.debug(f"Received server message: {message}")
+                                    except Exception as exc:  # pragma: no cover
+                                        logger.exception("Error parsing server message")  # pragma: no cover
+                                        await read_stream_writer.send(exc)  # pragma: no cover
+                                        continue  # pragma: no cover
 
-                                session_message = SessionMessage(message)
-                                await read_stream_writer.send(session_message)
-                            case _:  # pragma: no cover
-                                logger.warning(f"Unknown SSE event: {sse.event}")  # pragma: no cover
+                                    session_message = SessionMessage(message)
+                                    await read_stream_writer.send(session_message)
+                                case _:  # pragma: no cover
+                                    logger.warning(f"Unknown SSE event: {sse.event}")  # pragma: no cover
                 except SSEError as sse_exc:  # pragma: lax no cover
                     logger.exception("Encountered SSE exception")
                     raise sse_exc

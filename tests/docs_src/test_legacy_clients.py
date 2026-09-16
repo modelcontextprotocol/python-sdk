@@ -1,6 +1,7 @@
 """`docs/run/legacy-clients.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
+from importlib import reload
 
 import httpx2
 import pytest
@@ -115,6 +116,7 @@ async def test_stateless_http_never_mints_a_session() -> None:
 async def test_stateless_http_kills_the_legacy_back_channel_and_only_the_legacy_one() -> None:
     """tutorial002: over the same `stateless_http=True` app, the modern client still gets its answer and
     the legacy client's call fails as the top-level `MCPError` the `!!! check` quotes."""
+    reload(tutorial002)
     async with (
         tutorial002.app.router.lifespan_context(tutorial002.app),
         httpx2.ASGITransport(tutorial002.app) as transport,

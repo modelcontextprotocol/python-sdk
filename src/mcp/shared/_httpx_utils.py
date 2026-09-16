@@ -1,7 +1,7 @@
 """Utilities for creating and using httpx2 AsyncClient instances in the MCP transports."""
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Protocol
 
@@ -163,6 +163,17 @@ async def sse_within_origin(
     merged.update(headers or {})
     async with stream_within_origin(client, "GET", url, headers=merged) as response:
         yield httpx2.EventSource(response)
+
+
+@asynccontextmanager
+async def sse_events(source: httpx2.EventSource) -> AsyncGenerator[AsyncIterator[httpx2.ServerSentEvent]]:
+    """Close the SSE iterator when its consumer stops before the response ends."""
+    events = source.__aiter__()
+    try:
+        yield events
+    finally:
+        assert isinstance(events, AsyncGenerator)
+        await events.aclose()
 
 
 def redirect_location(response: httpx2.Response) -> httpx2.URL | None:

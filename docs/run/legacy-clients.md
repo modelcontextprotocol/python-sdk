@@ -66,6 +66,12 @@ On one worker that is invisible. On two, it is the whole problem: a request that
     events to a client reconnecting to the *same* session), not a session store. It never makes a
     session reachable from another process.
 
+!!! note "Slow replay delays messages in the same session"
+    With `event_store=`, the SDK pauses new message delivery within the session until replay
+    finishes and the live stream is registered. This prevents responses from being lost between
+    replay and live delivery. A slow replay can delay other requests in that session, but not
+    other sessions.
+
 ## Session lifetime and limits
 
 A legacy session does not live forever, and one process does not hold an unlimited number of

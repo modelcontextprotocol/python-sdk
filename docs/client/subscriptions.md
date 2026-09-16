@@ -59,6 +59,8 @@ Requests run freely beside an open stream, from the watcher task or any other, o
 
 To stop watching, leave the block: there is no `unsubscribe` call. Cancelling the task that owns the block does that for you, and the SDK cancels the listen request the way the transport expects: over streamable HTTP, by closing that request's stream. A watcher that runs for the life of your app never returns on its own, so cancel it, or its task group's scope, at shutdown.
 
+Exit waits up to five seconds for the SDK's listen task to finish, even if the caller is cancelled. With an in-memory server, this lets cooperative handler cleanup finish before you open another subscription. The limit prevents an uncooperative handler from blocking subscription exit indefinitely. It is not an acknowledgment that a remote server has finished its cleanup.
+
 ## Streams end
 
 A stream ends in one of two ways, both ordinary control flow. A graceful server close ends the `async for`; an abrupt drop raises `SubscriptionLost`.

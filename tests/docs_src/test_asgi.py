@@ -1,6 +1,7 @@
 """`docs/run/asgi.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
+from importlib import reload
 
 import httpx2
 import pytest
@@ -113,6 +114,7 @@ async def test_a_root_mount_swallows_routes_listed_after_it() -> None:
 
 async def test_the_host_lifespan_enters_the_session_manager() -> None:
     """tutorial002: the host app's lifespan owns `session_manager.run()` and starts and stops cleanly."""
+    reload(tutorial002)
     async with tutorial002.lifespan(tutorial002.app):
         async with Client(tutorial002.mcp) as client:
             result = await client.call_tool("add_note", {"text": "milk"})
@@ -130,6 +132,7 @@ async def test_two_servers_get_two_mounts() -> None:
 
 async def test_one_lifespan_starts_both_session_managers() -> None:
     """tutorial003: a single `AsyncExitStack` lifespan runs both managers; both servers answer."""
+    reload(tutorial003)
     async with tutorial003.lifespan(tutorial003.app):
         async with Client(tutorial003.notes) as client:
             notes_result = await client.call_tool("add_note", {"text": "milk"})
@@ -215,6 +218,7 @@ async def test_the_default_app_is_localhost_only() -> None:
 async def test_the_documented_browser_origin_works_end_to_end() -> None:
     """tutorial005: the page's scenario for real. The public hostname, the browser origin, a
     realistic preflight naming the `Mcp-*` headers, then the actual request."""
+    reload(tutorial005)
     transport = httpx2.ASGITransport(app=tutorial005.app)
     async with tutorial005.lifespan(tutorial005.app):
         async with httpx2.AsyncClient(transport=transport, base_url="https://mcp.example.com") as http:

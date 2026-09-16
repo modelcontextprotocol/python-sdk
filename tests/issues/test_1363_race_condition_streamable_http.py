@@ -16,12 +16,10 @@ The race condition occurs because:
 """
 
 import logging
-import threading
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import anyio
-import anyio.to_thread
 import httpx2
 import pytest
 from starlette.applications import Starlette
@@ -62,42 +60,6 @@ def create_app(json_response: bool = False) -> Starlette:
     return Starlette(routes=routes, lifespan=lifespan)
 
 
-class ServerThread(threading.Thread):
-    """Thread that runs the ASGI application lifespan in a separate event loop."""
-
-    def __init__(self, app: Starlette):
-        super().__init__(daemon=True)
-        self.app = app
-        self._stop_event = threading.Event()
-        self._ready_event = threading.Event()
-
-    def run(self) -> None:
-        """Run the lifespan in a new event loop."""
-
-        # Create a new event loop for this thread
-        async def run_lifespan():
-            # Use the lifespan context (always present in our tests)
-            lifespan_context = getattr(self.app.router, "lifespan_context", None)
-            assert lifespan_context is not None  # Tests always create apps with lifespan
-            async with lifespan_context(self.app):
-                # Only signal readiness once lifespan startup has completed, i.e. the
-                # session manager's task group exists and requests can be handled.
-                self._ready_event.set()
-                # Wait until stop is requested
-                while not self._stop_event.is_set():
-                    await anyio.sleep(0.1)
-
-        anyio.run(run_lifespan)
-
-    def wait_ready(self, timeout: float = 5.0) -> None:
-        """Block until the lifespan has started; call from a worker thread, not the event loop."""
-        assert self._ready_event.wait(timeout), "server thread did not start its lifespan in time"
-
-    def stop(self) -> None:
-        """Signal the thread to stop."""
-        self._stop_event.set()
-
-
 def check_logs_for_race_condition_errors(caplog: pytest.LogCaptureFixture, test_name: str) -> None:
     """Check logs for ClosedResourceError and other race condition errors.
 
@@ -128,7 +90,7 @@ def check_logs_for_race_condition_errors(caplog: pytest.LogCaptureFixture, test_
 
 
 @pytest.mark.anyio
-async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFixture):
+async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFixture) -> None:
     """Test the race condition with invalid Accept headers.
 
     This test reproduces the exact scenario described in issue #1363:
@@ -137,15 +99,8 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
     - This should trigger the race condition where message_router encounters ClosedResourceError
     """
     app = create_app()
-    server_thread = ServerThread(app)
-    server_thread.start()
-
-    try:
-        # Wait for the server thread to enter the lifespan before sending requests
-        await anyio.to_thread.run_sync(server_thread.wait_ready)
-
-        # Suppress WARNING logs (expected validation errors) and capture ERROR logs
-        with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR), anyio.fail_after(5):
+        async with app.router.lifespan_context(app):
             # Test with missing text/event-stream in Accept header
             async with httpx2.AsyncClient(
                 transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
@@ -191,32 +146,21 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
                 # Should get 406 Not Acceptable
                 assert response.status_code == 406
 
-            # Give background tasks time to complete
-            await anyio.sleep(0.2)
+            # Let the message routers finish before lifespan shutdown cancels them.
+            await anyio.wait_all_tasks_blocked()
 
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=5.0)
-        # Check logs for race condition errors
-        check_logs_for_race_condition_errors(caplog, "test_race_condition_invalid_accept_headers")
+    check_logs_for_race_condition_errors(caplog, "test_race_condition_invalid_accept_headers")
 
 
 @pytest.mark.anyio
-async def test_race_condition_invalid_content_type(caplog: pytest.LogCaptureFixture):
+async def test_race_condition_invalid_content_type(caplog: pytest.LogCaptureFixture) -> None:
     """Test the race condition with invalid Content-Type headers.
 
     This test reproduces the race condition scenario with Content-Type validation failure.
     """
     app = create_app()
-    server_thread = ServerThread(app)
-    server_thread.start()
-
-    try:
-        # Wait for the server thread to enter the lifespan before sending requests
-        await anyio.to_thread.run_sync(server_thread.wait_ready)
-
-        # Suppress WARNING logs (expected validation errors) and capture ERROR logs
-        with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR), anyio.fail_after(5):
+        async with app.router.lifespan_context(app):
             # Test with invalid Content-Type
             async with httpx2.AsyncClient(
                 transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
@@ -231,32 +175,21 @@ async def test_race_condition_invalid_content_type(caplog: pytest.LogCaptureFixt
                 )
                 assert response.status_code == 400
 
-            # Give background tasks time to complete
-            await anyio.sleep(0.2)
+            # Let the message router finish before lifespan shutdown cancels it.
+            await anyio.wait_all_tasks_blocked()
 
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=5.0)
-        # Check logs for race condition errors
-        check_logs_for_race_condition_errors(caplog, "test_race_condition_invalid_content_type")
+    check_logs_for_race_condition_errors(caplog, "test_race_condition_invalid_content_type")
 
 
 @pytest.mark.anyio
-async def test_race_condition_message_router_async_for(caplog: pytest.LogCaptureFixture):
+async def test_race_condition_message_router_async_for(caplog: pytest.LogCaptureFixture) -> None:
     """Uses json_response=True to trigger the `if self.is_json_response_enabled` branch,
     which reproduces the ClosedResourceError when message_router is suspended
     in async for loop while transport cleanup closes streams concurrently.
     """
     app = create_app(json_response=True)
-    server_thread = ServerThread(app)
-    server_thread.start()
-
-    try:
-        # Wait for the server thread to enter the lifespan before sending requests
-        await anyio.to_thread.run_sync(server_thread.wait_ready)
-
-        # Suppress WARNING logs (expected validation errors) and capture ERROR logs
-        with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR), anyio.fail_after(5):
+        async with app.router.lifespan_context(app):
             # Use httpx2.ASGITransport to test the ASGI app directly
             async with httpx2.AsyncClient(
                 transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
@@ -273,11 +206,7 @@ async def test_race_condition_message_router_async_for(caplog: pytest.LogCapture
                 # Should get a successful response
                 assert response.status_code in (200, 201)
 
-            # Give background tasks time to complete
-            await anyio.sleep(0.2)
+            # Let the message router finish before lifespan shutdown cancels it.
+            await anyio.wait_all_tasks_blocked()
 
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=5.0)
-        # Check logs for race condition errors in message router
-        check_logs_for_race_condition_errors(caplog, "test_race_condition_message_router_async_for")
+    check_logs_for_race_condition_errors(caplog, "test_race_condition_message_router_async_for")
