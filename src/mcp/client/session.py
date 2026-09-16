@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache, reduce
@@ -442,6 +443,7 @@ class ClientSession:
         # Compiled output-schema validators, derived from `_tool_output_schemas` and owned by
         # `_absorb_tool_listing`, which evicts a tool's entry whenever its schema changes.
         self._tool_output_validators: dict[str, Validator] = {}
+        self._tool_output_validator_limiter = anyio.CapacityLimiter(1)
         self._x_mcp_header_maps: dict[str, dict[tuple[str, ...], str]] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._discover_result: types.DiscoverResult | None = None
@@ -1139,7 +1141,16 @@ class ClientSession:
             validator = self._tool_output_validators.get(name)
             if validator is None:
                 # First compilation lazily reads jsonschema's bundled schemas.
-                validator = await anyio.to_thread.run_sync(self._output_schema_validator, name, output_schema)
+                if sys.platform == "emscripten":
+                    # Emscripten cannot start worker threads.
+                    validator = self._output_schema_validator(name, output_schema)
+                else:
+                    validator = await anyio.to_thread.run_sync(
+                        self._output_schema_validator,
+                        name,
+                        output_schema,
+                        limiter=self._tool_output_validator_limiter,
+                    )
                 if _same_schema(self._tool_output_schemas.get(name), output_schema):
                     self._tool_output_validators[name] = validator
 
