@@ -956,6 +956,36 @@ async def test_validate_resource_rejects_mismatched_resource(
 
 
 @pytest.mark.anyio
+async def test_validate_resource_rejects_sibling_path_reached_via_dot_segments(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """A `server_url` whose dot-segments resolve to `/m/mcp` rejects a PRM `resource` of `/victim/mcp`.
+
+    SDK-defined: the resource identifier is derived from the location the HTTP client actually
+    requests (RFC 3986 section 5.2.4), so a same-origin sibling path is neither accepted during
+    discovery nor adopted as the RFC 8707 `resource` parameter.
+    """
+    provider = OAuthClientProvider(
+        server_url="https://shared.example.com/victim/mcp/../../m/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://shared.example.com/victim/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    with pytest.raises(OAuthFlowError) as exc_info:
+        await provider._validate_resource_match(prm)
+    assert str(exc_info.value) == snapshot(
+        "Protected resource https://shared.example.com/victim/mcp does not match expected https://shared.example.com/m/mcp"
+    )
+    provider.context.protected_resource_metadata = prm
+    assert provider.context.get_resource_url() == snapshot("https://shared.example.com/m/mcp")
+
+
+@pytest.mark.anyio
 async def test_validate_resource_accepts_matching_resource(
     client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
 ) -> None:
