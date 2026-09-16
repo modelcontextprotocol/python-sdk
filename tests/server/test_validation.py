@@ -159,3 +159,27 @@ def test_validate_tool_use_result_messages_no_error_when_tool_result_matches_too
         ),
     ]
     validate_tool_use_result_messages(messages)  # Should not raise
+
+
+def test_validate_tool_use_result_messages_no_error_when_tool_use_not_followed_by_tool_result() -> None:
+    """No error when a tool_use is followed by a plain (non-tool_result) response.
+
+    Regression test for #2960: per SEP-1577, tool_result blocks MUST be preceded
+    by a tool_use block, but there is NO requirement that a tool_use MUST be
+    followed by a tool_result. A plain text response after a tool_use is valid and
+    must not raise a false "ids do not match" ValueError.
+    """
+    messages = [
+        SamplingMessage(
+            role="assistant",
+            content=[
+                TextContent(type="text", text="Hold on..."),
+                ToolUseContent(type="tool_use", id="abc", name="search", input={"q": "test"}),
+            ],
+        ),
+        SamplingMessage(
+            role="user",
+            content=TextContent(type="text", text="Thanks, no results needed"),
+        ),
+    ]
+    validate_tool_use_result_messages(messages)  # Should not raise
