@@ -77,6 +77,7 @@ dev = [
     "strict-no-cover",
     "logfire>=3.0.0",
     "opentelemetry-sdk>=1.39.1",
+    "blockbuster>=1.5.27",
 ]
 docs = [
     # Zensical is the Material team's successor to MkDocs; it natively
