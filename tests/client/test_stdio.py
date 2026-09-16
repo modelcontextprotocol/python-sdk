@@ -199,6 +199,9 @@ def install_fake_process(
     """
     terminated: list[FakeProcess] = []
 
+    async def fake_get_executable_command(command: str) -> str:
+        return command
+
     async def fake_spawn(
         command: str,
         args: list[str],
@@ -212,6 +215,7 @@ def install_fake_process(
         terminated.append(proc)
         proc.exit(-15)
 
+    monkeypatch.setattr(stdio, "_get_executable_command", fake_get_executable_command)
     monkeypatch.setattr(stdio, "_create_platform_compatible_process", fake_spawn)
     monkeypatch.setattr(stdio, "_terminate_process_tree", fake_terminate_tree)
     if grace_period is not None:
