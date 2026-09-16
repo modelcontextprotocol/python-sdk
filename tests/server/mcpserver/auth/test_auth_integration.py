@@ -1382,6 +1382,62 @@ class TestAuthEndpoints:
         token_response = response.json()
         assert "access_token" in token_response
 
+    @pytest.mark.anyio
+    async def test_none_auth_method_ignores_stored_client_secret(
+        self, test_client: httpx2.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that 'none' authentication ignores a secret stored against the client.
+
+        A client that declares `token_endpoint_auth_method="none"` is operating as a
+        public client, so a secret left over from an earlier registration must not be
+        demanded on the token request. Per RFC 6749 section 2.1 the authorization
+        server should not override the client's own declaration of its type.
+        """
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Public Client With Stored Secret",
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert client_info["token_endpoint_auth_method"] == "none"
+
+        # Leave a secret on the stored client, as an earlier confidential registration would.
+        stored_client = await mock_oauth_provider.get_client(client_info["client_id"])
+        assert stored_client is not None
+        mock_oauth_provider.clients[client_info["client_id"]] = stored_client.model_copy(
+            update={"client_secret": "secret_that_should_be_ignored"}
+        )
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Token request without any client secret still succeeds.
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 200
+        token_response = response.json()
+        assert "access_token" in token_response
+
 
 class TestAuthorizeEndpointErrors:
     """Test error handling in the OAuth authorization endpoint."""
