@@ -1657,3 +1657,26 @@ class TestAuthorizeEndpointErrors:
         # State should be preserved
         assert "state" in query_params
         assert query_params["state"][0] == "test_state"
+
+
+@pytest.mark.anyio
+async def test_revoke_public_client_without_client_secret(
+    test_client: httpx2.AsyncClient, mock_oauth_provider: MockOAuthProvider
+):
+    response = await test_client.post(
+        "/register",
+        json={
+            "redirect_uris": ["https://client.example.com/callback"],
+            "token_endpoint_auth_method": "none",
+        },
+    )
+    assert response.status_code == 201
+    client_id = response.json()["client_id"]
+    mock_oauth_provider.tokens["public_token"] = AccessToken(
+        token="public_token", client_id=client_id, scopes=["read"], expires_at=int(time.time()) + 3600
+    )
+
+    response = await test_client.post("/revoke", data={"client_id": client_id, "token": "public_token"})
+
+    assert response.status_code == 200
+    assert await mock_oauth_provider.load_access_token("public_token") is None

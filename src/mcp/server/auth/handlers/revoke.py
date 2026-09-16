@@ -20,7 +20,7 @@ class RevocationRequest(BaseModel):
     token: str
     token_type_hint: Literal["access_token", "refresh_token"] | None = None
     client_id: str
-    client_secret: str | None
+    client_secret: str | None = None
 
 
 class RevocationErrorResponse(BaseModel):
