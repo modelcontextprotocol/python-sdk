@@ -3,9 +3,10 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Protocol
+from typing import Any
 
 import httpx2
+from typing_extensions import Protocol, runtime_checkable
 
 __all__ = ["create_mcp_http_client", "MCP_DEFAULT_TIMEOUT", "MCP_DEFAULT_SSE_READ_TIMEOUT"]
 
@@ -165,15 +166,20 @@ async def sse_within_origin(
         yield httpx2.EventSource(response)
 
 
+@runtime_checkable
+class _AsyncClosable(Protocol):
+    async def aclose(self) -> None: ...
+
+
 @asynccontextmanager
 async def sse_events(source: httpx2.EventSource) -> AsyncGenerator[AsyncIterator[httpx2.ServerSentEvent]]:
-    """Close the outer EventSource iterator; HTTPX2 owns its nested iterators."""
+    """Close the outer EventSource iterator if supported; HTTPX2 owns its nested iterators."""
     events = source.__aiter__()
     try:
         yield events
     finally:
-        assert isinstance(events, AsyncGenerator)
-        await events.aclose()
+        if isinstance(events, _AsyncClosable):
+            await events.aclose()
 
 
 def redirect_location(response: httpx2.Response) -> httpx2.URL | None:
