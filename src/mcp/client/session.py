@@ -1140,6 +1140,8 @@ class ClientSession:
             if validator is None:
                 # First compilation lazily reads jsonschema's bundled schemas.
                 validator = await anyio.to_thread.run_sync(self._output_schema_validator, name, output_schema)
+                if _same_schema(self._tool_output_schemas.get(name), output_schema):
+                    self._tool_output_validators[name] = validator
 
             from jsonschema import exceptions as jsonschema_exceptions
             from referencing.exceptions import Unresolvable
@@ -1174,18 +1176,13 @@ class ClientSession:
         from jsonschema.validators import validator_for
         from referencing import Registry
 
-        if (validator := self._tool_output_validators.get(name)) is not None:
-            return validator
-
         validator_cls = validator_for(output_schema)
         try:
             validator_cls.check_schema(output_schema)
         except SchemaError as e:
             raise RuntimeError(f"Invalid schema for tool {name}: {e}")
         # An explicit empty registry: `$ref`s resolve within the schema document and the bundled metaschemas.
-        validator = validator_cls(output_schema, registry=Registry())
-        self._tool_output_validators[name] = validator
-        return validator
+        return validator_cls(output_schema, registry=Registry())
 
     async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request.
