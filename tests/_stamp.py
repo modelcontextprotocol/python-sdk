@@ -6,10 +6,13 @@ payloads should stay identity-free strip the stamp before exact comparison -
 and the strip is strict, so a modern result that lost its stamp fails the
 test instead of passing silently.
 
-The interaction matrix does not use this function directly: its `unstamped`
-fixture (tests/interaction/conftest.py) resolves per cell to this strict
+Era-parametrized interaction tests go through the `unstamped` fixture
+(tests/interaction/conftest.py), which resolves per cell to this strict
 strip on modern cells and to a must-not-be-stamped assertion on
-handshake-era cells, so one comparison line enforces both eras.
+handshake-era cells, so one comparison line enforces both eras. Interaction
+tests pinned to a single modern connection call this function directly
+(imported as `strip_stamp` where a file also uses the fixture, so the two
+never share a name).
 """
 
 from typing import Any, Protocol, TypeVar
@@ -29,8 +32,8 @@ def unstamped(result: R) -> R:
     """Assert the result carries a well-formed serverInfo stamp, then remove it.
 
     Returns the result for inline use in comparisons. Use only where a stamp
-    is required (a 2026-era result); the interaction matrix's `unstamped`
-    fixture handles the era split.
+    is required (a 2026-era result); tests that also run on handshake-era
+    cells use the `unstamped` fixture instead, which handles the era split.
     """
     meta = result.meta
     assert meta is not None and SERVER_INFO_META_KEY in meta, "expected a serverInfo stamp on this result"
