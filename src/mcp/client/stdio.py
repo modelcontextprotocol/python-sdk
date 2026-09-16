@@ -320,8 +320,8 @@ def _close_subprocess_transport(process: ServerProcess) -> None:
 
 async def _get_executable_command(command: str) -> str:
     """Normalizes the command for the current platform."""
-    if sys.platform == "win32":  # pragma: no cover
-        return await anyio.to_thread.run_sync(get_windows_executable_command, command)
+    if sys.platform == "win32":
+        return await anyio.to_thread.run_sync(get_windows_executable_command, command, abandon_on_cancel=True)
     else:  # pragma: lax no cover
         return command
 
