@@ -66,11 +66,13 @@ On one worker that is invisible. On two, it is the whole problem: a request that
     events to a client reconnecting to the *same* session), not a session store. It never makes a
     session reachable from another process.
 
-!!! note "Slow replay delays messages in the same session"
-    With `event_store=`, the session's message router waits until replay finishes and the live
-    stream is registered. This prevents newly produced responses from being lost between replay
-    and live delivery. It does not serialize incoming POSTs or reserve JSON-RPC request IDs.
-    A slow replay can delay other requests in that session, but not other sessions.
+!!! note "Replay is buffered before network delivery"
+    With `event_store=`, the SDK collects replayed events before sending them, so a slow replay
+    reader does not hold the event-store lock. The buffer spills to a temporary file above
+    1 MiB instead of retaining the whole history in memory. Historical events, any new resumption
+    cursor, and live events are sent in that order. The lock does not serialize incoming POSTs
+    or reserve JSON-RPC request IDs. Live-stream backpressure can still delay other messages in
+    the same session.
 
 ## Session lifetime and limits
 
