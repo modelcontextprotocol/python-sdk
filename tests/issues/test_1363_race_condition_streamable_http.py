@@ -99,57 +99,58 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
     - This should trigger the race condition where message_router encounters ClosedResourceError
     """
     app = create_app()
-    with caplog.at_level(logging.ERROR), anyio.fail_after(5):
-        async with app.router.lifespan_context(app):
-            # Test with missing text/event-stream in Accept header
-            async with httpx2.AsyncClient(
-                transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
-            ) as client:
-                response = await client.post(
-                    "/",
-                    json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
-                    headers={
-                        "Accept": "application/json",  # Missing text/event-stream
-                        "Content-Type": "application/json",
-                    },
-                )
-                # Should get 406 Not Acceptable due to missing text/event-stream
-                assert response.status_code == 406
+    try:
+        with caplog.at_level(logging.ERROR), anyio.fail_after(5):
+            async with app.router.lifespan_context(app):
+                # Test with missing text/event-stream in Accept header
+                async with httpx2.AsyncClient(
+                    transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
+                ) as client:
+                    response = await client.post(
+                        "/",
+                        json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                        headers={
+                            "Accept": "application/json",  # Missing text/event-stream
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    # Should get 406 Not Acceptable due to missing text/event-stream
+                    assert response.status_code == 406
 
-            # Test with missing application/json in Accept header
-            async with httpx2.AsyncClient(
-                transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
-            ) as client:
-                response = await client.post(
-                    "/",
-                    json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
-                    headers={
-                        "Accept": "text/event-stream",  # Missing application/json
-                        "Content-Type": "application/json",
-                    },
-                )
-                # Should get 406 Not Acceptable due to missing application/json
-                assert response.status_code == 406
+                # Test with missing application/json in Accept header
+                async with httpx2.AsyncClient(
+                    transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
+                ) as client:
+                    response = await client.post(
+                        "/",
+                        json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                        headers={
+                            "Accept": "text/event-stream",  # Missing application/json
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    # Should get 406 Not Acceptable due to missing application/json
+                    assert response.status_code == 406
 
-            # Test with completely invalid Accept header
-            async with httpx2.AsyncClient(
-                transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
-            ) as client:
-                response = await client.post(
-                    "/",
-                    json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
-                    headers={
-                        "Accept": "text/plain",  # Invalid Accept header
-                        "Content-Type": "application/json",
-                    },
-                )
-                # Should get 406 Not Acceptable
-                assert response.status_code == 406
+                # Test with completely invalid Accept header
+                async with httpx2.AsyncClient(
+                    transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
+                ) as client:
+                    response = await client.post(
+                        "/",
+                        json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                        headers={
+                            "Accept": "text/plain",  # Invalid Accept header
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    # Should get 406 Not Acceptable
+                    assert response.status_code == 406
 
-            # Let the message routers finish before lifespan shutdown cancels them.
-            await anyio.wait_all_tasks_blocked()
-
-    check_logs_for_race_condition_errors(caplog, "test_race_condition_invalid_accept_headers")
+                # Let the message routers finish before lifespan shutdown cancels them.
+                await anyio.wait_all_tasks_blocked()
+    finally:
+        check_logs_for_race_condition_errors(caplog, "test_race_condition_invalid_accept_headers")
 
 
 @pytest.mark.anyio
@@ -159,26 +160,27 @@ async def test_race_condition_invalid_content_type(caplog: pytest.LogCaptureFixt
     This test reproduces the race condition scenario with Content-Type validation failure.
     """
     app = create_app()
-    with caplog.at_level(logging.ERROR), anyio.fail_after(5):
-        async with app.router.lifespan_context(app):
-            # Test with invalid Content-Type
-            async with httpx2.AsyncClient(
-                transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
-            ) as client:
-                response = await client.post(
-                    "/",
-                    json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
-                    headers={
-                        "Accept": "application/json, text/event-stream",
-                        "Content-Type": "text/plain",  # Invalid Content-Type
-                    },
-                )
-                assert response.status_code == 400
+    try:
+        with caplog.at_level(logging.ERROR), anyio.fail_after(5):
+            async with app.router.lifespan_context(app):
+                # Test with invalid Content-Type
+                async with httpx2.AsyncClient(
+                    transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
+                ) as client:
+                    response = await client.post(
+                        "/",
+                        json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                        headers={
+                            "Accept": "application/json, text/event-stream",
+                            "Content-Type": "text/plain",  # Invalid Content-Type
+                        },
+                    )
+                    assert response.status_code == 400
 
-            # Let the message router finish before lifespan shutdown cancels it.
-            await anyio.wait_all_tasks_blocked()
-
-    check_logs_for_race_condition_errors(caplog, "test_race_condition_invalid_content_type")
+                # Let the message router finish before lifespan shutdown cancels it.
+                await anyio.wait_all_tasks_blocked()
+    finally:
+        check_logs_for_race_condition_errors(caplog, "test_race_condition_invalid_content_type")
 
 
 @pytest.mark.anyio
@@ -188,25 +190,26 @@ async def test_race_condition_message_router_async_for(caplog: pytest.LogCapture
     in async for loop while transport cleanup closes streams concurrently.
     """
     app = create_app(json_response=True)
-    with caplog.at_level(logging.ERROR), anyio.fail_after(5):
-        async with app.router.lifespan_context(app):
-            # Use httpx2.ASGITransport to test the ASGI app directly
-            async with httpx2.AsyncClient(
-                transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
-            ) as client:
-                # Send a valid initialize request
-                response = await client.post(
-                    "/",
-                    json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
-                    headers={
-                        "Accept": "application/json, text/event-stream",
-                        "Content-Type": "application/json",
-                    },
-                )
-                # Should get a successful response
-                assert response.status_code in (200, 201)
+    try:
+        with caplog.at_level(logging.ERROR), anyio.fail_after(5):
+            async with app.router.lifespan_context(app):
+                # Use httpx2.ASGITransport to test the ASGI app directly
+                async with httpx2.AsyncClient(
+                    transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
+                ) as client:
+                    # Send a valid initialize request
+                    response = await client.post(
+                        "/",
+                        json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                        headers={
+                            "Accept": "application/json, text/event-stream",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    # Should get a successful response
+                    assert response.status_code in (200, 201)
 
-            # Let the message router finish before lifespan shutdown cancels it.
-            await anyio.wait_all_tasks_blocked()
-
-    check_logs_for_race_condition_errors(caplog, "test_race_condition_message_router_async_for")
+                # Let the message router finish before lifespan shutdown cancels it.
+                await anyio.wait_all_tasks_blocked()
+    finally:
+        check_logs_for_race_condition_errors(caplog, "test_race_condition_message_router_async_for")
