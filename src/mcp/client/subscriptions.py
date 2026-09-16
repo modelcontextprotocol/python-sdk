@@ -18,6 +18,7 @@ import anyio
 import mcp_types as types
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
+from mcp.shared.direct_dispatcher import DirectDispatcher
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import MCPError
 from mcp.shared.subscriptions import (
@@ -241,6 +242,7 @@ async def listen(
     data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
     opts: CallOptions = {"request_id": request_id}
     session._stamp(data, opts)  # pyright: ignore[reportPrivateUsage]
+    dispatcher = session._dispatcher  # pyright: ignore[reportPrivateUsage]
     driver_scope = anyio.CancelScope()
     driver_done = anyio.Event()
 
@@ -249,9 +251,7 @@ async def listen(
         try:
             with driver_scope:
                 try:
-                    await session._dispatcher.send_raw_request(  # pyright: ignore[reportPrivateUsage]
-                        data["method"], data.get("params"), opts
-                    )
+                    await dispatcher.send_raw_request(data["method"], data.get("params"), opts)
                 except MCPError as error:
                     route.settle("lost", error=error)
                     return
@@ -284,8 +284,9 @@ async def listen(
         finally:
             route.settle("local")
             driver_scope.cancel()
-            # Direct handlers unwind in the driver; remote cancellation has no acknowledgment.
-            with anyio.move_on_after(5, shield=True):
-                await driver_done.wait()
+            # Only direct drivers own handler cleanup; remote courtesy writes remain session-owned.
+            if isinstance(dispatcher, DirectDispatcher):
+                with anyio.move_on_after(5, shield=True):
+                    await driver_done.wait()
     finally:
         session._unregister_listen_route(request_id)  # pyright: ignore[reportPrivateUsage]

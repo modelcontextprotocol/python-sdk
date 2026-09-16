@@ -35,6 +35,8 @@ from mcp.server.subscriptions import (
 )
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import CallOptions
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import SessionMessage
 
 pytestmark = pytest.mark.anyio
 
@@ -320,6 +322,71 @@ async def test_exiting_a_subscription_bounds_uncooperative_direct_handler_cleanu
             release_cleanup.set()
         with anyio.fail_after(5):
             await cleanup_finished.wait()
+
+
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
+)
+@pytest.mark.parametrize("cancelled", [False, True], ids=["normal-exit", "cancelled-exit"])
+async def test_sequential_remote_subscription_exits_do_not_wait_for_courtesy_writes(
+    monkeypatch: pytest.MonkeyPatch, cancelled: bool
+) -> None:
+    """SDK-defined: remote exits leave courtesy writes to session-owned drivers, even when cancelled.
+
+    Block the public stream `send` boundary; typed server handlers cannot wedge a client's transport write.
+    """
+    server = Server("subs", on_subscriptions_listen=ListenHandler(InMemorySubscriptionBus()))
+    client_write, server_read = anyio.create_memory_object_stream[SessionMessage | Exception]()
+    server_write, client_read = anyio.create_memory_object_stream[SessionMessage | Exception]()
+    release_writes = anyio.Event()
+    attempted: list[types.RequestId] = []
+    delivered: list[types.RequestId] = []
+    send = client_write.send
+
+    async def block_courtesy_write(item: SessionMessage | Exception) -> None:
+        assert isinstance(item, SessionMessage)
+        message = item.message
+        if isinstance(message, types.JSONRPCNotification) and message.method == "notifications/cancelled":
+            assert message.params is not None
+            request_id = message.params["requestId"]
+            attempted.append(request_id)
+            with anyio.fail_after(5):
+                await release_writes.wait()
+            await send(item)
+            delivered.append(request_id)
+        else:
+            await send(item)
+
+    monkeypatch.setattr(client_write, "send", block_courtesy_write)
+    dispatcher = JSONRPCDispatcher(client_read, client_write)
+    with anyio.fail_after(5):
+        async with client_write, server_read, server_write, client_read, anyio.create_task_group() as tg:
+            tg.start_soon(server.run, server_read, server_write, server.create_initialization_options())
+            async with ClientSession(dispatcher=dispatcher) as session:
+                await session.discover()
+                subscription_ids: list[types.RequestId] = []
+                started = anyio.current_time()
+                try:
+                    for _ in range(2):
+                        subscription = listen(session, tools_list_changed=True)
+                        sub = await subscription.__aenter__()
+                        subscription_ids.append(sub.subscription_id)
+                        with anyio.CancelScope() as scope:
+                            if cancelled:
+                                scope.cancel()
+                            await subscription.__aexit__(None, None, None)
+                        assert anyio.current_time() == started  # MockClock time, never wall-clock time.
+                        with pytest.raises(StopAsyncIteration):
+                            await anext(sub)
+                        await anyio.wait_all_tasks_blocked()
+                        assert attempted == subscription_ids
+                        assert delivered == []
+                finally:
+                    release_writes.set()
+                await anyio.wait_all_tasks_blocked()
+                assert set(delivered) == set(subscription_ids)
+            tg.cancel_scope.cancel()
 
 
 async def test_concurrent_subscriptions_demux_independently():
