@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
 from http import HTTPStatus
-from typing import Any, Final
+from typing import Any, Final, TypeAlias
 
 import anyio
 import pydantic_core
@@ -111,6 +111,7 @@ class EventMessage:
 
 
 EventCallback = Callable[[EventMessage], Awaitable[None]]
+_RequestStreams: TypeAlias = tuple[MemoryObjectSendStream[EventMessage], MemoryObjectReceiveStream[EventMessage]]
 
 
 class EventStore(ABC):
@@ -212,13 +213,7 @@ class StreamableHTTPServerTransport:
         self._event_store_lock = anyio.Lock()
         self._security = TransportSecurityMiddleware(security_settings)
         self._retry_interval = retry_interval
-        self._request_streams: dict[
-            RequestId,
-            tuple[
-                MemoryObjectSendStream[EventMessage],
-                MemoryObjectReceiveStream[EventMessage],
-            ],
-        ] = {}
+        self._request_streams: dict[RequestId, _RequestStreams] = {}
         self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[SSEEvent]] = {}
         self._terminated = False
         self._idle_timeout = idle_timeout
@@ -356,12 +351,11 @@ class StreamableHTTPServerTransport:
 
     async def _run_sse_writer(
         self,
-        request_id: RequestId,
         sse_stream_writer: MemoryObjectSendStream[SSEEvent],
         request_stream_reader: MemoryObjectReceiveStream[EventMessage],
         priming_event: SSEEvent | None,
     ) -> None:
-        """Forward `_request_streams[request_id]` onto the SSE wire for one POST."""
+        """Forward this POST's request stream onto the SSE wire."""
         try:
             async with sse_stream_writer, request_stream_reader:
                 if priming_event is not None:
@@ -376,9 +370,6 @@ class StreamableHTTPServerTransport:
             logger.exception("Error in SSE writer")
         finally:
             logger.debug("Closing SSE writer")
-            if self._sse_stream_writers.get(request_id) is sse_stream_writer:
-                self._sse_stream_writers.pop(request_id, None)
-                await self._clean_up_memory_streams(request_id)
 
     def _create_error_response(
         self,
@@ -459,19 +450,11 @@ class StreamableHTTPServerTransport:
         error = ErrorData(code=REQUEST_CANCELLED, message="Request cancelled")
         await self._write_stream.send(SessionMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error)))
 
-    async def _clean_up_memory_streams(self, request_id: RequestId) -> None:
-        """Clean up memory streams for a given request ID."""
-        if request_id in self._request_streams:  # pragma: no branch
-            try:
-                # Close the request stream
-                await self._request_streams[request_id][0].aclose()
-                await self._request_streams[request_id][1].aclose()
-            except Exception:  # pragma: no cover
-                # During cleanup, we catch all exceptions since streams might be in various states
-                logger.debug("Error closing memory streams - may already be closed")
-            finally:
-                # Remove the request stream from the mapping
-                self._request_streams.pop(request_id, None)
+    def _clean_up_memory_streams(self, request_id: RequestId, streams: _RequestStreams) -> None:
+        streams[0].close()
+        streams[1].close()
+        if self._request_streams.get(request_id) is streams:
+            del self._request_streams[request_id]
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Application entry point that handles all HTTP requests."""
@@ -644,34 +627,28 @@ class StreamableHTTPServerTransport:
             request_id = str(message.id)
 
             if self.is_json_response_enabled:
-                self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
-                    REQUEST_STREAM_BUFFER_SIZE
-                )
-                request_stream_reader = self._request_streams[request_id][1]
-                # Process the message
-                metadata = self._message_metadata(
-                    request, on_request_unanswered=partial(self._terminate_unanswered_request, message.id)
-                )
-                session_message = SessionMessage(message, metadata=metadata)
-                await writer.send(session_message)
+                request_streams = anyio.create_memory_object_stream[EventMessage](REQUEST_STREAM_BUFFER_SIZE)
+                self._request_streams[request_id] = request_streams
                 try:
-                    # `message_router` deposits only this request's own response
-                    # here: anything else scoped to the request has no wire in
-                    # JSON-response mode.
-                    event_message = await request_stream_reader.receive()
-                except (anyio.EndOfStream, anyio.ClosedResourceError):
-                    # The stream closed with no response: the session was
-                    # terminated while this request was in flight.
-                    logger.debug(f"Session terminated with request {request_id} in flight; no response to send")
-                    response = self._create_error_response(
-                        "Session terminated before the request completed",
-                        HTTPStatus.INTERNAL_SERVER_ERROR,
-                        INTERNAL_ERROR,
+                    metadata = self._message_metadata(
+                        request, on_request_unanswered=partial(self._terminate_unanswered_request, message.id)
                     )
-                else:
-                    response = self._create_json_response(event_message.message)
+                    session_message = SessionMessage(message, metadata=metadata)
+                    await writer.send(session_message)
+                    try:
+                        # JSON mode routes only this request's response to its stream.
+                        event_message = await request_streams[1].receive()
+                    except (anyio.EndOfStream, anyio.ClosedResourceError):
+                        logger.debug(f"Session terminated with request {request_id} in flight; no response to send")
+                        response = self._create_error_response(
+                            "Session terminated before the request completed",
+                            HTTPStatus.INTERNAL_SERVER_ERROR,
+                            INTERNAL_ERROR,
+                        )
+                    else:
+                        response = self._create_json_response(event_message.message)
                 finally:
-                    await self._clean_up_memory_streams(request_id)
+                    self._clean_up_memory_streams(request_id, request_streams)
                 await response(scope, receive, send)
             else:
                 # Mint the priming event before any per-request state exists:
@@ -681,40 +658,38 @@ class StreamableHTTPServerTransport:
                 priming_event = await self._mint_priming_event(request_id, protocol_version)
 
                 sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
-                self._sse_stream_writers[request_id] = sse_stream_writer
-                self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
-                    REQUEST_STREAM_BUFFER_SIZE
-                )
-                request_stream_reader = self._request_streams[request_id][1]
-
-                headers = {
-                    "Cache-Control": "no-cache, no-transform",
-                    "Connection": "keep-alive",
-                    "Content-Type": CONTENT_TYPE_SSE,
-                    **({MCP_SESSION_ID_HEADER: self.mcp_session_id} if self.mcp_session_id else {}),
-                }
-                response = EventSourceResponse(
-                    content=sse_stream_reader,
-                    data_sender_callable=partial(
-                        self._run_sse_writer, request_id, sse_stream_writer, request_stream_reader, priming_event
-                    ),
-                    headers=headers,
-                )
-
-                # Start the SSE response (this will send headers immediately)
+                request_streams = anyio.create_memory_object_stream[EventMessage](REQUEST_STREAM_BUFFER_SIZE)
                 try:
-                    # First send the response to establish the SSE connection
-                    async with anyio.create_task_group() as tg:
-                        tg.start_soon(response, scope, receive, send)
-                        # Then send the message to be processed by the server
-                        session_message = self._create_session_message(message, request, request_id, protocol_version)
-                        await writer.send(session_message)
-                except Exception:  # pragma: lax no cover
-                    logger.exception("SSE response error")
-                    await sse_stream_writer.aclose()
-                    await self._clean_up_memory_streams(request_id)
+                    self._sse_stream_writers[request_id] = sse_stream_writer
+                    self._request_streams[request_id] = request_streams
+                    headers = {
+                        "Cache-Control": "no-cache, no-transform",
+                        "Connection": "keep-alive",
+                        "Content-Type": CONTENT_TYPE_SSE,
+                        **({MCP_SESSION_ID_HEADER: self.mcp_session_id} if self.mcp_session_id else {}),
+                    }
+                    response = EventSourceResponse(
+                        content=sse_stream_reader,
+                        data_sender_callable=partial(
+                            self._run_sse_writer, sse_stream_writer, request_streams[1], priming_event
+                        ),
+                        headers=headers,
+                    )
+                    try:
+                        async with anyio.create_task_group() as tg:
+                            tg.start_soon(response, scope, receive, send)
+                            session_message = self._create_session_message(
+                                message, request, request_id, protocol_version
+                            )
+                            await writer.send(session_message)
+                    except Exception:  # pragma: lax no cover
+                        logger.exception("SSE response error")
                 finally:
-                    await sse_stream_reader.aclose()
+                    sse_stream_writer.close()
+                    sse_stream_reader.close()
+                    if self._sse_stream_writers.get(request_id) is sse_stream_writer:
+                        self._sse_stream_writers.pop(request_id, None)
+                    self._clean_up_memory_streams(request_id, request_streams)
 
         except Exception as err:
             logger.exception("Error handling POST request")
@@ -775,19 +750,12 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
-        # Create SSE stream
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
+        request_streams = anyio.create_memory_object_stream[EventMessage](REQUEST_STREAM_BUFFER_SIZE)
 
         async def standalone_sse_writer():
             try:
-                # Create a standalone message stream for server-initiated messages
-
-                self._request_streams[GET_STREAM_KEY] = anyio.create_memory_object_stream[EventMessage](
-                    REQUEST_STREAM_BUFFER_SIZE
-                )
-                standalone_stream_reader = self._request_streams[GET_STREAM_KEY][1]
-
-                async with sse_stream_writer, standalone_stream_reader:
+                async with sse_stream_writer, request_streams[1] as standalone_stream_reader:
                     # Process messages from the standalone stream
                     async for event_message in standalone_stream_reader:
                         # For the standalone stream, we handle:
@@ -805,24 +773,22 @@ class StreamableHTTPServerTransport:
                 logger.exception("Error in standalone SSE writer")  # pragma: no cover
             finally:
                 logger.debug("Closing standalone SSE writer")
-                await self._clean_up_memory_streams(GET_STREAM_KEY)
-
-        # Create and start EventSourceResponse
-        response = EventSourceResponse(
-            content=sse_stream_reader,
-            data_sender_callable=standalone_sse_writer,
-            headers=headers,
-        )
 
         try:
-            # This will send headers immediately and establish the SSE connection
-            await response(request.scope, request.receive, send)
-        except Exception:  # pragma: lax no cover
-            logger.exception("Error in standalone SSE response")
-            await self._clean_up_memory_streams(GET_STREAM_KEY)
+            self._request_streams[GET_STREAM_KEY] = request_streams
+            response = EventSourceResponse(
+                content=sse_stream_reader,
+                data_sender_callable=standalone_sse_writer,
+                headers=headers,
+            )
+            try:
+                await response(request.scope, request.receive, send)
+            except Exception:  # pragma: lax no cover
+                logger.exception("Error in standalone SSE response")
         finally:
-            await sse_stream_writer.aclose()
-            await sse_stream_reader.aclose()
+            sse_stream_writer.close()
+            sse_stream_reader.close()
+            self._clean_up_memory_streams(GET_STREAM_KEY, request_streams)
 
     async def _handle_delete_request(self, request: Request, send: Send) -> None:
         """Handle DELETE requests for explicit session termination."""
@@ -856,15 +822,8 @@ class StreamableHTTPServerTransport:
         self._terminated = True
         logger.info(f"Terminating session: {self.mcp_session_id}")
 
-        # We need a copy of the keys to avoid modification during iteration
-        request_stream_keys = list(self._request_streams.keys())
-
-        # Close all request streams asynchronously
-        for key in request_stream_keys:
-            await self._clean_up_memory_streams(key)
-
-        # Clear the request streams dictionary immediately
-        self._request_streams.clear()
+        for request_id, streams in list(self._request_streams.items()):
+            self._clean_up_memory_streams(request_id, streams)
         try:
             if self._read_stream_writer is not None:  # pragma: no branch
                 await self._read_stream_writer.aclose()
@@ -956,6 +915,7 @@ class StreamableHTTPServerTransport:
 
             async def replay_sender():
                 stream_id: StreamId | None = None
+                request_streams: _RequestStreams | None = None
                 try:
                     async with sse_stream_writer:
                         # Define an async callback for sending events
@@ -968,11 +928,12 @@ class StreamableHTTPServerTransport:
                             stream_id = await event_store.replay_events_after(last_event_id, send_event)
                             if not stream_id or stream_id in self._request_streams:
                                 return
-                            self._sse_stream_writers[stream_id] = sse_stream_writer
-                            self._request_streams[stream_id] = anyio.create_memory_object_stream[EventMessage](
+                            request_streams = anyio.create_memory_object_stream[EventMessage](
                                 REQUEST_STREAM_BUFFER_SIZE
                             )
-                            msg_reader = self._request_streams[stream_id][1]
+                            self._sse_stream_writers[stream_id] = sse_stream_writer
+                            self._request_streams[stream_id] = request_streams
+                            msg_reader = request_streams[1]
                             priming_event = await self._mint_priming_event(stream_id, replay_protocol_version)
                             if priming_event is not None:
                                 await sse_stream_writer.send(priming_event)
@@ -988,7 +949,9 @@ class StreamableHTTPServerTransport:
                 finally:
                     if stream_id is not None and self._sse_stream_writers.get(stream_id) is sse_stream_writer:
                         self._sse_stream_writers.pop(stream_id, None)
-                        await self._clean_up_memory_streams(stream_id)
+                    if request_streams is not None:
+                        assert stream_id is not None
+                        self._clean_up_memory_streams(stream_id, request_streams)
 
             # Create and start EventSourceResponse
             response = EventSourceResponse(
@@ -1093,9 +1056,8 @@ class StreamableHTTPServerTransport:
                             try:
                                 # Send both the message and the event ID
                                 await target[0].send(EventMessage(message, event_id))
-                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: no cover
-                                if self._request_streams.get(request_stream_id) is target:
-                                    self._request_streams.pop(request_stream_id, None)
+                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                                self._clean_up_memory_streams(request_stream_id, target)
                         else:
                             logger.debug(
                                 f"""Request stream {request_stream_id} not found
@@ -1117,9 +1079,8 @@ class StreamableHTTPServerTransport:
                 # Yield the streams for the caller to use
                 yield read_stream, write_stream
             finally:
-                for stream_id in list(self._request_streams.keys()):
-                    await self._clean_up_memory_streams(stream_id)
-                self._request_streams.clear()
+                for stream_id, streams in list(self._request_streams.items()):
+                    self._clean_up_memory_streams(stream_id, streams)
 
                 # Clean up the read and write streams
                 try:

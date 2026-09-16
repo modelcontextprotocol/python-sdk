@@ -167,7 +167,7 @@ async def sse_within_origin(
 
 @asynccontextmanager
 async def sse_events(source: httpx2.EventSource) -> AsyncGenerator[AsyncIterator[httpx2.ServerSentEvent]]:
-    """Close the SSE iterator when its consumer stops before the response ends."""
+    """Close the outer EventSource iterator; HTTPX2 owns its nested iterators."""
     events = source.__aiter__()
     try:
         yield events
