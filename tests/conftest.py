@@ -28,23 +28,21 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-_BLOCKBUSTER = BlockBuster(["mcp", "mcp_types"])
-# Coverage reads source files while collecting data.
-_BLOCKBUSTER.functions["os.stat"].can_block_in("coverage/python.py", "get_python_source")
-_BLOCKBUSTER.functions["io.BufferedReader.read"].can_block_in("coverage/python.py", "read_python_source")
-# These public synchronous conversions read the media file by design.
-_BLOCKBUSTER.functions["io.BufferedReader.read"].can_block_in(
-    "mcp/server/mcpserver/utilities/types.py", ("to_image_content", "to_audio_content")
-)
-
-
 @pytest.fixture(autouse=True)
-def blockbuster() -> Iterator[BlockBuster]:
+def blockbuster() -> Iterator[None]:
+    bb = BlockBuster(["mcp", "mcp_types"])
+    # Coverage reads source files while collecting data.
+    bb.functions["os.stat"].can_block_in("coverage/python.py", "get_python_source")
+    bb.functions["io.BufferedReader.read"].can_block_in("coverage/python.py", "read_python_source")
+    # These public synchronous conversions read the media file by design.
+    bb.functions["io.BufferedReader.read"].can_block_in(
+        "mcp/server/mcpserver/utilities/types.py", ("to_image_content", "to_audio_content")
+    )
+    bb.activate()
     try:
-        _BLOCKBUSTER.activate()
-        yield _BLOCKBUSTER
+        yield
     finally:
-        _BLOCKBUSTER.deactivate()
+        bb.deactivate()
 
 
 @pytest.fixture(scope="module", autouse=True)

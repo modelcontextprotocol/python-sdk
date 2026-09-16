@@ -1100,7 +1100,7 @@ provides-extras = ["cli", "rich"]
 [package.metadata.requires-dev]
 codegen = [{ name = "datamodel-code-generator", specifier = "==0.57.0" }]
 dev = [
-    { name = "blockbuster", specifier = ">=1.5.26,<1.6" },
+    { name = "blockbuster", specifier = ">=1.5.23" },
     { name = "coverage", extras = ["toml"], specifier = ">=7.10.7,<=7.13" },
     { name = "dirty-equals", specifier = ">=0.9.0" },
     { name = "inline-snapshot", specifier = ">=0.23.0" },
