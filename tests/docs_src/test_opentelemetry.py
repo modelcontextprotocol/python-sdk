@@ -24,6 +24,26 @@ async def test_a_plain_server_is_traced_with_no_extra_code(capfire: CaptureLogfi
     assert attributes["gen_ai.tool.name"] == "search_books"
 
 
+async def test_resources_and_prompts_are_traced_at_the_request_level(capfire: CaptureLogfire) -> None:
+    """tutorial001: resource reads and prompt renders use request-level SERVER spans."""
+    async with Client(tutorial001.mcp) as client:
+        await client.read_resource("catalog://featured")
+        await client.get_prompt("reading_prompt", {"topic": "Dune"})
+
+    spans = {s["name"]: s for s in capfire.exporter.exported_spans_as_dict()}
+
+    resource_attributes = spans["resources/read"]["attributes"]
+    assert resource_attributes["mcp.method.name"] == "resources/read"
+    assert "gen_ai.operation.name" not in resource_attributes
+    assert "gen_ai.prompt.name" not in resource_attributes
+    assert "gen_ai.tool.name" not in resource_attributes
+
+    prompt_attributes = spans["prompts/get reading_prompt"]["attributes"]
+    assert prompt_attributes["mcp.method.name"] == "prompts/get"
+    assert prompt_attributes["gen_ai.prompt.name"] == "reading_prompt"
+    assert "gen_ai.operation.name" not in prompt_attributes
+
+
 async def test_client_and_server_share_one_trace(capfire: CaptureLogfire) -> None:
     """When both sides run the SDK, the client and server spans land in one trace (SEP-414)."""
     async with Client(tutorial001.mcp, mode="legacy") as client:
