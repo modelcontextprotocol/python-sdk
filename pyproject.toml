@@ -284,6 +284,8 @@ filterwarnings = [
     # CI and scripts/test set PYTHONWARNDEFAULTENCODING=1, so "error" rejects any text I/O
     # of ours that omits encoding=; pytest-examples' own unguarded text I/O isn't ours.
     "ignore:'encoding' argument not specified:EncodingWarning:pytest_examples",
+    # Trio wraps Linux pidfds in text mode without encoding=; only fileno()/close() are used.
+    "ignore:'encoding' argument not specified:EncodingWarning:trio\\._subprocess$",
 ]
 
 [tool.markdown.lint]
