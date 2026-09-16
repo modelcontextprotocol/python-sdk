@@ -1,7 +1,9 @@
 import os
 from collections.abc import AsyncIterator, Iterator
 
+import httpcore2 as _httpcore2
 import pytest
+from blockbuster import BlockBuster
 
 # OpenTelemetry's `set_tracer_provider` is set-once per process, so the suite
 # uses a single span-capture mechanism: logfire's `capfire` fixture (its
@@ -17,10 +19,32 @@ from logfire.testing import CaptureLogfire  # noqa: E402
 
 import mcp.shared._otel  # noqa: E402
 
+# Load httpx2's lazy default transport before BlockBuster starts.
+del _httpcore2
+
 
 @pytest.fixture(scope="session")
 def anyio_backend() -> str:
     return "asyncio"
+
+
+_BLOCKBUSTER = BlockBuster(["mcp", "mcp_types"])
+# Coverage reads source files while collecting data.
+_BLOCKBUSTER.functions["os.stat"].can_block_in("coverage/python.py", "get_python_source")
+_BLOCKBUSTER.functions["io.BufferedReader.read"].can_block_in("coverage/python.py", "read_python_source")
+# These public synchronous conversions read the media file by design.
+_BLOCKBUSTER.functions["io.BufferedReader.read"].can_block_in(
+    "mcp/server/mcpserver/utilities/types.py", ("to_image_content", "to_audio_content")
+)
+
+
+@pytest.fixture(autouse=True)
+def blockbuster() -> Iterator[BlockBuster]:
+    try:
+        _BLOCKBUSTER.activate()
+        yield _BLOCKBUSTER
+    finally:
+        _BLOCKBUSTER.deactivate()
 
 
 @pytest.fixture(scope="module", autouse=True)

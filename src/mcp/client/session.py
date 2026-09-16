@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, Type
 import anyio
 import anyio.abc
 import anyio.lowlevel
+import anyio.to_thread
 import mcp_types as types
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp_types import (
@@ -1133,12 +1134,16 @@ class ClientSession:
             logger.warning(f"Tool {name} not listed by server, cannot validate any structured content")
 
         if output_schema is not None:
+            if result.structured_content is None:
+                raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
+            validator = self._tool_output_validators.get(name)
+            if validator is None:
+                # First compilation lazily reads jsonschema's bundled schemas.
+                validator = await anyio.to_thread.run_sync(self._output_schema_validator, name, output_schema)
+
             from jsonschema import exceptions as jsonschema_exceptions
             from referencing.exceptions import Unresolvable
 
-            if result.structured_content is None:
-                raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
-            validator = self._output_schema_validator(name, output_schema)
             # `best_match` picks the same error the previous `jsonschema.validate()` call raised,
             # so the message a caller sees is unchanged. It is untyped upstream.
             errors = validator.iter_errors(result.structured_content)
