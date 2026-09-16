@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache, reduce
@@ -13,7 +12,6 @@ from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, Type
 import anyio
 import anyio.abc
 import anyio.lowlevel
-import anyio.to_thread
 import mcp_types as types
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp_types import (
@@ -443,7 +441,6 @@ class ClientSession:
         # Compiled output-schema validators, derived from `_tool_output_schemas` and owned by
         # `_absorb_tool_listing`, which evicts a tool's entry whenever its schema changes.
         self._tool_output_validators: dict[str, Validator] = {}
-        self._tool_output_validator_limiter = anyio.CapacityLimiter(1)
         self._x_mcp_header_maps: dict[str, dict[tuple[str, ...], str]] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._discover_result: types.DiscoverResult | None = None
@@ -1136,27 +1133,12 @@ class ClientSession:
             logger.warning(f"Tool {name} not listed by server, cannot validate any structured content")
 
         if output_schema is not None:
-            if result.structured_content is None:
-                raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
-            validator = self._tool_output_validators.get(name)
-            if validator is None:
-                # First compilation lazily reads jsonschema's bundled schemas.
-                if sys.platform == "emscripten":
-                    # Emscripten cannot start worker threads.
-                    validator = self._output_schema_validator(name, output_schema)
-                else:
-                    validator = await anyio.to_thread.run_sync(
-                        self._output_schema_validator,
-                        name,
-                        output_schema,
-                        limiter=self._tool_output_validator_limiter,
-                    )
-                if _same_schema(self._tool_output_schemas.get(name), output_schema):
-                    self._tool_output_validators[name] = validator
-
             from jsonschema import exceptions as jsonschema_exceptions
             from referencing.exceptions import Unresolvable
 
+            if result.structured_content is None:
+                raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
+            validator = self._output_schema_validator(name, output_schema)
             # `best_match` picks the same error the previous `jsonschema.validate()` call raised,
             # so the message a caller sees is unchanged. It is untyped upstream.
             errors = validator.iter_errors(result.structured_content)
@@ -1187,13 +1169,18 @@ class ClientSession:
         from jsonschema.validators import validator_for
         from referencing import Registry
 
+        if (validator := self._tool_output_validators.get(name)) is not None:
+            return validator
+
         validator_cls = validator_for(output_schema)
         try:
             validator_cls.check_schema(output_schema)
         except SchemaError as e:
             raise RuntimeError(f"Invalid schema for tool {name}: {e}")
         # An explicit empty registry: `$ref`s resolve within the schema document and the bundled metaschemas.
-        return validator_cls(output_schema, registry=Registry())
+        validator = validator_cls(output_schema, registry=Registry())
+        self._tool_output_validators[name] = validator
+        return validator
 
     async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request.

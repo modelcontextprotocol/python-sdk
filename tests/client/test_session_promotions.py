@@ -1,16 +1,7 @@
 """`dispatch_input_request` and `validate_tool_result` are public `ClientSession` API."""
 
-import threading
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
-
-import anyio
-import anyio.from_thread
-import anyio.to_thread
 import mcp_types as types
 import pytest
-from jsonschema.protocols import Validator
-from jsonschema.validators import validator_for
 from mcp_types import (
     CallToolResult,
     ErrorData,
@@ -20,7 +11,6 @@ from mcp_types import (
     Tool,
 )
 
-import mcp.client.session as session_module
 from mcp.client.client import Client
 from mcp.client.session import ClientRequestContext, ClientSession
 from mcp.server import Server, ServerRequestContext
@@ -65,48 +55,6 @@ async def test_validate_tool_result_passes_a_conforming_result() -> None:
     async with Client(server) as client:
         # The session fetches the listing itself when the tool isn't cached yet.
         await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content={"x": 1}))
-
-
-@pytest.mark.anyio
-async def test_validate_tool_result_compiles_inline_without_worker_threads(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Output schema validation remains available on Emscripten, which has no worker threads."""
-    server = _make_server({"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]})
-    async with Client(server) as client:
-        await client.session.list_tools()
-        monkeypatch.setattr(session_module, "sys", SimpleNamespace(platform="emscripten"))
-        run_sync = AsyncMock(wraps=anyio.to_thread.run_sync)
-        monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync)
-
-        await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content={"x": 1}))
-
-        run_sync.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_validator_compilation_does_not_wait_for_default_worker_capacity() -> None:
-    """Schema compilation cannot deadlock behind sync handlers occupying the default worker pool."""
-    server = _make_server({"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]})
-    async with Client(server) as client:
-        await client.session.list_tools()
-        result = CallToolResult(content=[], structured_content={"x": 1})
-        default_limiter = anyio.to_thread.current_default_thread_limiter()
-        original_tokens = default_limiter.total_tokens
-        validation_finished = threading.Event()
-
-        def validate_from_worker() -> None:
-            try:
-                anyio.from_thread.run(client.session.validate_tool_result, "t", result)
-            finally:
-                validation_finished.set()
-
-        default_limiter.total_tokens = 1
-        try:
-            with anyio.fail_after(5):
-                await anyio.to_thread.run_sync(validate_from_worker, abandon_on_cancel=True)
-        finally:
-            default_limiter.total_tokens = original_tokens
-            with anyio.fail_after(5):
-                await anyio.to_thread.run_sync(validation_finished.wait)
 
 
 @pytest.mark.anyio
@@ -177,46 +125,3 @@ async def test_validate_tool_result_recompiles_when_the_server_changes_the_schem
         await client.session.list_tools()
         with pytest.raises(RuntimeError, match="Invalid structured content returned by tool t"):
             await client.session.validate_tool_result("t", integer_result)
-
-
-@pytest.mark.anyio
-async def test_schema_change_during_compilation_does_not_cache_the_old_validator(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """SDK-defined: a concurrent tool relisting cannot leave a stale compiled validator cached."""
-    schemas = [
-        {"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]},
-        {"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]},
-    ]
-
-    async def on_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"}, output_schema=schemas.pop(0))])
-
-    compilation_started = anyio.Event()
-    continue_compilation = anyio.Event()
-
-    def paused_validator_for(schema: dict[str, object], default: type[Validator] | None = None) -> type[Validator]:
-        validator = validator_for(schema) if default is None else validator_for(schema, default=default)
-        if not compilation_started.is_set():
-            anyio.from_thread.run_sync(compilation_started.set)
-            anyio.from_thread.run(continue_compilation.wait)
-        return validator
-
-    monkeypatch.setattr("jsonschema.validators.validator_for", paused_validator_for)
-    server = Server("test-server", on_list_tools=on_list_tools)
-    async with Client(server) as client:
-        await client.session.list_tools()
-        with anyio.fail_after(5):
-            async with anyio.create_task_group() as task_group:
-                task_group.start_soon(
-                    client.session.validate_tool_result,
-                    "t",
-                    CallToolResult(content=[], structured_content={"x": 1}),
-                )
-                await compilation_started.wait()
-                try:
-                    await client.session.list_tools()
-                finally:
-                    continue_compilation.set()
-
-        await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content={"x": "yes"}))

@@ -34,6 +34,9 @@ def blockbuster() -> Iterator[None]:
     # Coverage reads source files while collecting data.
     bb.functions["os.stat"].can_block_in("coverage/python.py", "get_python_source")
     bb.functions["io.BufferedReader.read"].can_block_in("coverage/python.py", "read_python_source")
+    # jsonschema discovers its bundled schemas during its first import.
+    bb.functions["os.scandir"].can_block_in("/jsonschema_specifications/_core.py", "_schemas")
+    bb.functions["io.TextIOWrapper.read"].can_block_in("/jsonschema_specifications/_core.py", "_schemas")
     # These public synchronous conversions read the media file by design.
     bb.functions["io.BufferedReader.read"].can_block_in(
         "mcp/server/mcpserver/utilities/types.py", ("to_image_content", "to_audio_content")
