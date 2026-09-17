@@ -421,83 +421,90 @@ class _FakeBearerAuth(httpx2.Auth):
 
 
 @pytest.mark.anyio
-async def test_establish_session_sse_passes_auth():
+@mock.patch("mcp.client.session_group.sse_client")
+@mock.patch("mcp.client.session_group.mcp.ClientSession")
+async def test_establish_session_sse_passes_auth(
+    mock_ClientSession_class: mock.MagicMock,
+    mock_sse_client: mock.MagicMock,
+):
     """_establish_session should pass auth to sse_client for SseServerParameters."""
     mock_auth = mock.Mock(spec=httpx2.Auth)
     server_params = SseServerParameters(url="http://test.com/sse", auth=mock_auth)
 
-    with mock.patch("mcp.client.session_group.mcp.ClientSession") as mock_ClientSession_class:
-        with mock.patch("mcp.client.session_group.sse_client") as mock_sse_client:
-            mock_client_cm = mock.AsyncMock()
-            mock_read = mock.AsyncMock()
-            mock_write = mock.AsyncMock()
-            mock_client_cm.__aenter__.return_value = (mock_read, mock_write)
-            mock_client_cm.__aexit__ = mock.AsyncMock(return_value=None)
-            mock_sse_client.return_value = mock_client_cm
+    mock_client_cm = mock.AsyncMock()
+    mock_read = mock.AsyncMock()
+    mock_write = mock.AsyncMock()
+    mock_client_cm.__aenter__.return_value = (mock_read, mock_write)
+    mock_client_cm.__aexit__ = mock.AsyncMock(return_value=None)
+    mock_sse_client.return_value = mock_client_cm
 
-            mock_session_cm = mock.AsyncMock()
-            mock_ClientSession_class.return_value = mock_session_cm
-            mock_session = mock.AsyncMock()
-            mock_session_cm.__aenter__.return_value = mock_session
-            mock_session_cm.__aexit__ = mock.AsyncMock(return_value=None)
+    mock_session_cm = mock.AsyncMock()
+    mock_ClientSession_class.return_value = mock_session_cm
+    mock_session = mock.AsyncMock()
+    mock_session_cm.__aenter__.return_value = mock_session
+    mock_session_cm.__aexit__ = mock.AsyncMock(return_value=None)
 
-            mock_result = mock.AsyncMock()
-            mock_result.server_info = types.Implementation(name="test", version="1")
-            mock_session.initialize.return_value = mock_result
+    mock_result = mock.AsyncMock()
+    mock_result.server_info = types.Implementation(name="test", version="1")
+    mock_session.initialize.return_value = mock_result
 
-            group = ClientSessionGroup()
-            async with contextlib.AsyncExitStack() as stack:
-                group._exit_stack = stack
-                await group._establish_session(server_params, ClientSessionParameters())
+    group = ClientSessionGroup()
+    async with contextlib.AsyncExitStack() as stack:
+        group._exit_stack = stack
+        await group._establish_session(server_params, ClientSessionParameters())
 
-            mock_sse_client.assert_called_once_with(
-                url="http://test.com/sse",
-                headers=None,
-                timeout=5.0,
-                sse_read_timeout=300.0,
-                auth=mock_auth,
-            )
+    mock_sse_client.assert_called_once_with(
+        url="http://test.com/sse",
+        headers=None,
+        timeout=5.0,
+        sse_read_timeout=300.0,
+        auth=mock_auth,
+    )
 
 
 @pytest.mark.anyio
-async def test_establish_session_streamable_http_passes_auth():
+@mock.patch("mcp.client.session_group.create_mcp_http_client")
+@mock.patch("mcp.client.session_group.streamable_http_client")
+@mock.patch("mcp.client.session_group.mcp.ClientSession")
+async def test_establish_session_streamable_http_passes_auth(
+    mock_ClientSession_class: mock.MagicMock,
+    mock_streamable_client: mock.MagicMock,
+    mock_create_client: mock.MagicMock,
+):
     """_establish_session should pass auth to create_mcp_http_client for StreamableHttpParameters."""
     mock_auth = mock.Mock(spec=httpx2.Auth)
     server_params = StreamableHttpParameters(url="http://test.com/stream", auth=mock_auth)
 
-    with mock.patch("mcp.client.session_group.mcp.ClientSession") as mock_ClientSession_class:
-        with mock.patch("mcp.client.session_group.streamable_http_client") as mock_streamable_client:
-            with mock.patch("mcp.client.session_group.create_mcp_http_client") as mock_create_client:
-                mock_httpx_client = mock.AsyncMock(spec=httpx2.AsyncClient)
-                mock_httpx_client.__aenter__ = mock.AsyncMock(return_value=mock_httpx_client)
-                mock_httpx_client.__aexit__ = mock.AsyncMock(return_value=None)
-                mock_create_client.return_value = mock_httpx_client
+    mock_httpx_client = mock.AsyncMock(spec=httpx2.AsyncClient)
+    mock_httpx_client.__aenter__ = mock.AsyncMock(return_value=mock_httpx_client)
+    mock_httpx_client.__aexit__ = mock.AsyncMock(return_value=None)
+    mock_create_client.return_value = mock_httpx_client
 
-                mock_client_cm = mock.AsyncMock()
-                mock_read = mock.AsyncMock()
-                mock_write = mock.AsyncMock()
-                mock_client_cm.__aenter__.return_value = (mock_read, mock_write)
-                mock_client_cm.__aexit__ = mock.AsyncMock(return_value=None)
-                mock_streamable_client.return_value = mock_client_cm
+    mock_client_cm = mock.AsyncMock()
+    mock_read = mock.AsyncMock()
+    mock_write = mock.AsyncMock()
+    mock_client_cm.__aenter__.return_value = (mock_read, mock_write)
+    mock_client_cm.__aexit__ = mock.AsyncMock(return_value=None)
+    mock_streamable_client.return_value = mock_client_cm
 
-                mock_session_cm = mock.AsyncMock()
-                mock_ClientSession_class.return_value = mock_session_cm
-                mock_session = mock.AsyncMock()
-                mock_session_cm.__aenter__.return_value = mock_session
-                mock_session_cm.__aexit__ = mock.AsyncMock(return_value=None)
+    mock_session_cm = mock.AsyncMock()
+    mock_ClientSession_class.return_value = mock_session_cm
+    mock_session = mock.AsyncMock()
+    mock_session_cm.__aenter__.return_value = mock_session
+    mock_session_cm.__aexit__ = mock.AsyncMock(return_value=None)
 
-                mock_result = mock.AsyncMock()
-                mock_result.server_info = types.Implementation(name="test", version="1")
-                mock_session.initialize.return_value = mock_result
+    mock_result = mock.AsyncMock()
+    mock_result.server_info = types.Implementation(name="test", version="1")
+    mock_session.initialize.return_value = mock_result
 
-                group = ClientSessionGroup()
-                async with contextlib.AsyncExitStack() as stack:
-                    group._exit_stack = stack
-                    await group._establish_session(server_params, ClientSessionParameters())
+    group = ClientSessionGroup()
+    async with contextlib.AsyncExitStack() as stack:
+        group._exit_stack = stack
+        await group._establish_session(server_params, ClientSessionParameters())
 
-                mock_create_client.assert_called_once()
-                call_kwargs = mock_create_client.call_args.kwargs
-                assert call_kwargs["auth"] is mock_auth
+    mock_create_client.assert_called_once()
+    call_kwargs = mock_create_client.call_args.kwargs
+    assert call_kwargs["auth"] is mock_auth
 
 
 def test_server_parameters_auth_model_config_and_serialization():
