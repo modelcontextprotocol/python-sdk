@@ -97,6 +97,32 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> Non
                 assert second.message == valid
 
 
+@pytest.mark.anyio
+async def test_stdio_server_serves_bufferless_std_streams_in_place(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A sys.stdin/sys.stdout with no .buffer is served as text rather than crashing.
+
+    Test harnesses and embedded hosts routinely replace the std streams with
+    io.StringIO, which exposes no binary layer for the claim path to re-encode.
+    """
+    request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    stdout = io.StringIO()
+    monkeypatch.setattr(sys, "stdin", io.StringIO(request.model_dump_json(by_alias=True, exclude_none=True) + "\n"))
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            async with read_stream:  # pragma: no branch
+                received = await read_stream.receive()
+                assert isinstance(received, SessionMessage)
+                assert received.message == request
+
+            response = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+            async with write_stream:  # pragma: no branch
+                await write_stream.send(SessionMessage(response))
+
+    assert jsonrpc_message_adapter.validate_json(stdout.getvalue(), by_name=False) == response
+
+
 @contextmanager
 def _pipe_planted_on_fd0(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[int, int]]:
     """Plants a fresh pipe on fd 0 and rebinds sys.stdin over it; yields (read_fd, write_fd).
