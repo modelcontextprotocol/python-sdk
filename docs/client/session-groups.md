@@ -78,21 +78,23 @@ When connecting to HTTP servers using `StreamableHttpParameters` or `SseServerPa
 from mcp.client.auth import OAuthClientProvider
 from mcp.client.session_group import ClientSessionGroup, StreamableHttpParameters
 
-server_auth = OAuthClientProvider(
-    server_url="https://api.example.com",
-    client_metadata=client_metadata,
-    storage=token_storage,
-    redirect_handler=redirect_handler,
-    callback_handler=callback_handler,
-)
 
-server_params = StreamableHttpParameters(
-    url="https://api.example.com/mcp",
-    auth=server_auth,
-)
+async def main() -> None:
+    server_auth = OAuthClientProvider(
+        server_url="https://api.example.com",
+        client_metadata=client_metadata,
+        storage=token_storage,
+        redirect_handler=redirect_handler,
+        callback_handler=callback_handler,
+    )
 
-async with ClientSessionGroup() as group:
-    await group.connect_to_server(server_params)
+    server_params = StreamableHttpParameters(
+        url="https://api.example.com/mcp",
+        auth=server_auth,
+    )
+
+    async with ClientSessionGroup() as group:
+        await group.connect_to_server(server_params)
 ```
 
 Because `auth` is configured per `ServerParameters` instance, each server in the session group maintains independent authentication context, scopes, and token-refresh lifecycle. Custom headers can still be supplied alongside `auth` via `headers=`.
