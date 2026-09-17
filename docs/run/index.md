@@ -88,6 +88,31 @@ Each transport has its own keyword arguments, all on `run()`:
 
 `run()` is the short road. The moment you need more (your server mounted inside an existing app, two servers in one process, CORS for browser clients), you build the ASGI app yourself and hand it to any ASGI host. That is **[Add to an existing app](asgi.md)**.
 
+## Custom transports
+
+```python title="custom_transport.py"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+`server.serve()` returns a context manager yielding a `ServerRuntime`. It starts application lifespan once and shares that state across the connections you supply. Both `MCPServer` and the low-level `Server` expose this API. It does not open a network listener or connect to a broker.
+
+Call `await runtime.connect(transport)` for each logical peer. The runtime opens the transport and serves it in the background. For message streams, the call returns when the transport is open, before MCP negotiation. For a dispatcher transport, it also waits for the dispatcher to signal readiness. Each peer has its own request-ID state; message streams negotiate their protocol era independently.
+
+| Option | Behavior |
+| --- | --- |
+| `server.serve(max_connections=100)` | Limits active connections. `connect()` waits for capacity before opening another transport. |
+| `runtime.connect(..., transport_builder=...)` | Builds each inbound message's `TransportContext`, available as `ctx.transport` in handlers. |
+| `runtime.connect(..., session_id=...)` | Supplies an optional identifier for a handshake-era connection. It is not authentication. |
+
+The default connection limit prevents an adapter from opening unlimited peers. Await admission in your listener instead of spawning unbounded tasks that wait for a slot. Message-size limits, broker queue limits, and per-peer request limits remain the adapter's responsibility.
+
+An error opening a transport reaches the caller of `connect()`. A later connection failure is logged and closes that peer without cancelling other peers. Exiting `server.serve()` stops admission, cancels active work, closes transports, and then exits application lifespan. Transport cleanup and lifespan cleanup each have a five-second cancellation deadline; cleanup code must cooperate with cancellation. Cleanup timeouts do not suppress an earlier listener or dispatcher startup failure. Dispatchers must join their handlers before returning; these deadlines do not permit closing application resources while a handler still uses them. Code that ignores cancellation can delay that join, so enforce hard process deadlines outside the SDK. Do not retain a runtime after its context exits.
+
+!!! warning "A peer label is not an identity"
+    The example attaches a label for demonstration. A real adapter must authenticate and authorize callers before binding identity to a request. Authenticating your server's broker connection does not authenticate every publisher. Validate reply destinations instead of forwarding messages to arbitrary client-supplied topics or queues.
+
+The [client transport contract](../client/transports.md#implement-a-message-transport) describes message types, resource ownership, and connection loss. For a native RPC binding, `runtime.connect()` also accepts an explicit [dispatcher transport](../client/transports.md#integrate-a-native-dispatcher). That entry serves modern per-request envelopes, not legacy handshakes. The built-in `run()` forms remain unchanged.
+
 ## Server settings
 
 A couple of things about running are not about the transport. They are constructor arguments:

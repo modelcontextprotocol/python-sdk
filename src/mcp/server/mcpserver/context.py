@@ -24,6 +24,7 @@ from mcp.shared.subscriptions import (
     ResourceUpdated,
     ToolsListChanged,
 )
+from mcp.shared.transport_context import TransportContext
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer
@@ -277,6 +278,11 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             logger=logger_name,
             related_request_id=self.request_id,
         )
+
+    @property
+    def transport(self) -> TransportContext | None:
+        """Transport metadata for this request, when its context supplies it."""
+        return self.request_context.transport
 
     @property
     def headers(self) -> Mapping[str, str] | None:

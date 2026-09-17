@@ -18,7 +18,8 @@ path) or chained as ``__cause__`` for in-process debugging.
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -50,6 +51,10 @@ DIRECT_TRANSPORT_KIND = "direct"
 
 _Request = Callable[[str, Mapping[str, Any] | None, CallOptions | None], Awaitable[dict[str, Any]]]
 _Notify = Callable[[str, Mapping[str, Any] | None], Awaitable[None]]
+
+
+class _DispatchClosed(Exception):
+    """A connection closed while an operation was running in its caller's task."""
 
 
 @dataclass
@@ -104,8 +109,11 @@ class DirectDispatcher:
     to have started, and once a side has closed - via `close()` or `run()`
     ending - `send_raw_request` raises `MCPError` (`CONNECTION_CLOSED`) and
     inbound requests fail the peer's call the same way instead of invoking the
-    handler. Notifications are fire-and-forget in both directions: after close
-    they are silently dropped.
+    handler. Closing either peer cancels active operations, including nested
+    back-channel calls. `run()` joins handler cleanup before returning so
+    application resources cannot close underneath it. Interrupted requests
+    fail with `CONNECTION_CLOSED`; interrupted notifications are dropped.
+    Notifications sent after close are also silently dropped.
     """
 
     def __init__(self, transport_ctx: TransportContext, *, raise_handler_exceptions: bool = True):
@@ -117,6 +125,7 @@ class DirectDispatcher:
         self._on_notify_intercept: OnNotifyIntercept | None = None
         self._next_id = 0
         self._in_flight_ids: set[RequestId] = set()
+        self._operations: dict[anyio.CancelScope, anyio.Event] = {}
         self._ready = anyio.Event()
         self._close_event = anyio.Event()
         self._running = False
@@ -146,7 +155,11 @@ class DirectDispatcher:
             raise MCPError(code=CONNECTION_CLOSED, message="Connection closed")
         if not self._running:
             raise RuntimeError("DirectDispatcher.send_raw_request called before run()")
-        return await self._peer._dispatch_request(method, params, opts)
+        try:
+            async with self._operation(self._peer):
+                return await self._peer._dispatch_request(method, params, opts)
+        except _DispatchClosed:
+            raise MCPError(code=CONNECTION_CLOSED, message="Connection closed") from None
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         """Send a notification by invoking the peer's `on_notify` directly.
@@ -161,7 +174,11 @@ class DirectDispatcher:
         if self._closed:
             logger.debug("dropped notification %r on closed DirectDispatcher", method)
             return
-        await self._peer._dispatch_notify(method, params)
+        try:
+            async with self._operation(self._peer):
+                await self._peer._dispatch_notify(method, params)
+        except _DispatchClosed:
+            logger.debug("dropped notification %r on closed DirectDispatcher", method)
 
     async def run(
         self,
@@ -186,25 +203,40 @@ class DirectDispatcher:
             await self._close_event.wait()
         finally:
             self._running = False
-            self._closed = True
-            # run() may end via cancellation without close() ever being
-            # called; setting the event wakes `_wait_ready` waiters so they
-            # observe the closed state instead of parking forever.
-            self._close_event.set()
+            self.close()
+            with anyio.CancelScope(shield=True):
+                for finished in tuple(self._operations.values()):
+                    await finished.wait()
 
     def close(self) -> None:
+        """Stop admitting work and cancel active calls; `run()` joins their cleanup."""
         self._closed = True
         self._close_event.set()
+        for scope in tuple(self._operations):
+            scope.cancel()
+
+    @asynccontextmanager
+    async def _operation(self, peer: DirectDispatcher) -> AsyncIterator[None]:
+        finished = anyio.Event()
+        with anyio.CancelScope() as scope:
+            self._operations[scope] = peer._operations[scope] = finished
+            try:
+                yield
+            finally:
+                self._operations.pop(scope)
+                peer._operations.pop(scope, None)
+                finished.set()
+        if scope.cancel_called:
+            raise _DispatchClosed
 
     def _make_context(
         self, on_progress: ProgressFnT | None = None, request_id: RequestId | None = None
     ) -> _DirectDispatchContext:
         assert self._peer is not None
-        peer = self._peer
         return _DirectDispatchContext(
             transport=self._transport_ctx,
-            _back_request=lambda m, p, o: peer._dispatch_request(m, p, o),
-            _back_notify=lambda m, p: peer._dispatch_notify(m, p),
+            _back_request=self.send_raw_request,
+            _back_notify=self.notify,
             request_id=request_id,
             _on_progress=on_progress,
         )

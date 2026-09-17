@@ -211,9 +211,10 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
         ...
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        """Report progress for the inbound request, if the peer supplied a progress token.
+        """Report progress for the inbound request when the peer opted in.
 
-        A no-op when no token was supplied.
+        JSON-RPC uses a progress token; direct and native bindings can carry
+        the callback opt-in separately. Without an opt-in this is a no-op.
         """
         ...
 
@@ -264,8 +265,11 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
     ) -> None:
         """Drive the receive loop until the underlying channel closes.
 
-        Each inbound request is dispatched to `on_request` in its own task;
-        the returned dict (or raised `MCPError`) is sent back as the response.
+        Dispatch each inbound request independently to `on_request`; the
+        returned dict (or raised `MCPError`) is sent back as the response.
+        On closure, cancel active operations and join their handler/callback
+        cleanup before returning. Application resources may close as soon as
+        this method exits; a shielded handler must not outlive that boundary.
         Implementations MUST offer every inbound notification to
         `on_notify_intercept` synchronously in receive order (via
         `run_notify_intercept`), handing only unconsumed ones to `on_notify`.

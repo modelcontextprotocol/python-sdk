@@ -42,7 +42,7 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
 
 ## What you get over HTTP
 
-Authorization lives in HTTP headers, so it exists only on the HTTP transports. Run it on the one you deploy: `mcp.run(transport="streamable-http")` puts it on `http://127.0.0.1:8000/mcp`, and **[Running your server](index.md)** has the rest. The app now has two routes:
+The SDK's built-in OAuth integration uses HTTP headers, so it applies only to HTTP transports. Run it on the one you deploy: `mcp.run(transport="streamable-http")` puts it on `http://127.0.0.1:8000/mcp`, and **[Running your server](index.md)** has the rest. The app now has two routes:
 
 ```text
 /mcp
@@ -103,6 +103,21 @@ Call `whoami` with `Authorization: Bearer alice-token` and the model reads:
 ```text
 alice (scopes: notes:read)
 ```
+
+## Custom transport identities
+
+```python title="server.py"
+--8<-- "docs_src/authorization/tutorial003.py"
+```
+
+Have your adapter attach `VerifiedPeer` only after authenticating the caller. `runtime.connect(transport_builder=...)` passes that metadata to handlers as `ctx.transport`. Use a stable, namespaced principal that distinguishes the issuing authority and user, not a display name or a client-supplied `_meta` field.
+
+The existing `RequestStateSecurity.bind_principal` hook binds sealed request state to this identity. Another principal cannot replay it. Raising when verified metadata is absent prevents state from silently becoming anonymous. This hook protects multi-round-trip state; it does not authenticate connections or authorize ordinary tool calls. Those checks still belong at the adapter boundary and in your application policy.
+
+The generated key suits a single process. Share keys across workers when retries can reach another instance, as described in [Protecting request state](../handlers/multi-round-trip.md#protecting-requeststate).
+
+!!! warning "Broker credentials are not publisher identity"
+    A service's broker credentials authenticate the service, not every publisher. Bind peers through broker-enforced topic or queue permissions, or verify an end-user credential yourself. Validate reply destinations before sending data. The SDK's `get_access_token()` remains an HTTP OAuth helper; custom transport metadata does not populate it automatically.
 
 ## The half the SDK doesn't do
 
