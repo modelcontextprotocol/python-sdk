@@ -968,3 +968,39 @@ Redirect to http://backend.lan:8000/mcp/ not followed: it would downgrade this H
 The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,
 often combined with a trailing-slash difference. Try https://backend.lan:8000/mcp/ instead, or fix the proxy settings.\
 """)
+
+
+@pytest.mark.anyio
+async def test_a_post_transport_error_fails_only_that_request_and_keeps_the_session() -> None:
+    """A POST whose HTTP exchange itself fails (server drops the connection before
+    responding) must resolve only that request with an error; the session and its
+    transport stay usable, matching the TypeScript client's recovery behavior."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        body = json.loads(request.content)
+        if body.get("id") == "drop-1":
+            raise httpx2.RemoteProtocolError("Server disconnected without sending a response.")
+        return httpx2.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json={"jsonrpc": "2.0", "id": body["id"], "result": {}},
+        )
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="drop-1", method="tools/call", params={})))
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="after-1", method="ping")))
+            first = await read.receive()
+            second = await read.receive()
+
+    assert isinstance(first, SessionMessage)
+    assert isinstance(first.message, JSONRPCError)
+    assert first.message.id == "drop-1"
+    assert first.message.error.code == CONNECTION_CLOSED
+
+    assert isinstance(second, SessionMessage)
+    assert isinstance(second.message, JSONRPCResponse)
+    assert second.message.id == "after-1"
