@@ -64,6 +64,7 @@ from mcp.server.caching import CacheableMethod, CacheHint, validate_cache_hints
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import serve_dual_era_loop
+from mcp.server.runtime import ServerRuntime
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import (
     DEFAULT_MAX_SESSIONS,
@@ -75,6 +76,7 @@ from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, Transpo
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import SessionMessage
+from mcp.shared.transport import TransportContextBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -689,6 +691,15 @@ class Server(Generic[LifespanResultT]):
             )
         return self._session_manager
 
+    def serve(self, *, max_connections: int = 100) -> AbstractAsyncContextManager[ServerRuntime[LifespanResultT]]:
+        """Share one application lifespan across custom transport connections.
+
+        Use `await runtime.connect(transport)` inside the context for each logical
+        peer. Admission waits at `max_connections`; exiting cancels active
+        connections and closes their transports before application cleanup.
+        """
+        return ServerRuntime[LifespanResultT].open(self, max_connections=max_connections)
+
     async def run(
         self,
         read_stream: ReadStream[SessionMessage | Exception],
@@ -699,6 +710,8 @@ class Server(Generic[LifespanResultT]):
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
+        *,
+        transport_builder: TransportContextBuilder | None = None,
     ) -> None:
         """Serve a single connection over the given streams until the read side closes.
 
@@ -706,7 +719,9 @@ class Server(Generic[LifespanResultT]):
         then drives the loop, serving the legacy handshake era and the modern
         per-request-envelope era (the client's first request decides which).
         Transports with their own lifespan owner (the streamable-HTTP manager)
-        call `serve_loop` directly instead.
+        call `serve_loop` directly instead. `transport_builder` converts each
+        inbound message's metadata to the `transport` exposed on its handler
+        context. Without it, the dispatcher supplies generic JSON-RPC metadata.
         """
         async with self.lifespan(self) as lifespan_context:
             await serve_dual_era_loop(
@@ -716,6 +731,7 @@ class Server(Generic[LifespanResultT]):
                 lifespan_state=lifespan_context,
                 init_options=initialization_options,
                 raise_exceptions=raise_exceptions,
+                transport_builder=transport_builder,
             )
 
     def streamable_http_app(

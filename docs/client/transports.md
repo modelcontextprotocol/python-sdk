@@ -118,6 +118,8 @@ No subprocess, no port, no bytes on a wire. The client and the server are two ob
 
 The same form doubles as an embedding API: an application that constructs the server itself can call its tools without a network hop.
 
+Closing the client cancels active in-process requests and waits for their handler cleanup before leaving application lifespan. A caller interrupted by connection closure receives `MCPError` with code `CONNECTION_CLOSED`. Handlers and callbacks must cooperate with cancellation; shielded cleanup keeps the application's resources alive until it finishes.
+
 ## SSE
 
 `sse_client(url)`, from `mcp.client.sse`, is the HTTP transport that Streamable HTTP superseded. Wrap it the same way, `Client(sse_client("http://localhost:8000/sse"))`, to talk to a server that still speaks it, and don't build anything new on it.
@@ -127,6 +129,40 @@ The same form doubles as an embedding API: an application that constructs the se
 To `Client`, all of the above are the same thing.
 
 A **transport** is any async context manager that yields a `(read, write)` pair of message streams: formally, the `Transport` protocol in `mcp.client`. `Client` resolves its argument by type: a `str` becomes `streamable_http_client(url)`, a `StdioServerParameters` becomes `stdio_client(params)`, a server object connects in-process, and anything else is entered as a transport directly. That last rule is why `stdio_client(...)`, `streamable_http_client(...)` and `sse_client(...)` all drop into the same slot, and why you can write your own.
+
+### Implement a message transport
+
+```python title="custom_transport.py"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+This example implements an in-memory adapter with two independent clients. A network adapter uses the same `TransportStreams` contract and replaces the memory channels with message readers and writers. You import the contract and its supporting types from `mcp.shared.transport`; the existing `mcp.client.Transport` import still works.
+
+Each stream pair represents **one logical peer**, not an entire broker. The adapter owns framing, routing, and its network resources. The SDK owns negotiation, request correlation, and MCP validation.
+
+Entering a transport opens its channel. Exiting stops its background tasks and closes resources it owns. The SDK also closes streams during connection shutdown, so their `aclose()` methods must be safe to call more than once. A network client supplied by the application remains owned by the application.
+
+An inbound item is a decoded `SessionMessage` or an exception describing a recoverable message error. An exception item alone does not disconnect the peer. End the read stream on connection loss so pending calls fail instead of waiting indefinitely. Make writes cancellable and apply backpressure rather than buffering without a bound.
+
+!!! warning "Delivery is not execution"
+    MQTT or AMQP delivery guarantees do not make a tool execute exactly once. A redelivered request can repeat a side effect. Define expiry, duplicate handling, and reconnect behavior in the adapter; do not silently replay unfinished calls.
+
+The server side of this example uses `server.serve()`. Its lifecycle and connection limits are covered under [Custom transports](../run/index.md#custom-transports). The repository's `examples/transports/README.md` contains live MQTT 5 and AMQP 0.9.1 examples, their binding rules, and the validation still needed before production use.
+
+### Integrate a native dispatcher
+
+```python title="dispatcher_transport.py"
+--8<-- "docs_src/client_transports/tutorial006.py"
+```
+
+`DispatcherTransport` explicitly wraps an async context manager yielding a `Dispatcher`. `Client` enters that context, starts the dispatcher, and uses its ordinary MCP negotiation, callbacks, caching, and validation. It stops the dispatcher before exiting the connection context. You configure the client through the same constructor; there is no separate native client-session API.
+
+The example uses the SDK's `DirectDispatcher`. The repository's `examples/transports/README.md` also contains a real gRPC implementation with protobuf envelopes and JSON payloads. Native network bindings implement this dispatcher boundary instead of creating `SessionMessage` streams. The connection context acquires the transport resources; it must yield an unstarted dispatcher because the SDK owns `run()`.
+
+On the server, `runtime.connect(DispatcherTransport(...))` serves the modern per-request-envelope protocol. It rejects the legacy initialize handshake. Use `mode="auto"` or a supported modern version on the client. Message transports still support both eras. Native dispatchers supply their own contexts, so this server path rejects `session_id=` and `transport_builder=`.
+
+!!! warning "Native bindings remain experimental"
+    The custom `Dispatcher` lifecycle is still provisional pending validation against native network adapters. This wrapper is not an official gRPC wire binding. Define and test framing, cancellation, error mapping, notifications, and extension payloads in your adapter before claiming interoperability.
 
 ## Recap
 

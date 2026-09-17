@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package mcp.transport.example;
+
+service MCP {
+  rpc Call(CallRequest) returns (stream CallEvent);
+}
+
+message CallRequest {
+  string method = 1;
+  bytes params_json = 2;
+  bytes request_id_json = 3;
+  bool report_progress = 4;
+}
+
+message CallEvent {
+  oneof payload {
+    bytes result_json = 1;
+    bytes error_json = 2;
+    Notification notification = 3;
+  }
+}
+
+message Notification {
+  string method = 1;
+  bytes params_json = 2;
+}

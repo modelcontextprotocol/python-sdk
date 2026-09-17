@@ -65,6 +65,12 @@ The same text the `@mcp.tool()` version produced. Two honest differences:
 
 In a test you skip uvicorn and the port: `Client(server)` takes a low-level `Server` in-process exactly like it takes an `MCPServer`, and **[Testing](../get-started/testing.md)** is that pattern.
 
+## Custom transports
+
+`Server.serve()` shares one application lifespan across multiple custom transport connections, just like `MCPServer.serve()`. Use the complete adapter example under [Running your server](../run/index.md#custom-transports).
+
+For a single connection, `Server.run(read_stream, write_stream, initialization_options, *, transport_builder=...)` remains available. The optional builder converts inbound message metadata into the `TransportContext` exposed as `ctx.transport`. Without it, stream dispatch supplies generic JSON-RPC metadata. Both paths retain the existing protocol-version handling; custom transport capabilities cannot enable features that the negotiated version forbids.
+
 ## Nothing is checked for you
 
 `MCPServer` rejects a bad argument before your function ever runs, validating the call against the schema it generated (**[Tools](../servers/tools.md)**).

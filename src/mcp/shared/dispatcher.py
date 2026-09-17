@@ -264,8 +264,11 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
     ) -> None:
         """Drive the receive loop until the underlying channel closes.
 
-        Each inbound request is dispatched to `on_request` in its own task;
-        the returned dict (or raised `MCPError`) is sent back as the response.
+        Dispatch each inbound request independently to `on_request`; the
+        returned dict (or raised `MCPError`) is sent back as the response.
+        On closure, cancel active operations and join their handler/callback
+        cleanup before returning. Application resources may close as soon as
+        this method exits; a shielded handler must not outlive that boundary.
         Implementations MUST offer every inbound notification to
         `on_notify_intercept` synchronously in receive order (via
         `run_notify_intercept`), handing only unconsumed ones to `on_notify`.

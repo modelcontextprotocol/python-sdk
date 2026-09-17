@@ -67,6 +67,7 @@ from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.inbound import InboundLadderRejection, classify_inbound_request
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, handler_exception_to_error_data
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.transport import TransportContextBuilder
 from mcp.shared.transport_context import TransportContext
 
 if TYPE_CHECKING:
@@ -81,6 +82,7 @@ __all__ = [
     "serve_connection",
     "serve_dual_era_loop",
     "serve_loop",
+    "serve_modern_dispatcher",
     "serve_one",
 ]
 
@@ -334,6 +336,7 @@ class ServerRunner(Generic[LifespanT]):
             meta=meta,
             protocol_version=protocol_version,
             request=request,
+            transport=dctx.transport,
             close_sse_stream=close_sse_stream,
             close_standalone_sse_stream=close_standalone_sse_stream,
         )
@@ -476,6 +479,7 @@ async def serve_loop(
     session_id: str | None = None,
     init_options: InitializationOptions | None = None,
     raise_exceptions: bool = False,
+    transport_builder: TransportContextBuilder | None = None,
 ) -> None:
     """Drive ``server`` in handshake-only loop mode over a stream pair until the channel closes.
 
@@ -490,6 +494,7 @@ async def serve_loop(
         read_stream,
         write_stream,
         raise_handler_exceptions=raise_exceptions,
+        transport_builder=transport_builder,
         # Handle `initialize` inline so a client that pipelines it with the
         # next request (spec: SHOULD NOT, not MUST NOT) sees the initialized
         # state instead of failing the init-gate.
@@ -608,6 +613,7 @@ async def serve_dual_era_loop(
     session_id: str | None = None,
     init_options: InitializationOptions | None = None,
     raise_exceptions: bool = False,
+    transport_builder: TransportContextBuilder | None = None,
 ) -> None:
     """Drive `server` over a duplex stream pair, in the era the client opens with.
 
@@ -630,7 +636,12 @@ async def serve_dual_era_loop(
             )
             if opens_modern:
                 await _serve_modern_stream(
-                    server, replayed, write_stream, lifespan_state=lifespan_state, raise_exceptions=raise_exceptions
+                    server,
+                    replayed,
+                    write_stream,
+                    lifespan_state=lifespan_state,
+                    raise_exceptions=raise_exceptions,
+                    transport_builder=transport_builder,
                 )
             else:
                 await _serve_legacy_stream(
@@ -641,6 +652,7 @@ async def serve_dual_era_loop(
                     session_id=session_id,
                     init_options=init_options,
                     raise_exceptions=raise_exceptions,
+                    transport_builder=transport_builder,
                 )
     finally:
         await write_stream.aclose()
@@ -723,12 +735,14 @@ async def _serve_legacy_stream(
     session_id: str | None,
     init_options: InitializationOptions | None,
     raise_exceptions: bool,
+    transport_builder: TransportContextBuilder | None,
 ) -> None:
     """Serve a 2025 handshake connection; enveloped requests are refused."""
     dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
         read_stream,
         write_stream,
         raise_handler_exceptions=raise_exceptions,
+        transport_builder=transport_builder,
         # `initialize` inline for the same pipelining reason as `serve_loop`.
         inline_methods=frozenset({"initialize"}),
     )
@@ -759,11 +773,30 @@ async def _serve_modern_stream(
     *,
     lifespan_state: LifespanT,
     raise_exceptions: bool,
+    transport_builder: TransportContextBuilder | None,
 ) -> None:
     """Serve a 2026-07-28 connection: every request carries its own envelope."""
     dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
-        read_stream, write_stream, raise_handler_exceptions=raise_exceptions
+        read_stream, write_stream, raise_handler_exceptions=raise_exceptions, transport_builder=transport_builder
     )
+    await serve_modern_dispatcher(server, dispatcher, lifespan_state=lifespan_state, raise_exceptions=raise_exceptions)
+
+
+async def serve_modern_dispatcher(
+    server: Server[LifespanT],
+    dispatcher: Dispatcher[TransportContext],
+    *,
+    lifespan_state: LifespanT,
+    raise_exceptions: bool = False,
+    task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+) -> None:
+    """Serve per-request-envelope MCP over a wire-independent dispatcher.
+
+    Each request is classified before entering the shared handler pipeline.
+    Handshake-era initialization is rejected. The dispatcher owns request
+    scheduling and cancellation; the caller owns application lifespan and
+    transport resources. Prefer `ServerRuntime.connect()` for managed serving.
+    """
     outbound = NotifyOnlyOutbound(dispatcher)
 
     async def on_request(
@@ -809,7 +842,7 @@ async def _serve_modern_stream(
         finally:
             await aclose_shielded(connection)
 
-    await dispatcher.run(on_request, on_notify)
+    await dispatcher.run(on_request, on_notify, task_status=task_status)
 
 
 async def serve_one(

@@ -4,7 +4,7 @@ import inspect
 
 import pytest
 
-from docs_src.client_transports import tutorial001, tutorial004
+from docs_src.client_transports import tutorial001, tutorial004, tutorial005, tutorial006
 from mcp import Client
 from mcp.client.stdio import get_default_environment
 from mcp.client.streamable_http import streamable_http_client
@@ -17,6 +17,16 @@ async def test_the_in_memory_program_on_the_page_runs(capsys: pytest.CaptureFixt
     """tutorial001's `main()` is the literal client program on the page; it runs clean end to end."""
     await tutorial001.main()
     assert "Found 3 books matching 'dune'." in capsys.readouterr().out
+
+
+async def test_custom_transport_example_serves_independent_peers() -> None:
+    """The public adapter example runs both clients through stream-backed server dispatch."""
+    await tutorial005.main()
+
+
+async def test_dispatcher_transport_example_uses_the_shared_mcp_pipeline() -> None:
+    """The explicit dispatcher wrapper drives a complete client/server call without message streams."""
+    await tutorial006.main()
 
 
 async def test_in_memory_client_talks_to_the_server_object() -> None:
