@@ -296,9 +296,25 @@ class ClientSessionGroup:
         server_params: ServerParameters,
         session_params: ClientSessionParameters | None = None,
     ) -> mcp.ClientSession:
-        """Connects to a single MCP server."""
+        """Connects to a single MCP server.
+
+        Raises:
+            MCPError: If the server's prompts, resources, or tools collide
+                with names already in the group. The transport opened for
+                this connection is closed before the error propagates.
+        """
         server_info, session = await self._establish_session(server_params, session_params or ClientSessionParameters())
-        return await self.connect_with_session(server_info, session)
+        try:
+            return await self.connect_with_session(server_info, session)
+        except Exception:
+            # connect_with_session validates components against names already
+            # in the group and can reject the session. We own the transport
+            # established above, so close it here rather than leaking it
+            # until the whole group tears down.
+            session_stack = self._session_exit_stacks.pop(session, None)
+            if session_stack is not None:
+                await session_stack.aclose()
+            raise
 
     async def _establish_session(
         self,

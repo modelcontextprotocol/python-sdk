@@ -287,6 +287,49 @@ async def test_client_session_group_connect_to_server_duplicate_tool_raises_erro
 
 
 @pytest.mark.anyio
+async def test_client_session_group_connect_to_server_closes_transport_on_duplicate(
+    mock_exit_stack: contextlib.AsyncExitStack,
+):
+    """A session rejected for a duplicate name must have its transport closed.
+
+    connect_to_server is the only caller that owns the transport it opens (via
+    _establish_session); connect_with_session callers bring their own session and
+    must keep owning it even if the group rejects it.
+    """
+    # --- Setup Pre-existing State ---
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+    existing_tool_name = "shared_tool"
+    group._tools[existing_tool_name] = mock.Mock(spec=types.Tool)
+    group._tools[existing_tool_name].name = existing_tool_name
+
+    # --- Mock New Connection Attempt ---
+    mock_server_info_new = mock.Mock(spec=types.Implementation)
+    mock_server_info_new.name = "ServerWithDuplicate"
+    mock_session_new = mock.AsyncMock(spec=mcp.ClientSession)
+    duplicate_tool = mock.Mock(spec=types.Tool)
+    duplicate_tool.name = existing_tool_name
+    mock_session_new.list_tools.return_value = mock.AsyncMock(tools=[duplicate_tool])
+    mock_session_new.list_resources.return_value = mock.AsyncMock(resources=[])
+    mock_session_new.list_prompts.return_value = mock.AsyncMock(prompts=[])
+
+    # _establish_session registers the new session's transport stack as a side
+    # effect of opening it, exactly like the real implementation does.
+    new_session_stack = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+
+    async def fake_establish_session(*args: object, **kwargs: object) -> tuple[types.Implementation, mcp.ClientSession]:
+        group._session_exit_stacks[mock_session_new] = new_session_stack
+        return mock_server_info_new, mock_session_new
+
+    # --- Test Execution and Assertion ---
+    with pytest.raises(MCPError):
+        with mock.patch.object(group, "_establish_session", side_effect=fake_establish_session):
+            await group.connect_to_server(StdioServerParameters(command="test"))
+
+    new_session_stack.aclose.assert_awaited_once()
+    assert mock_session_new not in group._session_exit_stacks
+
+
+@pytest.mark.anyio
 async def test_client_session_group_disconnect_non_existent_server():
     """Test disconnecting a server that isn't connected."""
     session = mock.Mock(spec=mcp.ClientSession)
