@@ -11,7 +11,6 @@ from aio_pika.abc import AbstractChannel, AbstractExchange, AbstractIncomingMess
 from aio_pika.exceptions import AMQPError, ChannelInvalidStateError
 from mcp.shared.transport import SessionMessage, TransportStreams
 from mcp.types import jsonrpc_message_adapter
-from pamqp.common import Arguments
 from pydantic import ValidationError
 from typing_extensions import Self
 
@@ -28,26 +27,24 @@ async def amqp_transport(
     """Connect a peer over two dedicated queues without automatic replay.
 
     You own `channel` and its connection. Use a fresh queue pair for every
-    logical connection. Each queue receives through its own `.exchange`
-    direct exchange; restrict queue and exchange access with broker permissions.
+    logical connection, provisioned and bound by a trusted account before
+    entering the transport. Each queue receives through its own `.exchange`
+    direct exchange. Clients need only publish/consume permissions, not topology
+    configuration or binding rights. `expiry` controls outgoing message TTL.
     Messages are acknowledged before SDK handoff; redeliveries are rejected.
     This avoids automatically repeating side effects but can lose work after
     acknowledgment. A publisher confirmation is not tool completion.
 
     Raises:
         ValueError: If routing, limits, or publisher-confirm settings are invalid.
-        AMQPError: If queue setup or publication fails.
+        AMQPError: If consumption or publication fails.
     """
     if not incoming_queue or not outgoing_queue or incoming_queue == outgoing_queue:
         raise ValueError("AMQP directions must use different nonempty queue names")
     if expiry < 1 or max_message_size < 1 or not channel.publisher_confirms:
         raise ValueError("Positive limits and publisher confirmations are required")
-    arguments: Arguments = {"x-expires": expiry * 1000, "x-max-length": 256, "x-overflow": "reject-publish"}
-    incoming = await channel.declare_queue(incoming_queue, auto_delete=True, arguments=arguments)
-    await channel.declare_queue(outgoing_queue, auto_delete=True, arguments=arguments)
-    incoming_exchange = await channel.declare_exchange(f"{incoming_queue}.exchange", auto_delete=True)
-    outgoing_exchange = await channel.declare_exchange(f"{outgoing_queue}.exchange", auto_delete=True)
-    await incoming.bind(incoming_exchange, routing_key=incoming_queue)
+    incoming = await channel.get_queue(incoming_queue, ensure=False)
+    outgoing_exchange = await channel.get_exchange(f"{outgoing_queue}.exchange", ensure=False)
     await channel.set_qos(prefetch_count=16)
     send, receive = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     writer = _AMQPWriter(outgoing_exchange, outgoing_queue, expiry, max_message_size)

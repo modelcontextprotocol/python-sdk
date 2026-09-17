@@ -23,6 +23,16 @@ async def open_transport(stack: AsyncExitStack, principal: str, session: str, se
     channel = await connection.channel(publisher_confirms=True)
     stack.push_async_callback(channel.close)
     queue = f"mcp.{principal}.{session}"
+    if server_side:
+        for direction in ("requests", "responses"):
+            name = f"{queue}.{direction}"
+            destination = await channel.declare_queue(
+                name,
+                auto_delete=True,
+                arguments={"x-expires": 60_000, "x-max-length": 256, "x-overflow": "reject-publish"},
+            )
+            exchange = await channel.declare_exchange(f"{name}.exchange", auto_delete=True)
+            await destination.bind(exchange, routing_key=name)
     incoming, outgoing = ("requests", "responses") if server_side else ("responses", "requests")
     return amqp_transport(channel, incoming_queue=f"{queue}.{incoming}", outgoing_queue=f"{queue}.{outgoing}")
 

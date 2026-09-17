@@ -116,9 +116,9 @@ UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv run --frozen --package mcp-t
 docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml down --volumes
 ```
 
-The programs reuse the same two-peer application checks as MQTT for both server APIs and all three client modes. The permission check requires RabbitMQ to reject publication through the default exchange and another principal's exchange. CI runs both programs against the pinned RabbitMQ fixture.
+The programs reuse the same two-peer application checks as MQTT for both server APIs and all three client modes. The permission check requires RabbitMQ to reject client declarations, response bindings, and publication through response, default, or foreign exchanges. It also tests an exchange named exactly like a response queue. CI runs both programs against the pinned RabbitMQ fixture.
 
-`demo_amqp.py` contains complete setup. You own the connection and publisher-confirm channel, and enter them before `amqp_transport()`. The adapter cancels its consumer without closing that borrowed channel. Use a fresh queue pair for each logical connection and do not load-balance handshake-era traffic across independent sessions.
+`demo_amqp.py` contains complete setup. The trusted server account declares and binds both directions before either transport enters. You own the connection and publisher-confirm channel; `amqp_transport()` only gets handles to existing resources and cancels its consumer without closing that borrowed channel. Missing queues or exchanges fail at consumption or publication. Use a fresh queue pair for each logical connection and do not load-balance handshake-era traffic across independent sessions.
 
 ### AMQP wire binding
 
@@ -131,7 +131,7 @@ The programs reuse the same two-peer application checks as MQTT for both server 
 | Delivery | Publisher confirmations; acknowledge before SDK handoff |
 | Close | Empty JSON-typed message body |
 | Retention | Nondurable, auto-delete queues |
-| Expiry | Message TTL and unused queue expiry, default 60 seconds |
+| Expiry | Outgoing message TTL defaults to 60 seconds; the demo separately provisions a 60-second unused-queue expiry |
 | Message limit | 4 MiB by default |
 | Redelivery | Reject without requeue; never replay requests automatically |
 
@@ -141,7 +141,7 @@ Queues hold at most 256 ready messages and reject publication on overflow. Consu
 
 ### AMQP authorization and limits
 
-The fixture grants each client publication rights only to its request exchanges. Queue-name permissions alone do not constrain default-exchange routing, so client credentials cannot publish through `amq.default`. The live permission check also rejects writes to another principal's exchange. Server credentials manage both sides of the configured routes; messages cannot choose an arbitrary reply destination.
+The fixture grants each client only publication rights on its request exchanges and consumption rights on its response queues. Clients cannot configure topology or bind queues. RabbitMQ write permissions apply to resource names, not resource types: granting write access to a response queue would also permit publication to an exchange with that name. Server-side provisioning removes the need for that grant. Client credentials also cannot publish through `amq.default` or another principal's exchange; messages cannot choose an arbitrary reply destination.
 
 The fixture uses public test credentials, listens only on localhost, and disables durable storage. Do not deploy it. Use TLS and broker authorization in production, and bind request state to verified, authority-qualified identity. Change the local port with `AMQP_TEST_PORT` (default 15672).
 

@@ -7,7 +7,7 @@
   "vhosts": [{"name": "/"}],
   "permissions": [
     {"user": "server", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*"},
-    {"user": "alice", "vhost": "/", "configure": "^mcp\\.alice\\..*", "write": "^mcp\\.alice\\.[^.]+\\.(requests\\.exchange|responses)$", "read": "^mcp\\.alice\\.[^.]+\\.responses(\\.exchange)?$"},
-    {"user": "bob", "vhost": "/", "configure": "^mcp\\.bob\\..*", "write": "^mcp\\.bob\\.[^.]+\\.(requests\\.exchange|responses)$", "read": "^mcp\\.bob\\.[^.]+\\.responses(\\.exchange)?$"}
+    {"user": "alice", "vhost": "/", "configure": "^$", "write": "^mcp\\.alice\\.[^.]+\\.requests\\.exchange$", "read": "^mcp\\.alice\\.[^.]+\\.responses$"},
+    {"user": "bob", "vhost": "/", "configure": "^$", "write": "^mcp\\.bob\\.[^.]+\\.requests\\.exchange$", "read": "^mcp\\.bob\\.[^.]+\\.responses$"}
   ]
 }
