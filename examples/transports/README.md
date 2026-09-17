@@ -119,7 +119,7 @@ docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml do
 
 The programs reuse the same two-peer application checks as MQTT for both server APIs and all three client modes. The permission check requires RabbitMQ to reject client declarations, response bindings, and publication through response, default, or foreign exchanges. It also tests an exchange named exactly like a response queue. The lifecycle check covers either close order, requests queued before the peer consumes, unroutable publication, and the remote-loss deadline limitation below. CI runs all three programs against the pinned RabbitMQ fixture.
 
-`demo_amqp.py` contains complete setup. The trusted server account declares and binds both directions before either transport enters. You own the connection and publisher-confirm channel; `amqp_transport()` only gets handles to existing resources and cancels its consumer without closing that borrowed channel. Keep the non-auto-delete exchanges alive until both peer transports have stopped; the trusted provisioner then deletes them and must reclaim any left by a process crash. Queue expiry does not delete these exchanges. Deleting an exchange while a peer still publishes can make RabbitMQ close that peer's channel. Missing queues or exchanges fail at consumption or publication. Use a fresh queue pair for each logical connection and do not load-balance handshake-era traffic across independent sessions.
+`demo_amqp.py` contains complete setup. The trusted server account declares and binds both directions before either transport enters. You own the connection and publisher-confirm channel; `amqp_transport()` only gets handles to existing resources and cancels its consumer without closing that borrowed channel. Keep the non-auto-delete exchanges alive until both peer transports have stopped; normal teardown deletes them, but cleanup after a process crash is manual. Queue expiry does not delete these exchanges; see [AMQP crash cleanup](#amqp-crash-cleanup). Deleting an exchange while a peer still publishes can make RabbitMQ close that peer's channel. Missing queues or exchanges fail at consumption or publication. Use a fresh queue pair for each logical connection and do not load-balance handshake-era traffic across independent sessions.
 
 ### AMQP wire binding
 
@@ -141,6 +141,16 @@ Acknowledging before SDK handoff avoids automatically rerunning uncertain work, 
 The adapter checks the publish confirmation and treats unroutable returns as a write failure, ending the logical connection without replay. The example also enables `on_return_raises=True` on its publisher-confirm channels. A return from an existing exchange does not close the borrowed channel.
 
 Queues hold at most 256 ready messages and reject publication on overflow. Consumer prefetch bounds unacknowledged deliveries, not concurrently executing tool handlers. Malformed messages become recoverable stream exceptions; channel closure ends the read stream.
+
+### AMQP crash cleanup
+
+```bash
+docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml down --volumes
+```
+
+After stopping all demo peers, run this command to remove the local broker fixture and its disposable state. It resets both brokers in this Compose project.
+
+The provisioner registers exchange deletion for normal `AsyncExitStack` teardown only. A process crash skips those callbacks, and the demo has no startup orphan cleanup. On a shared broker, an administrator must identify abandoned sessions and manually delete their `mcp.<principal>.<session>.requests.exchange` and `mcp.<principal>.<session>.responses.exchange` resources. Confirm that neither peer is active before deleting them; do not sweep exchanges belonging to active sessions.
 
 ### AMQP remote-peer loss
 
