@@ -1,0 +1,39 @@
+services:
+  mqtt:
+    image: eclipse-mosquitto:2.0.22@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c
+    ports:
+      - "127.0.0.1:${MQTT_TEST_PORT:-13883}:1883"
+    volumes:
+      - ./brokers/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./brokers/mosquitto.acl:/mosquitto/config/mosquitto.acl:ro
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mosquitto_passwd -b -c /tmp/passwords server-alice test-server-alice-password
+        mosquitto_passwd -b /tmp/passwords server-bob test-server-bob-password
+        mosquitto_passwd -b /tmp/passwords health test-health-password
+        mosquitto_passwd -b /tmp/passwords alice test-alice-password
+        mosquitto_passwd -b /tmp/passwords bob test-bob-password
+        chmod 644 /tmp/passwords
+        exec mosquitto -c /mosquitto/config/mosquitto.conf
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mosquitto_pub",
+          "-h",
+          "127.0.0.1",
+          "-u",
+          "health",
+          "-P",
+          "test-health-password",
+          "-t",
+          "health",
+          "-m",
+          "",
+          "-q",
+          "2",
+        ]
+      interval: 1s
+      timeout: 3s
+      retries: 20

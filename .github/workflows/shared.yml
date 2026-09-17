@@ -121,6 +121,16 @@ jobs:
           uv run --frozen --no-sync --package mcp-transport-examples --group dev
           pytest -c examples/transports/pyproject.toml examples/transports/tests --record-mode=none
           --junitxml=transport-results.xml
+      - name: Start isolated broker fixtures
+        run: docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml up --wait
+      - name: Check live MQTT routing and peer loss
+        run: |
+          for script in demo_mqtt.py demo_mqtt_disconnect.py; do
+            uv run --frozen --no-sync --package mcp-transport-examples --group dev python "examples/transports/$script"
+          done
+      - name: Stop broker fixtures
+        if: always()
+        run: docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml down --volumes
       - name: Retain adapter test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
