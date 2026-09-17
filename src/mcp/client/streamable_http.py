@@ -131,7 +131,12 @@ class StreamableHTTPTransport:
         # `_consume_modern_cancellation`. Keys are verbatim-typed ("1" is not 1).
         self._in_flight_posts: dict[RequestId, _InFlightPost] = {}
 
-    def _prepare_headers(self) -> dict[str, str]:
+    def _prepare_headers(
+        self,
+        *,
+        accept: str = "application/json, text/event-stream",
+        content_type: str | None = "application/json",
+    ) -> dict[str, str]:
         """Build MCP-specific request headers for any outbound HTTP request.
 
         These are merged with the ``httpx2.AsyncClient`` defaults (these take
@@ -140,11 +145,16 @@ class StreamableHTTPTransport:
         response/error POSTs, legacy cancel frames, transport-internal
         GET/DELETE — still carry the negotiated version. Per-message headers
         are layered on top by the caller.
+
+        The defaults are the POST shape. SSE GETs pass ``accept="text/event-stream",
+        content_type=None``: `EventSource` can only read that content type, so offering
+        ``application/json`` too just invites a compliant-looking server to answer with
+        the one type the client will then refuse. The bodyless DELETE passes
+        ``content_type=None`` since it sends no body.
         """
-        headers: dict[str, str] = {
-            "accept": "application/json, text/event-stream",
-            "content-type": "application/json",
-        }
+        headers: dict[str, str] = {"accept": accept}
+        if content_type is not None:
+            headers["content-type"] = content_type
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
         if self._protocol_version_header:
@@ -227,7 +237,7 @@ class StreamableHTTPTransport:
                 if not self.session_id:
                     return
 
-                headers = self._prepare_headers()
+                headers = self._prepare_headers(accept="text/event-stream", content_type=None)
                 if last_event_id:
                     headers[LAST_EVENT_ID] = last_event_id
 
@@ -267,7 +277,7 @@ class StreamableHTTPTransport:
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
-        headers = self._prepare_headers()
+        headers = self._prepare_headers(accept="text/event-stream", content_type=None)
         if ctx.metadata and ctx.metadata.resumption_token:
             headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
         else:
@@ -538,7 +548,7 @@ class StreamableHTTPTransport:
         delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
         await anyio.sleep(delay_ms / 1000.0)
 
-        headers = self._prepare_headers()
+        headers = self._prepare_headers(accept="text/event-stream", content_type=None)
         headers[LAST_EVENT_ID] = last_event_id
 
         try:
@@ -666,7 +676,7 @@ class StreamableHTTPTransport:
             return  # pragma: no cover
 
         try:
-            headers = self._prepare_headers()
+            headers = self._prepare_headers(content_type=None)
             response = await request_within_origin(client, "DELETE", self.url, headers=headers)
 
             if response.status_code == 405:

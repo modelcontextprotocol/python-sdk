@@ -37,6 +37,7 @@ from starlette.types import Receive, Scope, Send
 from mcp import Client, MCPError
 from mcp.client.streamable_http import (
     MAX_RECONNECTION_ATTEMPTS,
+    MCP_SESSION_ID,
     RequestContext,
     StreamableHTTPTransport,
     streamable_http_client,
@@ -85,6 +86,31 @@ def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field
         assert base64.b64decode(encoded.removeprefix("=?base64?").removesuffix("?=")).decode() == raw
     else:
         assert encoded == raw
+
+
+def test_prepare_headers_matches_each_call_sites_request_shape() -> None:
+    """POST keeps the dual-content-type default; SSE GETs advertise only text/event-stream and no
+    Content-Type; the bodyless DELETE drops Content-Type but keeps the dual-content-type Accept
+    (SDK-defined: `_prepare_headers` is shared by every outbound request, so each call site's
+    `accept`/`content_type` arguments are pinned here rather than only through end-to-end transport
+    tests, since `EventSource` accepts nothing but `text/event-stream` and a server that takes the
+    unparameterized default's JSON offer at its word desyncs the GET stream silently)."""
+    transport = StreamableHTTPTransport("http://test/mcp")
+    transport.session_id = "session-1"
+
+    post = transport._prepare_headers()  # pyright: ignore[reportPrivateUsage]
+    sse_get = transport._prepare_headers(  # pyright: ignore[reportPrivateUsage]
+        accept="text/event-stream", content_type=None
+    )
+    delete = transport._prepare_headers(content_type=None)  # pyright: ignore[reportPrivateUsage]
+
+    assert post == {
+        "accept": "application/json, text/event-stream",
+        "content-type": "application/json",
+        MCP_SESSION_ID: "session-1",
+    }
+    assert sse_get == {"accept": "text/event-stream", MCP_SESSION_ID: "session-1"}
+    assert delete == {"accept": "application/json, text/event-stream", MCP_SESSION_ID: "session-1"}
 
 
 @pytest.mark.anyio
