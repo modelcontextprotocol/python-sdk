@@ -69,7 +69,7 @@ In a test you skip uvicorn and the port: `Client(server)` takes a low-level `Ser
 
 `Server.serve()` shares one application lifespan across multiple custom transport connections, just like `MCPServer.serve()`. Use the complete adapter example under [Running your server](../run/index.md#custom-transports).
 
-For a single connection, `Server.run(read_stream, write_stream, initialization_options, *, transport_builder=...)` remains available. The optional builder converts inbound message metadata into the `TransportContext` exposed as `ctx.transport`. Without it, stream dispatch supplies generic JSON-RPC metadata. Both paths retain the existing protocol-version handling; custom transport capabilities cannot enable features that the negotiated version forbids.
+For a single connection, `Server.run(read_stream, write_stream, initialization_options, *, transport_builder=...)` remains available. The optional builder converts inbound message metadata into the `TransportContext` exposed as `ctx.transport`. Without it, stream dispatch uses the context supplied by the framing transport, falling back to generic JSON-RPC metadata. Built-in HTTP transports supply their kind and the current request's headers. Both paths retain the existing protocol-version handling; custom transport capabilities cannot enable features that the negotiated version forbids.
 
 ## Nothing is checked for you
 

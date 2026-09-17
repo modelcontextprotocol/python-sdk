@@ -38,6 +38,7 @@ from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.transport import (
     DispatcherTransport,
     MessageMetadata,
+    SessionMessage,
     TransportContext,
     TransportContextBuilder,
     TransportStreams,
@@ -158,7 +159,7 @@ async def test_host_exposes_adapter_metadata_in_highlevel_handlers(
     assert metadata.can_send_request is True
 
 
-async def test_host_releases_transport_before_application_lifespan() -> None:
+async def test_host_releases_transport_before_application_lifespan(monkeypatch: pytest.MonkeyPatch) -> None:
     """Host exit cancels a connected peer and lets its adapter clean up before the application does."""
     events: list[str] = []
 
@@ -170,7 +171,24 @@ async def test_host_releases_transport_before_application_lifespan() -> None:
             await anyio.lowlevel.checkpoint()
             events.append("lifespan")
 
-    async with create_client_server_memory_streams() as (client_streams, server_streams):
+    request_send, request_receive = anyio.create_memory_object_stream[SessionMessage | Exception]()
+    response_send, response_receive = anyio.create_memory_object_stream[SessionMessage]()
+    async with request_send, request_receive, response_send, response_receive:
+        server_streams = request_receive, response_send
+        read_close, write_close = request_receive.aclose, response_send.aclose
+
+        async def close_read() -> None:
+            await anyio.lowlevel.checkpoint()
+            events.append("read")
+            await read_close()
+
+        async def close_write() -> None:
+            await anyio.lowlevel.checkpoint()
+            events.append("write")
+            await write_close()
+
+        monkeypatch.setattr(server_streams[0], "aclose", close_read)
+        monkeypatch.setattr(server_streams[1], "aclose", close_write)
 
         @asynccontextmanager
         async def transport() -> AsyncIterator[TransportStreams]:
@@ -183,9 +201,9 @@ async def test_host_releases_transport_before_application_lifespan() -> None:
         with anyio.fail_after(5):
             async with Server("shutdown", lifespan=lifespan).serve() as host:
                 await host.connect(transport())
-        assert events == ["transport", "lifespan"]
+        assert events == ["read", "write", "transport", "lifespan"]
         with pytest.raises(anyio.EndOfStream):
-            await client_streams[0].receive()
+            await response_receive.receive()
 
 
 async def test_host_survives_an_adapter_failure_after_opening(caplog: pytest.LogCaptureFixture) -> None:

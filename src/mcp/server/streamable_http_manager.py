@@ -6,6 +6,7 @@ import contextlib
 import logging
 import math
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Final
 from uuid import uuid4
 
@@ -28,6 +29,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 
 if TYPE_CHECKING:
@@ -216,6 +218,11 @@ class StreamableHTTPSessionManager:
             security_settings=self.security_settings,
         )
 
+        def transport_context(metadata: MessageMetadata) -> TransportContext:
+            assert isinstance(metadata, ServerMessageMetadata)
+            assert metadata.transport_context is not None
+            return replace(metadata.transport_context, can_send_request=False)
+
         # Start server in a new task
         async def run_stateless_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
             async with http_transport.connect() as streams:
@@ -230,7 +237,7 @@ class StreamableHTTPSessionManager:
                     # reply has nowhere to land — `can_send_request=False`
                     # makes the per-request channel raise `NoBackChannelError`
                     # for requests while still allowing notifications.
-                    transport_builder=lambda _md: TransportContext(kind="streamable-http", can_send_request=False),
+                    transport_builder=transport_context,
                 )
                 # Born-ready, no standalone channel: the legacy stateless path
                 # never opens a GET stream and need not see `initialize`. The

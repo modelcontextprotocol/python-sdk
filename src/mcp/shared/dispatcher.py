@@ -211,9 +211,10 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
         ...
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        """Report progress for the inbound request, if the peer supplied a progress token.
+        """Report progress for the inbound request when the peer opted in.
 
-        A no-op when no token was supplied.
+        JSON-RPC uses a progress token; direct and native bindings can carry
+        the callback opt-in separately. Without an opt-in this is a no-op.
         """
         ...
 

@@ -1,18 +1,86 @@
 """`docs/run/authorization.md`: every claim the page makes, proved against the real SDK."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import anyio
 import httpx2
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import TextContent
+from mcp_types import (
+    INVALID_PARAMS,
+    ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitResult,
+    InputRequiredResult,
+    InputResponses,
+    TextContent,
+)
 from starlette.routing import Route
 
-from docs_src.authorization import tutorial001, tutorial002
-from mcp import Client
+from docs_src.authorization import tutorial001, tutorial002, tutorial003
+from mcp import Client, MCPError
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import MCPServer
+from mcp.server.mcpserver import Context
+from mcp.shared.memory import create_client_server_memory_streams
+from mcp.shared.transport import MessageMetadata, TransportContext, TransportStreams
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
+
+
+async def test_verified_transport_identity_binds_the_published_request_state_example() -> None:
+    """tutorial003: issued state accepts its verified peer and rejects an anonymous retry through the public runtime."""
+
+    @tutorial003.mcp.tool()
+    async def confirm(ctx: Context) -> str | InputRequiredResult:
+        if ctx.input_responses is not None:
+            assert isinstance(ctx.request_state, str)
+            return ctx.request_state
+        return InputRequiredResult(
+            input_requests={
+                "confirm": ElicitRequest(
+                    params=ElicitRequestFormParams(
+                        message="Confirm?",
+                        requested_schema={"type": "object", "properties": {}},
+                    )
+                )
+            },
+            request_state="approved",
+        )
+
+    with anyio.fail_after(5):
+        async with tutorial003.mcp.serve() as runtime:
+
+            @asynccontextmanager
+            async def connection(verified: bool) -> AsyncIterator[TransportStreams]:
+                async with create_client_server_memory_streams() as (client_streams, server_streams):
+
+                    def builder(metadata: MessageMetadata) -> TransportContext:
+                        if verified:
+                            return tutorial003.VerifiedPeer(kind="broker", can_send_request=False, principal="alice")
+                        return TransportContext(kind="broker", can_send_request=False)
+
+                    @asynccontextmanager
+                    async def transport() -> AsyncIterator[TransportStreams]:
+                        yield server_streams
+
+                    await runtime.connect(transport(), transport_builder=builder)
+                    yield client_streams
+
+            async with Client(connection(True)) as alice, Client(connection(False)) as anonymous:
+                pending = await alice.session.call_tool("confirm", allow_input_required=True)
+                assert isinstance(pending, InputRequiredResult)
+                assert pending.request_state is not None
+                responses: InputResponses = {"confirm": ElicitResult(action="accept")}
+                with pytest.raises(MCPError) as exc:
+                    await anonymous.call_tool("confirm", input_responses=responses, request_state=pending.request_state)
+                assert exc.value.code == INVALID_PARAMS
+                result = await alice.call_tool(
+                    "confirm", input_responses=responses, request_state=pending.request_state
+                )
+            assert result.structured_content == {"result": "approved"}
 
 
 async def test_the_in_memory_client_never_authenticates() -> None:

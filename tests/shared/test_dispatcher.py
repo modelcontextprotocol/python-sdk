@@ -577,7 +577,12 @@ async def test_a_raising_notify_intercept_is_contained_and_passes_the_frame_thro
 @pytest.mark.anyio
 @pytest.mark.parametrize("closing_side", ["client", "server"])
 @pytest.mark.parametrize("operation", ["request", "notification"])
-async def test_direct_close_joins_in_flight_handler_cleanup(closing_side: str, operation: str) -> None:
+@pytest.mark.parametrize("swallow_cancel", [False, True])
+async def test_direct_close_joins_in_flight_handler_cleanup(
+    closing_side: str,
+    operation: str,
+    swallow_cancel: bool,
+) -> None:
     """Closing either peer interrupts its conversation and keeps run alive until shielded handler cleanup finishes."""
     entered = anyio.Event()
     cleaning = anyio.Event()
@@ -590,6 +595,9 @@ async def test_direct_close_joins_in_flight_handler_cleanup(closing_side: str, o
         entered.set()
         try:
             await anyio.sleep_forever()
+        except anyio.get_cancelled_exc_class():
+            if not swallow_cancel:
+                raise
         finally:
             with anyio.CancelScope(shield=True):
                 cleaning.set()
@@ -601,7 +609,7 @@ async def test_direct_close_joins_in_flight_handler_cleanup(closing_side: str, o
     ) -> dict[str, Any]:
         assert method == "work"
         await handle()
-        raise NotImplementedError
+        return {}
 
     async def notify(ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None) -> None:
         assert method == "work"

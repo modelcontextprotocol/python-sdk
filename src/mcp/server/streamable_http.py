@@ -46,6 +46,7 @@ from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream,
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.message import CloseSSEStreamCallback, ServerMessageMetadata, SessionMessage
+from mcp.shared.transport_context import TransportContext
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +253,9 @@ class StreamableHTTPServerTransport:
             close_standalone_sse_stream=close_standalone_sse_stream,
             on_request_unanswered=on_request_unanswered,
             can_send_request=not self.is_json_response_enabled,
+            transport_context=TransportContext(
+                kind="streamable-http", can_send_request=not self.is_json_response_enabled, headers=request.headers
+            ),
         )
 
     def close_sse_stream(self, request_id: RequestId) -> None:

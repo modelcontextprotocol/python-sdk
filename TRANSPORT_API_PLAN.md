@@ -2,6 +2,10 @@
 
 Status: implementation in progress. New APIs still need final compatibility and native-binding review before release.
 
+## Review layout
+
+The review stack separates the SDK transport APIs, native gRPC adapter, MQTT adapter, and AMQP adapter into four pull requests, in that order. This document tracks the whole initiative; the SDK pull request contains no network adapter implementation or optional adapter dependencies. Each adapter pull request targets the preceding branch so its diff contains only that layer.
+
 ## Progress
 
 | Work | Current evidence | Remaining |
@@ -252,7 +256,27 @@ The native adapter now exposes gRPC's verified `peer_identity_key` and immutable
 
 TLS validation exposed a gRPC completion-queue limitation, reproduced without MCP in `examples/transports/reproduce_grpc_loop_shutdown.py`. With `grpcio==1.84.0` on macOS/Python 3.14.6, cancelled connectivity watches can complete after `channel.close()` and target a previously closed event loop. The adapter suite keeps one AnyIO runner for its session, while still closing per-test resources. The README records this support restriction, not an upstream fix; repeated loop lifetimes and final native-queue drainage are not certified.
 
-Current evidence is in `/tmp/mcp-core-final.log`, `/tmp/mcp-adapter-final310.log`, `/tmp/mcp-adapter-final314.log`, `/tmp/mcp-docs-final.log`, and `/tmp/mcp-conformance-final-{client,server}-*.log`. Coverage data uses `/tmp/mcp-adapter-final310` and `/tmp/mcp-adapter-final314`. Core coverage is 100%; total adapter coverage is 90%, with only MQTT/AMQP implementation gaps remaining. Generated protobuf implementation is excluded as compiler output, not handwritten adapter code.
+### Reproduce the validation
+
+```bash
+./scripts/test
+UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv sync --frozen --package mcp-transport-examples --group dev
+UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv run --frozen --package mcp-transport-examples --group dev pytest -c examples/transports/pyproject.toml examples/transports/tests --record-mode=none
+uv run --frozen pyright --project examples/transports
+DOCS_LANGUAGES=en-only bash scripts/docs/build.sh
+```
+
+Run the broker commands in `examples/transports/README.md` against the pinned Compose fixtures. The shared-check workflow now runs the complete adapter suite and live broker programs on Python 3.10 and 3.14, and retains `transport-results-<version>` JUnit artifacts. Results are attached to [the pull request's checks](https://github.com/modelcontextprotocol/python-sdk/pull/3517/checks), not machine-local log paths. The conformance workflow records all six baseline legs separately.
+
+Core coverage remains 100%. Whole adapter coverage is still incomplete because MQTT/AMQP failure paths are not cassette-backed; generated protobuf implementation is excluded as compiler output, not handwritten adapter code. Do not interpret a passing adapter pytest job as completion of that separate coverage gate.
+
+### Review corrections
+
+Native regressions now cover swallowed direct-handler cancellation, notification callback isolation, post-close notification drops, late request-scoped notifications, sanitized raw-dispatcher errors, strict progress fields, deep JSON and exponent overflow. HTTP framing supplies handler-visible context and headers without adding credentials to message representations; driver stream cleanup is shielded and bounded. The published principal-binding example is exercised directly.
+
+RabbitMQ no longer grants client writes to the default exchange. Each receiving queue has a dedicated direct exchange, and live checks reject both default-exchange injection and writes to another principal's exchange. MQTT examples configure Last Wills before CONNECT; a live broker-forced disconnect settles a pending MCP call without relying on its request timeout. The existing aiomqtt negative-publish-reason limitation remains a merge blocker: its public API does not expose those acknowledgement codes.
+
+Optional runtime design feedback remains separate from these corrections: configurable cleanup grace, exception-group behavior, and admission cancellation during runtime shutdown need a contract decision rather than an unreviewed change in semantics.
 
 ## Next implementation work
 

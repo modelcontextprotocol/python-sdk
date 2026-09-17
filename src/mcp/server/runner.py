@@ -655,7 +655,8 @@ async def serve_dual_era_loop(
                     transport_builder=transport_builder,
                 )
     finally:
-        await write_stream.aclose()
+        with anyio.move_on_after(_EXIT_STACK_CLOSE_TIMEOUT, shield=True):
+            await write_stream.aclose()
 
 
 _PRE_REQUEST_REPLAY_LIMIT: int = 8
@@ -721,7 +722,8 @@ async def _replay_from_opening_request(
             yield opening_request, replayed
             tg.cancel_scope.cancel()
     finally:
-        await read_stream.aclose()
+        with anyio.move_on_after(_EXIT_STACK_CLOSE_TIMEOUT, shield=True):
+            await read_stream.aclose()
         replay_send.close()
         replay_receive.close()
 

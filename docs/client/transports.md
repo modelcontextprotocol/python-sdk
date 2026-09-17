@@ -157,7 +157,7 @@ The server side of this example uses `server.serve()`. Its lifecycle and connect
 
 `DispatcherTransport` explicitly wraps an async context manager yielding a `Dispatcher`. `Client` enters that context, starts the dispatcher, and uses its ordinary MCP negotiation, callbacks, caching, and validation. It stops the dispatcher before exiting the connection context. You configure the client through the same constructor; there is no separate native client-session API.
 
-The example uses the SDK's `DirectDispatcher`. The repository's `examples/transports/README.md` also contains a real gRPC implementation with protobuf envelopes and JSON payloads. Native network bindings implement this dispatcher boundary instead of creating `SessionMessage` streams. The connection context acquires the transport resources; it must yield an unstarted dispatcher because the SDK owns `run()`.
+The example uses the SDK's `DirectDispatcher`. The native gRPC reference adapter is developed in a separate follow-up to this SDK API change. Native network bindings implement this dispatcher boundary instead of creating `SessionMessage` streams. The connection context acquires the transport resources; it must yield an unstarted dispatcher because the SDK owns `run()`.
 
 On the server, `runtime.connect(DispatcherTransport(...))` serves the modern per-request-envelope protocol. It rejects the legacy initialize handshake. Use `mode="auto"` or a supported modern version on the client. Message transports still support both eras. Native dispatchers supply their own contexts, so this server path rejects `session_id=` and `transport_builder=`.
 

@@ -226,7 +226,7 @@ class DirectDispatcher:
                 self._operations.pop(scope)
                 peer._operations.pop(scope, None)
                 finished.set()
-        if scope.cancelled_caught:
+        if scope.cancel_called:
             raise _DispatchClosed
 
     def _make_context(
