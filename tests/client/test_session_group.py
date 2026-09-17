@@ -503,6 +503,11 @@ async def test_establish_session_streamable_http_passes_auth():
 def test_server_parameters_auth_model_config_and_serialization():
     """Verify that auth works with Pydantic arbitrary types and is excluded on dump."""
     fake_auth = _FakeBearerAuth(token="secret-token-123")
+    req = httpx2.Request("GET", "http://test.com")
+    list(fake_auth.auth_flow(req))
+    assert fake_auth.call_count == 1
+    assert req.headers["Authorization"] == "Bearer secret-token-123"
+
     sse_params = SseServerParameters(url="http://test.com/sse", auth=fake_auth)
     assert sse_params.auth is fake_auth
     dumped_sse = sse_params.model_dump()
