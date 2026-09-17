@@ -63,3 +63,45 @@ The gRPC cassette tests record real calls with `cassetter` and replay with `--re
 The lifecycle, capacity, and malformed-frame regression tests own a gRPC server inside the test process. That server is the software under test, not an external service; replaying its outputs would bypass the behavior being checked. Cassette tests separately compare recorded native results with the current in-process MCP handler. `cassetter` lacks parts of the streaming-call cancellation interface, so it is not used to stand in for live lifecycle checks.
 
 Binary protobuf payloads are not pattern-scrubbed. Inspect new cassettes before committing them; the checked-in recordings contain only public test data.
+
+## MQTT 5
+
+```bash
+docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml up --wait
+UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv sync --frozen --package mcp-transport-examples --group dev
+UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv run --frozen --package mcp-transport-examples python examples/transports/demo_mqtt.py
+UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv run --frozen --package mcp-transport-examples python examples/transports/demo_mqtt_disconnect.py
+docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml down --volumes
+```
+
+The programs check concurrent calls for two peers, both server APIs, and `legacy`, `auto`, and pinned `2026-07-28` clients. The disconnect check uses a broker-forced session takeover and requires a pending call to receive `CONNECTION_CLOSED` without relying on its request timeout. CI runs these live checks separately from cassette replay.
+
+`demo_mqtt.py` contains complete connection setup. You own and enter the MQTT client before entering `mqtt_transport()`. The adapter unsubscribes on exit but does not close the borrowed client. Each logical peer gets a dedicated client and messages iterator; session identifiers are agreed out of band. Discovery and multiplexing are not implemented.
+
+### MQTT wire binding
+
+| Property | Value |
+| --- | --- |
+| Requests | `mcp/<principal>/<session>/requests` |
+| Replies | `mcp/<principal>/<session>/responses` |
+| Framing | One JSON-RPC message per publish |
+| Delivery | QoS 2 only |
+| Close | Empty payload |
+| Retention | Never retain commands; reject retained deliveries |
+| Expiry | MQTT message expiry, default 60 seconds |
+| Message limit | 4 MiB by default |
+| Reconnect | Fail old calls and establish fresh topics; never replay requests |
+
+Configure a QoS-2, non-retained Last Will with an empty payload on the outgoing topic before CONNECT. The broker publishes it on unexpected disconnection; the example uses a 15-second keepalive to bound detection of a silent network loss. An already-connected client cannot acquire a Last Will through this adapter. Use a client request timeout for startup failures before the peer subscribes: a non-retained will is not replayed to a later subscriber.
+
+QoS 2 handles protocol retransmissions within a session, not exactly-once tool execution. Republishing a request can repeat its side effects. Malformed messages become recoverable stream exceptions; connection loss ends the read stream.
+
+### MQTT authorization and limits
+
+The local fixture uses per-user topic ACLs and `use_username_as_clientid true`, so another authenticated user cannot evict a peer by claiming its client ID. It supports one connection per credential; server routes use separate `server-alice` and `server-bob` users. Deployments needing multiple sessions per credential need broker authorization of client-ID namespaces instead.
+
+The fixture uses public test credentials, binds only to localhost, and disables persistence. Do not deploy it. Use TLS and your broker's authorization policy in production, and bind request state to a verified, authority-qualified principal through `RequestStateSecurity.bind_principal`. A successful SUBACK is not proof that Mosquitto's ACL permits message delivery.
+
+The example bounds aiomqtt's incoming queue at 256 messages, but aiomqtt can drop messages when it fills. Its public publish callback also discards negative broker reason codes. These are unresolved reliability blockers, not successful execution acknowledgments. Request timeouts and monitoring are required; neither the queue bound nor MQTT QoS bounds concurrently executing tool handlers.
+
+`cassetter` has no MQTT interceptor. Full broker branch coverage, saturation and failure validation, and production TLS authorization remain open gates. The provider uses asyncio and requires a selector event loop on Windows; Trio and Windows support have not been validated. Change the local port with `MQTT_TEST_PORT` (default 13883).

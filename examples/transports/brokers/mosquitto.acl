@@ -1,0 +1,18 @@
+user server-alice
+topic read mcp/alice/+/requests
+topic write mcp/alice/+/responses
+
+user server-bob
+topic read mcp/bob/+/requests
+topic write mcp/bob/+/responses
+
+user health
+topic write health
+
+user alice
+topic write mcp/alice/+/requests
+topic read mcp/alice/+/responses
+
+user bob
+topic write mcp/bob/+/requests
+topic read mcp/bob/+/responses
