@@ -87,6 +87,32 @@ def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field
         assert encoded == raw
 
 
+def test_transport_headers_match_the_outbound_request_kind() -> None:
+    """POST, SSE GET, and bodyless DELETE advertise only what they send."""
+    transport = StreamableHTTPTransport("http://test/mcp")
+    transport.session_id = "session-1"
+    transport._protocol_version_header = LATEST_MODERN_VERSION  # pyright: ignore[reportPrivateUsage]
+
+    post = transport._prepare_headers()  # pyright: ignore[reportPrivateUsage]
+    sse_get = transport._prepare_headers(  # pyright: ignore[reportPrivateUsage]
+        accept="text/event-stream", content_type=None
+    )
+    delete = transport._prepare_headers(content_type=None)  # pyright: ignore[reportPrivateUsage]
+
+    assert post["accept"] == "application/json, text/event-stream"
+    assert post["content-type"] == "application/json"
+    assert sse_get == {
+        "accept": "text/event-stream",
+        "mcp-session-id": "session-1",
+        "mcp-protocol-version": LATEST_MODERN_VERSION,
+    }
+    assert delete == {
+        "accept": "application/json, text/event-stream",
+        "mcp-session-id": "session-1",
+        "mcp-protocol-version": LATEST_MODERN_VERSION,
+    }
+
+
 @pytest.mark.anyio
 async def test_post_request_merges_per_message_metadata_headers() -> None:
     """`ClientMessageMetadata.headers` on a `SessionMessage` are merged into the outgoing POST headers
