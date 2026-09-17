@@ -9,8 +9,10 @@ import anyio
 from aio_pika import Message
 from aio_pika.abc import AbstractChannel, AbstractExchange, AbstractIncomingMessage
 from aio_pika.exceptions import AMQPError, ChannelInvalidStateError
+from anyio.streams.memory import MemoryObjectSendStream
 from mcp.shared.transport import SessionMessage, TransportStreams
 from mcp.types import jsonrpc_message_adapter
+from pamqp.commands import Basic
 from pydantic import ValidationError
 from typing_extensions import Self
 
@@ -33,11 +35,15 @@ async def amqp_transport(
     configuration or binding rights. `expiry` controls outgoing message TTL.
     Messages are acknowledged before SDK handoff; redeliveries are rejected.
     This avoids automatically repeating side effects but can lose work after
-    acknowledgment. A publisher confirmation is not tool completion.
+    acknowledgment. A publisher confirmation is not tool completion. Keep the
+    exchanges alive until both peers exit. Remote loss while idle is not
+    detected automatically; configure MCP request timeouts and supervise idle
+    sessions separately.
 
     Raises:
-        ValueError: If routing, limits, or publisher-confirm settings are invalid.
-        AMQPError: If consumption or publication fails.
+        ValueError: If an encoded outgoing message exceeds `max_message_size`.
+        AMQPError: If consumption fails.
+        anyio.BrokenResourceError: If publication fails or is returned as unroutable.
     """
     if not incoming_queue or not outgoing_queue or incoming_queue == outgoing_queue:
         raise ValueError("AMQP directions must use different nonempty queue names")
@@ -47,12 +53,13 @@ async def amqp_transport(
     outgoing_exchange = await channel.get_exchange(f"{outgoing_queue}.exchange", ensure=False)
     await channel.set_qos(prefetch_count=16)
     send, receive = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-    writer = _AMQPWriter(outgoing_exchange, outgoing_queue, expiry, max_message_size)
+    writer = _AMQPWriter(outgoing_exchange, outgoing_queue, expiry, max_message_size, send)
 
     lock = anyio.Lock()
     active: set[anyio.Event] = set()
 
     def channel_closed(sender: object, exc: BaseException | None) -> None:
+        writer.closed = True
         send.close()
 
     async def deliver(message: AbstractIncomingMessage) -> None:
@@ -69,6 +76,7 @@ async def amqp_transport(
                     await send.send(ValueError("Rejected oversized or non-JSON AMQP message"))
                     return
                 if not message.body:
+                    writer.closed = True
                     send.close()
                     return
                 try:
@@ -108,6 +116,7 @@ class _AMQPWriter:
     queue: str
     expiry: int
     max_message_size: int
+    inbound: MemoryObjectSendStream[SessionMessage | Exception]
     closed: bool = False
 
     async def send(self, item: SessionMessage, /) -> None:
@@ -116,17 +125,27 @@ class _AMQPWriter:
         payload = item.message.model_dump_json(by_alias=True, exclude_none=True).encode()
         if len(payload) > self.max_message_size:
             raise ValueError("Encoded MCP message exceeds max_message_size")
-        await self.exchange.publish(
-            Message(payload, content_type="application/json", expiration=self.expiry), routing_key=self.queue
-        )
+        await self._publish(payload)
 
     async def aclose(self) -> None:
         if not self.closed:
             self.closed = True
-            with anyio.move_on_after(1, shield=True), suppress(AMQPError, ChannelInvalidStateError):
-                await self.exchange.publish(
-                    Message(b"", content_type="application/json", expiration=self.expiry), routing_key=self.queue
-                )
+            with anyio.move_on_after(1, shield=True), suppress(anyio.BrokenResourceError):
+                await self._publish(b"")
+
+    async def _publish(self, payload: bytes) -> None:
+        try:
+            confirmation = await self.exchange.publish(
+                Message(payload, content_type="application/json", expiration=self.expiry),
+                routing_key=self.queue,
+                mandatory=True,
+            )
+            if not isinstance(confirmation, Basic.Ack):
+                raise anyio.BrokenResourceError("AMQP publication was not acknowledged")
+        except (AMQPError, ChannelInvalidStateError, anyio.BrokenResourceError) as exc:
+            self.closed = True
+            self.inbound.close()
+            raise anyio.BrokenResourceError("AMQP publication failed") from exc
 
     async def __aenter__(self) -> Self:
         return self

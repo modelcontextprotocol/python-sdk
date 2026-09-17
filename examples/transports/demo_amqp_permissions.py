@@ -10,7 +10,7 @@ from aiormq.exceptions import ChannelAccessRefused
 
 async def main() -> None:
     """Deny client topology changes and reply injection, including queue/exchange name collisions."""
-    port = int(os.environ.get("AMQP_TEST_PORT", "15672"))
+    port = int(os.environ.get("AMQP_TEST_PORT", "15673"))
     with anyio.fail_after(5):
         async with await aio_pika.connect(
             host="127.0.0.1", port=port, login="server", password="test-server-password"

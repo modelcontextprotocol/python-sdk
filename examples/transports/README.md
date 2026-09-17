@@ -113,12 +113,13 @@ docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml up
 UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv sync --frozen --package mcp-transport-examples --group dev
 UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv run --frozen --package mcp-transport-examples python examples/transports/demo_amqp.py
 UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv run --frozen --package mcp-transport-examples python examples/transports/demo_amqp_permissions.py
+UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv run --frozen --package mcp-transport-examples python examples/transports/demo_amqp_lifecycle.py
 docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml down --volumes
 ```
 
-The programs reuse the same two-peer application checks as MQTT for both server APIs and all three client modes. The permission check requires RabbitMQ to reject client declarations, response bindings, and publication through response, default, or foreign exchanges. It also tests an exchange named exactly like a response queue. CI runs both programs against the pinned RabbitMQ fixture.
+The programs reuse the same two-peer application checks as MQTT for both server APIs and all three client modes. The permission check requires RabbitMQ to reject client declarations, response bindings, and publication through response, default, or foreign exchanges. It also tests an exchange named exactly like a response queue. The lifecycle check covers either close order, requests queued before the peer consumes, unroutable publication, and the remote-loss deadline limitation below. CI runs all three programs against the pinned RabbitMQ fixture.
 
-`demo_amqp.py` contains complete setup. The trusted server account declares and binds both directions before either transport enters. You own the connection and publisher-confirm channel; `amqp_transport()` only gets handles to existing resources and cancels its consumer without closing that borrowed channel. Missing queues or exchanges fail at consumption or publication. Use a fresh queue pair for each logical connection and do not load-balance handshake-era traffic across independent sessions.
+`demo_amqp.py` contains complete setup. The trusted server account declares and binds both directions before either transport enters. You own the connection and publisher-confirm channel; `amqp_transport()` only gets handles to existing resources and cancels its consumer without closing that borrowed channel. Keep the non-auto-delete exchanges alive until both peer transports have stopped; the trusted provisioner then deletes them and must reclaim any left by a process crash. Queue expiry does not delete these exchanges. Deleting an exchange while a peer still publishes can make RabbitMQ close that peer's channel. Missing queues or exchanges fail at consumption or publication. Use a fresh queue pair for each logical connection and do not load-balance handshake-era traffic across independent sessions.
 
 ### AMQP wire binding
 
@@ -128,8 +129,8 @@ The programs reuse the same two-peer application checks as MQTT for both server 
 | Replies | `mcp.<principal>.<session>.responses` |
 | Routing | One direct exchange named `<queue>.exchange` per receiving queue |
 | Framing | One JSON-RPC message per delivery; `application/json` content type |
-| Delivery | Publisher confirmations; acknowledge before SDK handoff |
-| Close | Empty JSON-typed message body |
+| Delivery | Mandatory publication with checked confirmations; acknowledge before SDK handoff |
+| Close | Empty JSON-typed message body; never reply to a received close |
 | Retention | Nondurable, auto-delete queues |
 | Expiry | Outgoing message TTL defaults to 60 seconds; the demo separately provisions a 60-second unused-queue expiry |
 | Message limit | 4 MiB by default |
@@ -137,12 +138,20 @@ The programs reuse the same two-peer application checks as MQTT for both server 
 
 Acknowledging before SDK handoff avoids automatically rerunning uncertain work, but a process failure in that window can lose it. Publisher confirmations describe broker delivery, not tool completion or exactly-once execution. Applications still own idempotency.
 
+The adapter checks the publish confirmation and treats unroutable returns as a write failure, ending the logical connection without replay. The example also enables `on_return_raises=True` on its publisher-confirm channels. A return from an existing exchange does not close the borrowed channel.
+
 Queues hold at most 256 ready messages and reject publication on overflow. Consumer prefetch bounds unacknowledged deliveries, not concurrently executing tool handlers. Malformed messages become recoverable stream exceptions; channel closure ends the read stream.
+
+### AMQP remote-peer loss
+
+The broker does not notify your response consumer when a remote request consumer disappears. An idle remote failure therefore does not automatically close this adapter's read stream. Set `Client(..., read_timeout_seconds=...)` to bound pending calls; the lifecycle program demonstrates `REQUEST_TIMEOUT` after the server connection disappears, not automatic `CONNECTION_CLOSED` detection. A subsequent unroutable write fails the connection, but is not an idle liveness monitor.
+
+Servers also need an application-level session lease or liveness monitor to release idle sessions. Automatic AMQP peer-loss detection remains an open limitation; do not use an unlimited request timeout while relying on broker connection heartbeats, which monitor only your own connection.
 
 ### AMQP authorization and limits
 
 The fixture grants each client only publication rights on its request exchanges and consumption rights on its response queues. Clients cannot configure topology or bind queues. RabbitMQ write permissions apply to resource names, not resource types: granting write access to a response queue would also permit publication to an exchange with that name. Server-side provisioning removes the need for that grant. Client credentials also cannot publish through `amq.default` or another principal's exchange; messages cannot choose an arbitrary reply destination.
 
-The fixture uses public test credentials, listens only on localhost, and disables durable storage. Do not deploy it. Use TLS and broker authorization in production, and bind request state to verified, authority-qualified identity. Change the local port with `AMQP_TEST_PORT` (default 15672).
+The fixture uses public test credentials, listens only on localhost, and disables durable storage. Do not deploy it. Use TLS and broker authorization in production, and bind request state to verified, authority-qualified identity. Change the local port with `AMQP_TEST_PORT` (default 15673, avoiding RabbitMQ's standard management port).
 
 `cassetter` has no AMQP interceptor. Full broker branch coverage, broader delivery/failure validation, and production TLS checks remain open gates. The provider uses asyncio; Trio and Windows validation have not been completed.

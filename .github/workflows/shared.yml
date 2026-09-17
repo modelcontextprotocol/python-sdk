@@ -125,7 +125,7 @@ jobs:
         run: docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml up --wait
       - name: Check live broker routing and peer loss
         run: |
-          for script in demo_amqp.py demo_amqp_permissions.py demo_mqtt.py demo_mqtt_disconnect.py; do
+          for script in demo_amqp.py demo_amqp_permissions.py demo_amqp_lifecycle.py demo_mqtt.py demo_mqtt_disconnect.py; do
             uv run --frozen --no-sync --package mcp-transport-examples --group dev python "examples/transports/$script"
           done
       - name: Stop broker fixtures

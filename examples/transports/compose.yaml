@@ -2,7 +2,7 @@ services:
   amqp:
     image: rabbitmq:4.1.8-alpine@sha256:1a087dd3a29b91448407409df70f4f6cb213ac0c269a62861bfe2a665f4ced03
     ports:
-      - "127.0.0.1:${AMQP_TEST_PORT:-15672}:5672"
+      - "127.0.0.1:${AMQP_TEST_PORT:-15673}:5672"
     volumes:
       - ./brokers/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - ./brokers/rabbitmq-definitions.json:/etc/rabbitmq/definitions.json:ro
