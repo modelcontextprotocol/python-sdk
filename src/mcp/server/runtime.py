@@ -150,6 +150,7 @@ class ServerRuntime(Generic[LifespanT]):
                         logger.warning("Transport cleanup exceeded five seconds")
                         if run_error is not None:
                             raise run_error
+                    return
             except Exception:
                 if not ready:
                     raise

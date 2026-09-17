@@ -121,8 +121,8 @@ async def test_runtime_shares_lifespan_and_isolates_clients(highlevel: bool, mod
                     async with anyio.create_task_group() as tg:
                         tg.start_soon(call, alice, "alice")
                         tg.start_soon(call, bob, "bob")
-                    if modes[0] == modes[1]:
-                        assert request_ids["alice"] == request_ids["bob"]
+                if modes[0] == modes[1]:
+                    assert request_ids["alice"] == request_ids["bob"]
                 await call(alice, "alice")
             assert lifecycle == ["startup"]
         assert lifecycle == ["startup", "shutdown"]
