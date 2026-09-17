@@ -16,7 +16,7 @@ from typing import Any, Literal, TypeAlias, overload
 import anyio
 import httpx2
 import mcp_types as types
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Self
 
 import mcp
@@ -32,6 +32,8 @@ from mcp.shared.exceptions import MCPError
 class SseServerParameters(BaseModel):
     """Parameters for initializing an sse_client."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     # The endpoint URL.
     url: str
 
@@ -44,9 +46,14 @@ class SseServerParameters(BaseModel):
     # Timeout for SSE read operations (in seconds).
     sse_read_timeout: float = 300.0
 
+    # Optional HTTPX authentication handler.
+    auth: httpx2.Auth | None = Field(default=None, description="Optional HTTPX authentication handler.", exclude=True)
+
 
 class StreamableHttpParameters(BaseModel):
     """Parameters for initializing a streamable_http_client."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # The endpoint URL.
     url: str
@@ -62,6 +69,9 @@ class StreamableHttpParameters(BaseModel):
 
     # Close the client session when the transport closes.
     terminate_on_close: bool = True
+
+    # Optional HTTPX authentication handler.
+    auth: httpx2.Auth | None = Field(default=None, description="Optional HTTPX authentication handler.", exclude=True)
 
 
 ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
@@ -319,6 +329,7 @@ class ClientSessionGroup:
                     headers=server_params.headers,
                     timeout=server_params.timeout,
                     sse_read_timeout=server_params.sse_read_timeout,
+                    auth=server_params.auth,
                 )
                 read, write = await session_stack.enter_async_context(client)
             else:
@@ -328,6 +339,7 @@ class ClientSessionGroup:
                         server_params.timeout,
                         read=server_params.sse_read_timeout,
                     ),
+                    auth=server_params.auth,
                 )
                 await session_stack.enter_async_context(httpx_client)
 
