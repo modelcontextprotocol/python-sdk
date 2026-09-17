@@ -421,6 +421,23 @@ async def test_resolver_product_gets_the_direct_paths_output_schema_revalidation
     assert str(exc_info.value) == snapshot("Tool issue has an output schema but did not return structured content")
 
 
+async def test_validate_tool_results_false_skips_revalidation_of_the_resolvers_product() -> None:
+    """`validate_tool_results=False` must reach the claimed-result path too, not just the direct one:
+    the same schema-violating product from `test_resolver_product_gets_the_direct_paths_output_schema_revalidation`
+    comes back unraised here."""
+
+    async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
+        return CallToolResult(content=[TextContent(text="unstructured")])
+
+    with anyio.fail_after(5):
+        async with Client(
+            _structured_voucher_server(), extensions=[_VoucherExtension(resolve)], validate_tool_results=False
+        ) as client:
+            result = await client.call_tool("issue", {})
+
+    assert result.content == [TextContent(text="unstructured")]
+
+
 async def test_resolver_error_result_is_returned_not_raised() -> None:
     """An `isError` resolver product skips output-schema revalidation and comes back as-is."""
 

@@ -355,6 +355,13 @@ class Client:
     transparently by `call_tool`), and its notification bindings. For an
     ad-only entry use `mcp.client.advertise(identifier, settings)`."""
 
+    validate_tool_results: bool = True
+    """Whether `call_tool` revalidates a successful result against the tool's output schema.
+
+    The check costs a `tools/list` round-trip per call on a session that has never listed
+    tools (e.g. a fresh session per call, as gateways and proxies often use). Set to `False`
+    when the caller already validates structured output elsewhere."""
+
     cache: CacheConfig | None = field(default_factory=CacheConfig)
     """Client-side response caching for the SEP-2549 cacheable methods (2026-07-28).
 
@@ -442,6 +449,7 @@ class Client:
             extensions=self._folded_extensions.ad,
             result_claims=self._folded_extensions.claims,
             notification_bindings=self._folded_extensions.bindings,
+            validate_tool_results=self.validate_tool_results,
         )
 
     async def __aenter__(self) -> Client:
@@ -818,7 +826,7 @@ class Client:
             result,
             ClaimContext(session=self.session, tool_name=name, read_timeout_seconds=read_timeout_seconds),
         )
-        if not final.is_error:
+        if not final.is_error and self.validate_tool_results:
             # Match the direct path: revalidate the output schema, but never for isError results.
             await self.session.validate_tool_result(name, final)
         return final

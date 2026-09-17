@@ -117,6 +117,8 @@ The `_meta` block is the server's identity stamp: the SDK adds it to every 2026-
 
 The server never compares the two fields. This SDK's `Client` does: return `structured_content` that doesn't satisfy the `output_schema` you declared and `call_tool` raises a `RuntimeError` that starts with `Invalid structured content returned by tool search_books` and goes on to quote the `jsonschema` failure. Promising a schema is cheap; keeping it is on you. The whole ladder of return types and schemas is in **[Structured Output](../servers/structured-output.md)**.
 
+That check costs a `tools/list` round-trip on a session that hasn't listed tools yet — the client needs a schema to validate against. A session built for exactly one `call_tool` (as stateless gateways and proxies often do) pays that cost every time; pass `validate_tool_results=False` to `Client`/`ClientSession` to skip the check entirely when the caller already validates elsewhere.
+
 ## The dialect is JSON Schema 2020-12
 
 `input_schema` and `output_schema` are JSON Schema, and the [MCP specification](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) fixes the dialect: a schema with no `$schema` key is **JSON Schema 2020-12**. The schemas `MCPServer` generates rely on that default (Pydantic writes 2020-12 and omits the key), and a hand-written dict is held to it too, so the full 2020-12 vocabulary is available:

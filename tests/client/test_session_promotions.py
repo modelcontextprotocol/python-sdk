@@ -107,6 +107,23 @@ async def test_validate_tool_result_keeps_the_validator_across_a_relisting_of_th
 
 
 @pytest.mark.anyio
+async def test_call_tool_skips_validation_and_the_tools_list_refresh_when_opted_out() -> None:
+    """`validate_tool_results=False` must skip both the schema check and the `tools/list`
+    round-trip `validate_tool_result` would otherwise spend discovering it on a fresh session.
+
+    The server has no `on_list_tools` handler at all, so a `tools/list` call would raise
+    METHOD_NOT_FOUND -- the call succeeding proves the refresh never happened."""
+
+    async def on_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        return CallToolResult(content=[], structured_content={"x": 1})
+
+    server = Server("test-server", on_call_tool=on_call_tool)
+    async with Client(server, validate_tool_results=False) as client:
+        result = await client.call_tool("t", {})
+        assert result.structured_content == {"x": 1}
+
+
+@pytest.mark.anyio
 async def test_validate_tool_result_recompiles_when_the_server_changes_the_schema() -> None:
     """A relisted tool must not be validated against the schema it used to declare."""
     schemas = [

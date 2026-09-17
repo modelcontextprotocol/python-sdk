@@ -399,6 +399,11 @@ class ClientSession:
 
     Extension `result_claims` fold into tools/call parsing at `adopt()`;
     `notification_bindings` observe vendor notifications via bounded FIFOs.
+
+    `validate_tool_results=False` skips the client-side output-schema check
+    `call_tool` otherwise runs after each successful call. On a session that has
+    never listed tools, that check costs a `tools/list` round-trip per call; turn
+    it off when the caller already validates elsewhere.
     """
 
     def __init__(
@@ -419,6 +424,7 @@ class ClientSession:
         result_claims: Mapping[str, Sequence[ResultClaim[Any]]] | None = None,
         notification_bindings: Sequence[NotificationBinding[Any]] | None = None,
         dispatcher: Dispatcher[Any] | None = None,
+        validate_tool_results: bool = True,
     ) -> None:
         self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
@@ -437,6 +443,7 @@ class ClientSession:
         self._logging_callback = logging_callback or _default_logging_callback
         self._log_level: types.LoggingLevel | None = log_level
         self._message_handler = message_handler or _default_message_handler
+        self._validate_tool_results = validate_tool_results
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         # Compiled output-schema validators, derived from `_tool_output_schemas` and owned by
         # `_absorb_tool_listing`, which evicts a tool's entry whenever its schema changes.
@@ -1098,7 +1105,7 @@ class ClientSession:
             progress_callback=progress_callback,
         )
 
-        if isinstance(result, types.CallToolResult) and not result.is_error:
+        if self._validate_tool_results and isinstance(result, types.CallToolResult) and not result.is_error:
             await self.validate_tool_result(name, result)
 
         # The input_required arm stays first; a claimed shape is terminal for the multi-round-trip driver.
