@@ -1,0 +1,13 @@
+{
+  "users": [
+    {"name": "server", "password_hash": "dGVzdISQMYLFRDkVmIyH/2iPR3elfgPHcZO7uFXGqTE0UeU9", "hashing_algorithm": "rabbit_password_hashing_sha256", "tags": []},
+    {"name": "alice", "password_hash": "dGVzdMhyAjoCEMSETc4cmiL+/OInoknje5+9BVEZ8SaVlj+Z", "hashing_algorithm": "rabbit_password_hashing_sha256", "tags": []},
+    {"name": "bob", "password_hash": "dGVzdFu3/YOufljrGKLUVvAqIh2R9WeQ87Ql039pWvRL9HZO", "hashing_algorithm": "rabbit_password_hashing_sha256", "tags": []}
+  ],
+  "vhosts": [{"name": "/"}],
+  "permissions": [
+    {"user": "server", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*"},
+    {"user": "alice", "vhost": "/", "configure": "^$", "write": "^mcp\\.alice\\.[^.]+\\.requests\\.exchange$", "read": "^mcp\\.alice\\.[^.]+\\.responses$"},
+    {"user": "bob", "vhost": "/", "configure": "^$", "write": "^mcp\\.bob\\.[^.]+\\.requests\\.exchange$", "read": "^mcp\\.bob\\.[^.]+\\.responses$"}
+  ]
+}

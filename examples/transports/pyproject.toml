@@ -1,9 +1,10 @@
 [project]
 name = "mcp-transport-examples"
 version = "0.1.0"
-description = "Reference native gRPC and MQTT adapters for the MCP transport API"
+description = "Reference MQTT, AMQP, and native gRPC adapters for the MCP transport API"
 requires-python = ">=3.10"
 dependencies = [
+    "aio-pika>=9.5",
     "aiomqtt>=2.4",
     "grpcio>=1.71",
     "mcp",
