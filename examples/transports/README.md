@@ -105,3 +105,44 @@ The fixture uses public test credentials, binds only to localhost, and disables 
 The example bounds aiomqtt's incoming queue at 256 messages, but aiomqtt can drop messages when it fills. Its public publish callback also discards negative broker reason codes. These are unresolved reliability blockers, not successful execution acknowledgments. Request timeouts and monitoring are required; neither the queue bound nor MQTT QoS bounds concurrently executing tool handlers.
 
 `cassetter` has no MQTT interceptor. Full broker branch coverage, saturation and failure validation, and production TLS authorization remain open gates. The provider uses asyncio and requires a selector event loop on Windows; Trio and Windows support have not been validated. Change the local port with `MQTT_TEST_PORT` (default 13883).
+
+## AMQP 0.9.1
+
+```bash
+docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml up --wait
+UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv sync --frozen --package mcp-transport-examples --group dev
+UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv run --frozen --package mcp-transport-examples python examples/transports/demo_amqp.py
+UV_PROJECT_ENVIRONMENT=examples/transports/.venv uv run --frozen --package mcp-transport-examples python examples/transports/demo_amqp_permissions.py
+docker compose -p mcp-sdk-transport-check -f examples/transports/compose.yaml down --volumes
+```
+
+The programs reuse the same two-peer application checks as MQTT for both server APIs and all three client modes. The permission check requires RabbitMQ to reject publication through the default exchange and another principal's exchange. CI runs both programs against the pinned RabbitMQ fixture.
+
+`demo_amqp.py` contains complete setup. You own the connection and publisher-confirm channel, and enter them before `amqp_transport()`. The adapter cancels its consumer without closing that borrowed channel. Use a fresh queue pair for each logical connection and do not load-balance handshake-era traffic across independent sessions.
+
+### AMQP wire binding
+
+| Property | Value |
+| --- | --- |
+| Requests | `mcp.<principal>.<session>.requests` |
+| Replies | `mcp.<principal>.<session>.responses` |
+| Routing | One direct exchange named `<queue>.exchange` per receiving queue |
+| Framing | One JSON-RPC message per delivery; `application/json` content type |
+| Delivery | Publisher confirmations; acknowledge before SDK handoff |
+| Close | Empty JSON-typed message body |
+| Retention | Nondurable, auto-delete queues |
+| Expiry | Message TTL and unused queue expiry, default 60 seconds |
+| Message limit | 4 MiB by default |
+| Redelivery | Reject without requeue; never replay requests automatically |
+
+Acknowledging before SDK handoff avoids automatically rerunning uncertain work, but a process failure in that window can lose it. Publisher confirmations describe broker delivery, not tool completion or exactly-once execution. Applications still own idempotency.
+
+Queues hold at most 256 ready messages and reject publication on overflow. Consumer prefetch bounds unacknowledged deliveries, not concurrently executing tool handlers. Malformed messages become recoverable stream exceptions; channel closure ends the read stream.
+
+### AMQP authorization and limits
+
+The fixture grants each client publication rights only to its request exchanges. Queue-name permissions alone do not constrain default-exchange routing, so client credentials cannot publish through `amq.default`. The live permission check also rejects writes to another principal's exchange. Server credentials manage both sides of the configured routes; messages cannot choose an arbitrary reply destination.
+
+The fixture uses public test credentials, listens only on localhost, and disables durable storage. Do not deploy it. Use TLS and broker authorization in production, and bind request state to verified, authority-qualified identity. Change the local port with `AMQP_TEST_PORT` (default 15672).
+
+`cassetter` has no AMQP interceptor. Full broker branch coverage, broader delivery/failure validation, and production TLS checks remain open gates. The provider uses asyncio; Trio and Windows validation have not been completed.
