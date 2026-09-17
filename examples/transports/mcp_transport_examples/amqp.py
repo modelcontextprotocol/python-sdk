@@ -1,7 +1,5 @@
 """A symmetric AMQP 0.9.1 transport for one logical MCP peer."""
 
-from __future__ import annotations
-
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
