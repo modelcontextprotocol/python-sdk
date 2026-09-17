@@ -1,0 +1,66 @@
+[project]
+name = "mcp-transport-examples"
+version = "0.1.0"
+description = "Reference native gRPC adapter for the MCP transport API"
+requires-python = ">=3.10"
+dependencies = [
+    "grpcio>=1.71",
+    "mcp",
+    "protobuf>=6.33.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_transport_examples"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.0",
+    "coverage[toml]>=7.10.7",
+    "pyright>=1.1.400",
+    "ruff>=0.8.5",
+    "grpcio-tools==1.81.1",
+    "types-protobuf>=7.35.1.20260906",
+    "cassetter[grpc]>=0.11.0",
+    "cryptography>=50.0.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+testpaths = ["tests"]
+filterwarnings = ["error"]
+xfail_strict = true
+
+[tool.coverage.run]
+branch = true
+source_pkgs = ["mcp_transport_examples", "tests"]
+# Protoc output is verified by regenerating it, not by testing protobuf internals.
+omit = ["*/rpc_pb2.py"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "@overload"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+include = ["mcp_transport_examples", "tests", "*.py"]
+# Protoc emits unparameterized Mapping annotations in its generated stubs.
+ignore = ["mcp_transport_examples/rpc_pb2.py", "mcp_transport_examples/rpc_pb2.pyi"]
+venvPath = "."
+venv = ".venv"
+reportUnusedFunction = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["rpc_pb2.py", "rpc_pb2.pyi"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "FA", "UP", "RUF100"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true

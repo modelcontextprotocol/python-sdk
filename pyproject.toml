@@ -245,7 +245,7 @@ max-returns = 13                                           # Default is 6
 max-statements = 102                                       # Default is 50
 
 [tool.uv.workspace]
-members = ["src/mcp-types", "examples", "examples/clients/*", "examples/servers/*", "examples/snippets"]
+members = ["src/mcp-types", "examples", "examples/clients/*", "examples/servers/*", "examples/snippets", "examples/transports"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
@@ -254,6 +254,8 @@ mcp-types = { workspace = true }
 strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
 
 [tool.pytest.ini_options]
+# Optional transport examples use their own test environment.
+testpaths = ["tests"]
 log_cli = true
 xfail_strict = true
 # tests/docs/ imports the docs tooling, top-level modules under scripts/docs/.
