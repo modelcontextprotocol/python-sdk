@@ -562,9 +562,10 @@ async def test_session_group_multiple_servers_isolated_auth():
             mock_session_cls.return_value = mock_session_cm
 
             group = ClientSessionGroup()
-            async with group:
-                await group.connect_to_server(params_a)
-                await group.connect_to_server(params_b)
+            async with contextlib.AsyncExitStack() as stack:
+                group._exit_stack = stack
+                await group._establish_session(params_a, ClientSessionParameters())
+                await group._establish_session(params_b, ClientSessionParameters())
 
             assert len(recorded_clients) == 2
             assert recorded_clients[0].auth is auth_a
