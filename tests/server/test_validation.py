@@ -62,6 +62,13 @@ def test_validate_sampling_tools_raises_when_tools_provided_but_no_capability() 
     assert "sampling tools capability" in str(exc_info.value)
 
 
+def test_validate_sampling_tools_raises_when_empty_tools_list_but_no_capability() -> None:
+    """An empty list [] is not None, so it still triggers the capability check."""
+    with pytest.raises(MCPError) as exc_info:
+        validate_sampling_tools(None, [], None)
+    assert "sampling tools capability" in str(exc_info.value)
+
+
 def test_validate_sampling_tools_raises_when_tool_choice_provided_but_no_capability() -> None:
     """Raises MCPError when tool_choice provided but client doesn't support."""
     with pytest.raises(MCPError) as exc_info:
