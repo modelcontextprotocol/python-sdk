@@ -26,6 +26,11 @@ That is the whole production client. `Client` wraps the URL in `streamable_http_
 
     Nothing was resolved, fetched or spawned when you wrote `Client("http://...")`. That line is free.
 
+!!! note "Event-stream cleanup"
+    Streamable HTTP and legacy SSE close each event iterator when they stop reading, if it
+    exposes `aclose()`. This runs its cleanup on early return or cancellation instead of leaving
+    it to garbage collection. HTTPX2 remains responsible for nested response iterators.
+
 ### Bring your own `httpx2.AsyncClient`
 
 The moment you need an `Authorization` header, a cookie, a proxy, mTLS, or a different timeout, build the `httpx2.AsyncClient` yourself and hand it to `streamable_http_client`:
