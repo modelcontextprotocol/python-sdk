@@ -678,10 +678,10 @@ class TestOAuthFallback:
         assert unquote(client_id) == client_id_raw
         assert unquote(client_secret) == client_secret_raw
 
-        # client_secret should NOT be in body for basic auth
+        # Neither client_secret nor client_id should be in body for basic auth (RFC 6749 §2.3)
         content = request.content.decode()
         assert "client_secret=" not in content
-        assert "client_id=test%40client" in content  # client_id still in body
+        assert "client_id=" not in content
 
     @pytest.mark.anyio
     async def test_basic_auth_refresh_token(self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
@@ -714,9 +714,47 @@ class TestOAuthFallback:
         decoded = base64.b64decode(encoded_creds).decode()
         assert decoded == f"{client_id}:{client_secret}"
 
-        # client_secret should NOT be in body
+        # Neither client_secret nor client_id should be in body for basic auth (RFC 6749 §2.3)
         content = request.content.decode()
         assert "client_secret=" not in content
+        assert "client_id=" not in content
+
+    @pytest.mark.anyio
+    async def test_basic_auth_does_not_send_client_id_in_body(self, oauth_provider: OAuthClientProvider):
+        """Regression test for RFC 6749 §2.3: client_id must not appear in the
+        token-request body when client_secret_basic is used, because the
+        Authorization header already carries the client identity.
+
+        Previously, prepare_token_auth() only stripped client_secret from the
+        body but left client_id in — violating the spec and breaking servers
+        such as Notion's MCP implementation that reject duplicate credentials.
+        """
+        oauth_provider.context.oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://auth.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
+            token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+            token_endpoint_auth_methods_supported=["client_secret_basic"],
+        )
+
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="my_client",
+            client_secret="my_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            token_endpoint_auth_method="client_secret_basic",
+        )
+
+        request = await oauth_provider._exchange_token_authorization_code("auth_code", "verifier")
+
+        # Credentials must appear in the Authorization header only
+        assert request.headers["Authorization"].startswith("Basic ")
+
+        body = request.content.decode()
+        assert "client_id=" not in body, (
+            "client_id must not be sent in the request body when using "
+            "client_secret_basic — it is already present in the Authorization header "
+            "(RFC 6749 §2.3)"
+        )
+        assert "client_secret=" not in body
 
     @pytest.mark.anyio
     async def test_none_auth_method(self, oauth_provider: OAuthClientProvider):

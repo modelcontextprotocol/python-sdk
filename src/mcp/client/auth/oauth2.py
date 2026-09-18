@@ -264,8 +264,8 @@ class OAuthContext:
             credentials = f"{encoded_id}:{encoded_secret}"
             encoded_credentials = base64.b64encode(credentials.encode()).decode()
             headers["Authorization"] = f"Basic {encoded_credentials}"
-            # Don't include client_secret in body for basic auth
-            data = {k: v for k, v in data.items() if k != "client_secret"}
+            # Don't include client_id or client_secret in body for basic auth (RFC 6749 §2.3)
+            data = {k: v for k, v in data.items() if k not in ("client_secret", "client_id")}
         elif auth_method == "client_secret_post" and self.client_info.client_secret:
             # Include client_id and client_secret in request body (RFC 6749 §2.3.1)
             data["client_id"] = self.client_info.client_id
