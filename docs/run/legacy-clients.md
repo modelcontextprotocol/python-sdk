@@ -66,6 +66,14 @@ On one worker that is invisible. On two, it is the whole problem: a request that
     events to a client reconnecting to the *same* session), not a session store. It never makes a
     session reachable from another process.
 
+!!! note "Replay is buffered before network delivery"
+    With `event_store=`, the SDK collects replayed events before sending them, so a slow replay
+    reader does not hold the event-store lock. The buffer spills to a temporary file above
+    1 MiB instead of retaining the whole history in memory. Historical events, any new resumption
+    cursor, and live events are sent in that order. The lock does not serialize incoming POSTs
+    or reserve JSON-RPC request IDs. Live-stream backpressure can still delay other messages in
+    the same session.
+
 !!! note "Request cleanup preserves newer streams"
     Closing an HTTP request releases its own streams, including during cancellation.
     If you reuse a JSON-RPC request ID after the previous request completes, cleanup from an

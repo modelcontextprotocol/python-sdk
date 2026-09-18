@@ -6,6 +6,7 @@ The transport handles bidirectional communication using HTTP requests and
 responses, with streaming support for long-running operations.
 """
 
+import json
 import logging
 import math
 import re
@@ -210,11 +211,13 @@ class StreamableHTTPServerTransport:
         self.mcp_session_id = mcp_session_id
         self.is_json_response_enabled = is_json_response_enabled
         self._event_store = event_store
+        self._event_store_lock = anyio.Lock()
         self._security = TransportSecurityMiddleware(security_settings)
         self._retry_interval = retry_interval
         self._request_streams: dict[RequestId, _RequestStreams] = {}
         self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[SSEEvent]] = {}
         self._terminated = False
+        self._connected = False
         self._idle_timeout = idle_timeout
         self._requests_in_flight = 0
         self.idle_scope: anyio.CancelScope | None = None
@@ -915,25 +918,43 @@ class StreamableHTTPServerTransport:
             async def replay_sender():
                 stream_id: StreamId | None = None
                 request_streams: _RequestStreams | None = None
+                priming_event: SSEEvent | None = None
+                replay_buffer = anyio.SpooledTemporaryFile(max_size=1024 * 1024)
                 try:
                     async with sse_stream_writer:
 
                         async def send_event(event_message: EventMessage) -> None:
-                            await sse_stream_writer.send(self._create_event_data(event_message))
-
-                        stream_id = await event_store.replay_events_after(last_event_id, send_event)
-                        if stream_id and stream_id not in self._request_streams:  # pragma: no branch
-                            request_streams = anyio.create_memory_object_stream[EventMessage](
-                                REQUEST_STREAM_BUFFER_SIZE
+                            event_data = self._create_event_data(event_message)
+                            # Whole records prevent ping frames from splitting a replayed SSE event.
+                            await replay_buffer.write(
+                                (json.dumps(event_data, ensure_ascii=False) + "\n").encode("utf-8")
                             )
-                            self._sse_stream_writers[stream_id] = sse_stream_writer
-                            self._request_streams[stream_id] = request_streams
-                            priming_event = await self._mint_priming_event(stream_id, replay_protocol_version)
-                            if priming_event is not None:
-                                await sse_stream_writer.send(priming_event)
-                            async with request_streams[1] as msg_reader:
-                                async for event_message in msg_reader:
-                                    await sse_stream_writer.send(self._create_event_data(event_message))
+
+                        async with self._event_store_lock:
+                            if self._terminated or not self._connected:
+                                return
+                            stream_id = await event_store.replay_events_after(last_event_id, send_event)
+                            if self._terminated or not self._connected:
+                                return
+                            if stream_id and stream_id not in self._request_streams:
+                                request_streams = anyio.create_memory_object_stream[EventMessage](
+                                    REQUEST_STREAM_BUFFER_SIZE
+                                )
+                                self._sse_stream_writers[stream_id] = sse_stream_writer
+                                self._request_streams[stream_id] = request_streams
+                                priming_event = await self._mint_priming_event(stream_id, replay_protocol_version)
+
+                        await replay_buffer.seek(0)
+                        while event_data := await replay_buffer.readline():
+                            await sse_stream_writer.send(json.loads(event_data))
+                        await replay_buffer.aclose()
+                        if request_streams is None or self._terminated or not self._connected:
+                            return
+                        if priming_event is not None:
+                            await sse_stream_writer.send(priming_event)
+                        async with request_streams[1] as msg_reader:
+                            async for event_message in msg_reader:
+                                await sse_stream_writer.send(self._create_event_data(event_message))
                 except anyio.ClosedResourceError:  # pragma: lax no cover
                     # Expected when close_sse_stream() is called
                     logger.debug("Replay SSE stream closed by close_sse_stream()")
@@ -945,6 +966,8 @@ class StreamableHTTPServerTransport:
                     if request_streams is not None:
                         assert stream_id is not None
                         self._clean_up_memory_streams(stream_id, request_streams)
+                    with anyio.CancelScope(shield=True):
+                        await replay_buffer.aclose()
 
             # Create and start EventSourceResponse
             response = EventSourceResponse(
@@ -999,10 +1022,12 @@ class StreamableHTTPServerTransport:
         self._write_stream_reader = write_stream_reader
         self._write_stream = write_stream
 
+        acquire_scope: anyio.CancelScope | None = None
         # Start a task group for message routing
         async with anyio.create_task_group() as tg:
             # Create a message router that distributes messages to request streams
             async def message_router():
+                nonlocal acquire_scope
                 try:
                     async for session_message in write_stream_reader:  # pragma: no branch
                         # Determine which request stream(s) should receive this message
@@ -1038,10 +1063,28 @@ class StreamableHTTPServerTransport:
                         # messages will be replayed on the re-connect
                         event_id = None
                         if self._event_store:
-                            event_id = await self._event_store.store_event(request_stream_id, message)
-                            logger.debug(f"Stored {event_id} from {request_stream_id}")
+                            with anyio.CancelScope() as lock_scope:
+                                acquire_scope = lock_scope
+                                try:
+                                    try:
+                                        self._event_store_lock.acquire_nowait()
+                                    except anyio.WouldBlock:
+                                        if not self._connected:
+                                            return
+                                        await self._event_store_lock.acquire()
+                                finally:
+                                    acquire_scope = None
+                            if lock_scope.cancelled_caught:
+                                return
+                            try:
+                                event_id = await self._event_store.store_event(request_stream_id, message)
+                                logger.debug(f"Stored {event_id} from {request_stream_id}")
+                                target = self._request_streams.get(request_stream_id)
+                            finally:
+                                self._event_store_lock.release()
+                        else:
+                            target = self._request_streams.get(request_stream_id)
 
-                        target = self._request_streams.get(request_stream_id)
                         if target is not None:
                             try:
                                 # Send both the message and the event ID
@@ -1066,8 +1109,10 @@ class StreamableHTTPServerTransport:
             tg.start_soon(message_router)
 
             try:
+                self._connected = True
                 yield read_stream, write_stream
             finally:
+                self._connected = False
                 for stream_id, streams in list(self._request_streams.items()):
                     self._clean_up_memory_streams(stream_id, streams)
 
@@ -1080,3 +1125,6 @@ class StreamableHTTPServerTransport:
                 except Exception as e:  # pragma: no cover
                     # During cleanup, we catch all exceptions since streams might be in various states
                     logger.debug(f"Error closing streams: {e}")
+                # Cancel only lock acquisition, not a store write that has already started.
+                if acquire_scope is not None:
+                    acquire_scope.cancel()

@@ -5,7 +5,7 @@ import gc
 import anyio
 import httpx2
 import pytest
-from mcp_types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, jsonrpc_message_adapter
+from mcp_types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse, jsonrpc_message_adapter
 from starlette.types import Message, Scope
 
 from mcp.server.streamable_http import (
@@ -165,6 +165,428 @@ async def test_terminated_transport_answers_404() -> None:
 
     assert post.sent[0]["type"] == "http.response.start"
     assert post.sent[0]["status"] == 404
+
+
+@pytest.mark.anyio
+async def test_a_response_produced_during_replay_reaches_the_resumed_stream() -> None:
+    """SDK-defined: a response arriving after the replay snapshot cannot fall between replay and live delivery.
+
+    A gated public EventStore and raw ASGI peer expose the handoff without depending on HTTP client scheduling.
+    """
+    snapshot_taken = anyio.Event()
+    release_replay = anyio.Event()
+    response_delivered = anyio.Event()
+    disconnect = anyio.Event()
+    progress = JSONRPCNotification(
+        jsonrpc="2.0", method="notifications/progress", params={"progressToken": "call", "progress": 0.5, "total": 1}
+    )
+    response = JSONRPCResponse(jsonrpc="2.0", id="request", result={"value": "resumed"})
+    wire: list[bytes] = []
+
+    class SnapshotStore(EventStore):
+        def __init__(self) -> None:
+            self.events: list[tuple[StreamId, JSONRPCMessage | None]] = []
+
+        async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+            self.events.append((stream_id, message))
+            return str(len(self.events))
+
+        async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+            cursor = int(last_event_id)
+            stream_id, _ = self.events[cursor - 1]
+            snapshot = tuple(self.events[cursor:])
+            snapshot_taken.set()
+            await release_replay.wait()
+            for index, (_, message) in enumerate(snapshot, cursor + 1):
+                assert message is not None
+                await send_callback(EventMessage(message, str(index)))
+            return stream_id
+
+    store = SnapshotStore()
+    last_event_id = await store.store_event("request", None)
+    await store.store_event("request", progress)
+    transport = StreamableHTTPServerTransport(mcp_session_id=None, event_store=store)
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [
+            (b"accept", b"text/event-stream"),
+            (b"mcp-protocol-version", b"2025-11-25"),
+            (b"last-event-id", last_event_id.encode()),
+        ],
+    }
+
+    async def receive() -> Message:
+        await disconnect.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: Message) -> None:
+        if message["type"] == "http.response.start":
+            assert message["status"] == 200
+        else:
+            body = message.get("body", b"")
+            wire.append(body)
+            if response.model_dump_json(by_alias=True, exclude_unset=True).encode() in body:
+                response_delivered.set()
+
+    with anyio.fail_after(5):
+        async with transport.connect() as (_, write_stream), anyio.create_task_group() as tg:
+            tg.start_soon(transport.handle_request, scope, receive, send)
+            await snapshot_taken.wait()
+            await write_stream.send(SessionMessage(response))
+            await anyio.wait_all_tasks_blocked()
+            release_replay.set()
+            await response_delivered.wait()
+            disconnect.set()
+
+    received = httpx2.Response(
+        200,
+        headers={"content-type": "text/event-stream"},
+        content=b"".join(wire),
+        request=httpx2.Request("GET", "http://localhost/mcp"),
+    )
+    assert [
+        jsonrpc_message_adapter.validate_json(event.data) for event in httpx2.EventSource(received) if event.data
+    ] == [
+        progress,
+        response,
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("terminate", [False, True], ids=["context-exit", "terminated"])
+@pytest.mark.parametrize("wait_for_router", [False, True], ids=["after-send", "queued"])
+async def test_transport_shutdown_cancels_a_router_waiting_for_replay(terminate: bool, wait_for_router: bool) -> None:
+    """SDK-defined: shutdown releases a blocked router, and its late replay cannot open a dead stream."""
+    replay_started = anyio.Event()
+    release_replay = anyio.Event()
+    replay_finished = anyio.Event()
+    sent: list[Message] = []
+
+    class BlockingStore(EventStore):
+        async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+            return "cursor"
+
+        async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+            replay_started.set()
+            await release_replay.wait()
+            return "request"
+
+    store = BlockingStore()
+    cursor = await store.store_event("request", None)
+    transport = StreamableHTTPServerTransport(mcp_session_id=None, event_store=store)
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [
+            (b"accept", b"text/event-stream"),
+            (b"last-event-id", cursor.encode()),
+            (b"mcp-protocol-version", b"2025-11-25"),
+        ],
+    }
+
+    async def receive() -> Message:
+        await anyio.sleep_forever()
+        raise NotImplementedError
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    async def replay() -> None:
+        await transport.handle_request(scope, receive, send)
+        replay_finished.set()
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as requests:
+            async with transport.connect() as (_, write_stream):
+                requests.start_soon(replay)
+                await replay_started.wait()
+                await anyio.wait_all_tasks_blocked()
+                await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id="request", result={})))
+                if wait_for_router:
+                    await anyio.wait_all_tasks_blocked()
+                if terminate:
+                    await transport.terminate()
+            release_replay.set()
+            await replay_finished.wait()
+
+    assert transport.is_terminated is terminate
+    assert sent[0]["type"] == "http.response.start"
+    assert sent[0]["status"] == 200
+    assert b"".join(message.get("body", b"") for message in sent) == b""
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("window", ["lock", "hook"])
+async def test_termination_during_replay_setup_ends_the_response_without_priming(window: str) -> None:
+    """SDK-defined: termination wins over a replay waiting for the lock or its event-store hook."""
+    storing = anyio.Event()
+    replay_started = anyio.Event()
+    headers_sent = anyio.Event()
+    release = anyio.Event()
+    replay_finished = anyio.Event()
+    sent: list[Message] = []
+    response = JSONRPCResponse(jsonrpc="2.0", id="request", result={})
+
+    class GatedStore(EventStore):
+        async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+            if window == "lock":
+                storing.set()
+                await release.wait()
+            return "stored"
+
+        async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+            replay_started.set()
+            await release.wait()
+            return "request"
+
+    transport = StreamableHTTPServerTransport(None, event_store=GatedStore())
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [
+            (b"accept", b"text/event-stream"),
+            (b"last-event-id", b"cursor"),
+            (b"mcp-protocol-version", b"2025-11-25"),
+        ],
+    }
+
+    async def receive() -> Message:
+        await anyio.sleep_forever()
+        raise NotImplementedError
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+        if message["type"] == "http.response.start":
+            assert message["status"] == 200
+            headers_sent.set()
+
+    async def replay() -> None:
+        await transport.handle_request(scope, receive, send)
+        replay_finished.set()
+
+    with anyio.fail_after(5):
+        async with transport.connect() as (_, write_stream), anyio.create_task_group() as requests:
+            if window == "lock":
+                await write_stream.send(SessionMessage(response))
+                await storing.wait()
+            requests.start_soon(replay)
+            await headers_sent.wait()
+            if window == "hook":
+                await replay_started.wait()
+                await write_stream.send(SessionMessage(response))
+            await anyio.wait_all_tasks_blocked()
+            await transport.terminate()
+            release.set()
+            await replay_finished.wait()
+            await anyio.wait_all_tasks_blocked()
+
+    assert replay_started.is_set() is (window == "hook")
+    assert b"".join(message.get("body", b"") for message in sent) == b""
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("history_size", [0, 16, 1024 * 1024 + 1], ids=["priming", "memory", "spilled"])
+@pytest.mark.parametrize("disconnect_early", [False, True], ids=["drain", "disconnect"])
+async def test_a_blocked_replay_does_not_prevent_a_sibling_response(history_size: int, disconnect_early: bool) -> None:
+    """SDK-defined: a replay's network backpressure cannot hold the event-store lock.
+
+    The raw ASGI peer blocks response headers, making the network stall deterministic without HTTPX2.
+    """
+    replay_started = anyio.Event()
+    headers_sent = anyio.Event()
+    release_headers = anyio.Event()
+    priming_received = anyio.Event()
+    tail_received = anyio.Event()
+    disconnect = anyio.Event()
+    post_finished = anyio.Event()
+    history = JSONRPCNotification(
+        jsonrpc="2.0",
+        method="notifications/progress",
+        params={"progressToken": "p", "progress": 0.5, "message": "x" * history_size},
+    )
+    tail = JSONRPCResponse(jsonrpc="2.0", id="replay", result={"done": True})
+    sibling = JSONRPCResponse(jsonrpc="2.0", id="sibling", result={"ok": True})
+    chunks: list[bytes] = []
+
+    class ReplayStore(EventStore):
+        def __init__(self) -> None:
+            self.events: list[JSONRPCMessage | None] = []
+
+        async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+            self.events.append(message)
+            return str(len(self.events))
+
+        async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+            assert last_event_id == "cursor"
+            replay_started.set()
+            if history_size:
+                await send_callback(EventMessage(history, "historical"))
+            return "replay"
+
+    transport = StreamableHTTPServerTransport(None, is_json_response_enabled=True, event_store=ReplayStore())
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [
+            (b"accept", b"text/event-stream"),
+            (b"last-event-id", b"cursor"),
+            (b"mcp-protocol-version", b"2025-11-25"),
+        ],
+    }
+
+    async def receive() -> Message:
+        await disconnect.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: Message) -> None:
+        if message["type"] == "http.response.start":
+            assert message["status"] == 200
+            headers_sent.set()
+            await release_headers.wait()
+        elif body := message.get("body", b""):
+            assert body.endswith(b"\r\n\r\n")
+            chunks.append(body)
+            if body.endswith(b"data: \r\n\r\n"):
+                priming_received.set()
+            if tail.model_dump_json(by_alias=True, exclude_unset=True).encode() in body:
+                tail_received.set()
+
+    post = _AsgiPost(
+        b'{"jsonrpc":"2.0","id":"sibling","method":"tools/list"}',
+        [(b"accept", b"application/json"), (b"content-type", b"application/json")],
+    )
+
+    async def run_post() -> None:
+        await transport.handle_request(post.scope, post.receive, post.send)
+        post_finished.set()
+
+    with anyio.fail_after(5):
+        async with transport.connect() as (read_stream, write_stream):
+            async with anyio.create_task_group() as requests:
+                requests.start_soon(transport.handle_request, scope, receive, send)
+                await headers_sent.wait()
+                await replay_started.wait()
+                requests.start_soon(run_post)
+                incoming = await read_stream.receive()
+                assert isinstance(incoming, SessionMessage)
+                assert incoming.message == JSONRPCRequest(jsonrpc="2.0", id="sibling", method="tools/list")
+                await write_stream.send(SessionMessage(sibling))
+                await post_finished.wait()
+                assert (
+                    jsonrpc_message_adapter.validate_json(b"".join(message.get("body", b"") for message in post.sent))
+                    == sibling
+                )
+                if disconnect_early:
+                    disconnect.set()
+                else:
+                    release_headers.set()
+                    await priming_received.wait()
+                    await write_stream.send(SessionMessage(tail))
+                    await tail_received.wait()
+                    transport.close_sse_stream(tail.id)
+            await transport.terminate()
+
+    gc.collect()
+    if disconnect_early:
+        assert chunks == []
+        return
+    received = httpx2.Response(
+        200,
+        headers={"content-type": "text/event-stream"},
+        content=b"".join(chunks),
+        request=httpx2.Request("GET", "http://localhost/mcp"),
+    )
+    events = list(httpx2.EventSource(received))
+    assert [jsonrpc_message_adapter.validate_json(event.data) for event in events if event.data] == (
+        [history, tail] if history_size else [tail]
+    )
+    assert events[-2].data == ""
+    assert events[-1].id != events[-2].id
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("wait_for_store", [False, True], ids=["after-send", "during-store"])
+async def test_normal_transport_exit_waits_for_an_active_event_store_write(wait_for_store: bool) -> None:
+    """SDK-defined: normal session teardown finishes an accepted event-store write instead of cancelling it."""
+    storing = anyio.Event()
+    release = anyio.Event()
+    exited = anyio.Event()
+    response = JSONRPCResponse(jsonrpc="2.0", id="last", result={"done": True})
+    stored: list[JSONRPCMessage | None] = []
+
+    class GatedStore(EventStore):
+        async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+            storing.set()
+            await release.wait()
+            stored.append(message)
+            return "committed"
+
+        async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+            raise NotImplementedError
+
+    transport = StreamableHTTPServerTransport(None, event_store=GatedStore())
+
+    async def run_session() -> None:
+        async with transport.connect() as (_, write_stream):
+            await write_stream.send(SessionMessage(response))
+            if wait_for_store:
+                await storing.wait()
+        exited.set()
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tasks:
+            tasks.start_soon(run_session)
+            await storing.wait()
+            await anyio.wait_all_tasks_blocked()
+            try:
+                assert not exited.is_set()
+            finally:
+                release.set()
+            await exited.wait()
+    assert stored == [response]
+
+
+@pytest.mark.anyio
+async def test_caller_cancellation_still_interrupts_an_event_store_write() -> None:
+    """SDK-defined: draining a store on normal exit does not shield it against caller cancellation."""
+    storing = anyio.Event()
+    stopped = anyio.Event()
+
+    class GatedStore(EventStore):
+        async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+            try:
+                with anyio.fail_after(5):
+                    storing.set()
+                    await anyio.sleep_forever()
+            finally:
+                stopped.set()
+            raise NotImplementedError
+
+        async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+            raise NotImplementedError
+
+    transport = StreamableHTTPServerTransport(None, event_store=GatedStore())
+
+    async def run_session() -> None:
+        async with transport.connect() as (_, write_stream):
+            await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id="last", result={})))
+            await anyio.sleep_forever()
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tasks:
+            tasks.start_soon(run_session)
+            await storing.wait()
+            tasks.cancel_scope.cancel()
+    assert stopped.is_set()
 
 
 @pytest.mark.anyio
