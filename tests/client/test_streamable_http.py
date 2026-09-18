@@ -55,6 +55,11 @@ from tests.interaction.transports import StreamingASGITransport
 from tests.shared.test_dispatcher import Recorder, echo_handlers
 
 
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared runner because iterator cleanup parametrizes `anyio_backend`."""
+
+
 @pytest.mark.parametrize(
     ("raw", "expected", "wrapped"),
     [
@@ -919,6 +924,7 @@ async def test_resumption_redirected_elsewhere_resolves_that_request_with_an_err
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("iterator_kind", ["generator", "closable", "plain"])
+@pytest.mark.parametrize("anyio_backend", ["asyncio", "trio"])
 async def test_resumed_response_accepts_async_iterators_and_closes_them_when_supported(
     monkeypatch: pytest.MonkeyPatch, iterator_kind: str
 ) -> None:

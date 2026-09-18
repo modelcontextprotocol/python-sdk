@@ -222,6 +222,7 @@ async def test_server_sent_cancelled_for_the_listen_id_raises_subscription_lost(
                     await anext(sub)
 
 
+@pytest.mark.parametrize("anyio_backend", ["asyncio", "trio"])
 async def test_exiting_the_context_frees_the_server_slot():
     """Leaving the block ends the subscription server-side: a one-slot handler admits a second listen."""
     bus = InMemorySubscriptionBus()
@@ -234,6 +235,7 @@ async def test_exiting_the_context_frees_the_server_slot():
                 assert second.subscription_id != first.subscription_id
 
 
+@pytest.mark.parametrize("anyio_backend", ["asyncio", "trio"])
 async def test_a_cancelled_task_can_close_a_subscription_opened_by_another_task() -> None:
     """SDK-defined: cross-task exit joins direct handler cleanup even when the closing task is cancelled."""
     handler = ListenHandler(InMemorySubscriptionBus())

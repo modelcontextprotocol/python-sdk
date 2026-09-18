@@ -20,6 +20,11 @@ from mcp.server.streamable_http import (
 from mcp.shared.message import SessionMessage
 
 
+@pytest.fixture(scope="module", params=["asyncio", "trio"])
+def anyio_backend(request: pytest.FixtureRequest) -> str:
+    return request.param
+
+
 class _PrimingFailingStore(EventStore):
     async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
         raise RuntimeError("backend unavailable")
