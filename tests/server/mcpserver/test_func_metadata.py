@@ -1520,3 +1520,27 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+def test_variadic_kwargs_rejected_for_tools():
+    def with_kwargs(x: int, **kwargs: str) -> str:  # pragma: no cover
+        return f"{x} {kwargs}"
+
+    with pytest.raises(InvalidSignature, match=r"\*\*kwargs"):
+        func_metadata(with_kwargs)
+
+    schema = func_metadata(with_kwargs, allow_variadic=True).arg_model.model_json_schema()
+    assert "kwargs" not in schema.get("properties", {})
+    assert "x" in schema.get("properties", {})
+
+
+def test_variadic_args_rejected_for_tools():
+    def with_args(x: int, *args: str) -> str:  # pragma: no cover
+        return f"{x} {args}"
+
+    with pytest.raises(InvalidSignature, match=r"\*args"):
+        func_metadata(with_args)
+
+    schema = func_metadata(with_args, allow_variadic=True).arg_model.model_json_schema()
+    assert "args" not in schema.get("properties", {})
+    assert "x" in schema.get("properties", {})

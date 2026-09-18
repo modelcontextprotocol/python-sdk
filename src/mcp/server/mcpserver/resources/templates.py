@@ -151,7 +151,10 @@ class ResourceTemplate(BaseModel):
 
         # Only the argument model is needed; a resource has no output schema to derive
         func_arg_metadata = func_metadata(
-            fn, skip_names=[context_kwarg] if context_kwarg is not None else [], structured_output=False
+            fn,
+            skip_names=[context_kwarg] if context_kwarg is not None else [],
+            structured_output=False,
+            allow_variadic=True,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
 

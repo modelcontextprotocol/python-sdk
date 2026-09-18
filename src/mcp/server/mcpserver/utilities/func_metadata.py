@@ -276,6 +276,8 @@ def func_metadata(
     func: Callable[..., Any],
     skip_names: Sequence[str] = (),
     structured_output: bool | None = None,
+    *,
+    allow_variadic: bool = False,
 ) -> FuncMetadata:
     """Given a function, return metadata including a Pydantic model representing its signature.
 
@@ -293,6 +295,11 @@ def func_metadata(
         func: The function to convert to a Pydantic model
         skip_names: A list of parameter names to skip. These will not be included in
             the model.
+        allow_variadic: If False (the default, used for tools), ``*args`` and
+            ``**kwargs`` parameters raise :class:`InvalidSignature` because JSON
+            Schema cannot express them and the resulting tool would be uncallable.
+            Resource templates pass True so a catch-all ``**kwargs`` can receive
+            URI variables that are only known at match time.
         structured_output: Controls whether the tool's output is structured or unstructured
             - If None, auto-detects based on the function's return type annotation
             - If True, creates a structured tool (return type annotation permitting)
@@ -331,6 +338,18 @@ def func_metadata(
             raise InvalidSignature(f"Parameter {param.name} of {func.__name__} cannot start with '_'")
         if param.name in skip_names:
             continue
+        if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+            if allow_variadic:
+                continue
+            kind = (
+                "variadic positional (*args)"
+                if param.kind is inspect.Parameter.VAR_POSITIONAL
+                else "variadic keyword (**kwargs)"
+            )
+            raise InvalidSignature(
+                f"Parameter {param.name} of {func.__name__} is a {kind} parameter; "
+                "JSON Schema cannot express *args or **kwargs"
+            )
 
         annotation = param.annotation if param.annotation is not inspect.Parameter.empty else Any
         field_name = param.name
