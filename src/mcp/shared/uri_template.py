@@ -451,7 +451,7 @@ class UriTemplate:
         out: list[str] = []
         for part in self._parts:
             if isinstance(part, str):
-                out.append(part)
+                out.append(_encode(part, allow_reserved=True))
             else:
                 out.append(_expand_expression(part, variables))
         return "".join(out)
@@ -892,6 +892,7 @@ def _flatten(parts: list[_Part]) -> list[_Atom]:
     def push_lit(text: str) -> None:
         if not text:
             return
+        text = _encode(text, allow_reserved=True)
         if atoms and isinstance(atoms[-1], _Lit):
             atoms[-1] = _Lit(atoms[-1].text + text)
         else:

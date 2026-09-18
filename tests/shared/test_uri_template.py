@@ -479,6 +479,11 @@ def test_expand_encodes_special_chars_in_simple():
     assert t.expand({"v": "a&b=c"}) == "a%26b%3Dc"
 
 
+def test_expand_encodes_non_ascii_literal():
+    t = UriTemplate.parse("file:///docs/café/{name}")
+    assert t.expand({"name": "a.txt"}) == "file:///docs/caf%C3%A9/a.txt"
+
+
 def test_expand_preserves_special_chars_in_reserved():
     t = UriTemplate.parse("{+v}")
     assert t.expand({"v": "a&b=c"}) == "a&b=c"
@@ -762,6 +767,11 @@ def test_match_large_uri_against_greedy_template():
 def test_match_decodes_percent_encoding():
     t = UriTemplate.parse("file://docs/{name}")
     assert t.match("file://docs/hello%20world.txt") == {"name": "hello world.txt"}
+
+
+def test_match_encodes_non_ascii_literal():
+    t = UriTemplate.parse("file:///docs/café/{name}")
+    assert t.match("file:///docs/caf%C3%A9/a.txt") == {"name": "a.txt"}
 
 
 def test_match_escapes_template_literals():
