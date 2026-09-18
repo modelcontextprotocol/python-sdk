@@ -276,6 +276,7 @@ def func_metadata(
     func: Callable[..., Any],
     skip_names: Sequence[str] = (),
     structured_output: bool | None = None,
+    allow_var_params: bool = True,
 ) -> FuncMetadata:
     """Given a function, return metadata including a Pydantic model representing its signature.
 
@@ -293,6 +294,11 @@ def func_metadata(
         func: The function to convert to a Pydantic model
         skip_names: A list of parameter names to skip. These will not be included in
             the model.
+        allow_var_params: When False, a `*args` or `**kwargs` parameter raises
+            `InvalidSignature`; a variadic parameter has no scalar schema and would
+            otherwise be modelled as an unusable normal field. Tools pass False;
+            resource templates leave it True since they use `**kwargs` for
+            runtime-determined URI variables.
         structured_output: Controls whether the tool's output is structured or unstructured
             - If None, auto-detects based on the function's return type annotation
             - If True, creates a structured tool (return type annotation permitting)
@@ -329,6 +335,12 @@ def func_metadata(
     for param in params.values():
         if param.name.startswith("_"):  # pragma: no cover
             raise InvalidSignature(f"Parameter {param.name} of {func.__name__} cannot start with '_'")
+        if not allow_var_params and param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            variadic = "*args" if param.kind is inspect.Parameter.VAR_POSITIONAL else "**kwargs"
+            raise InvalidSignature(f"Function {func.__name__} cannot have a {variadic} parameter")
         if param.name in skip_names:
             continue
 

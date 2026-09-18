@@ -102,6 +102,7 @@ class Tool(BaseModel):
             fn,
             skip_names=skip_names,
             structured_output=structured_output,
+            allow_var_params=False,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
 

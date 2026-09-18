@@ -1520,3 +1520,36 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+def test_var_positional_param_is_rejected_for_tools():
+    """A tool signature with *args has no scalar schema and is rejected at registration."""
+
+    def func_with_var_args(a: int, *args: int) -> int:  # pragma: no cover
+        return a
+
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_with_var_args, allow_var_params=False)
+    assert "*args" in str(exc_info.value)
+
+
+def test_var_keyword_param_is_rejected_for_tools():
+    """A tool signature with **kwargs has no scalar schema and is rejected at registration."""
+
+    def func_with_var_kwargs(a: int, **kwargs: int) -> int:  # pragma: no cover
+        return a
+
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_with_var_kwargs, allow_var_params=False)
+    assert "**kwargs" in str(exc_info.value)
+
+
+def test_var_keyword_param_is_allowed_by_default():
+    """Resource templates keep using **kwargs for runtime-determined URI variables, so the
+    default (allow_var_params=True) must not reject a variadic parameter."""
+
+    def func_with_var_kwargs(**kwargs: str) -> str:  # pragma: no cover
+        return ""
+
+    meta = func_metadata(func_with_var_kwargs)
+    assert isinstance(meta, FuncMetadata)
