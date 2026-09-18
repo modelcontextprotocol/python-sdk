@@ -2514,3 +2514,90 @@ async def test_send_raw_request_with_caller_supplied_string_id_is_verbatim_on_th
         for stream in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             stream.close()
     assert result_box == [{"ok": True}]
+
+
+@pytest.mark.anyio
+async def test_transport_exception_fails_pending_request_without_hanging():
+    """A read-stream fault wakes an in-flight `send_raw_request` with `CONNECTION_CLOSED`.
+
+    Regression for the streamable-http hang: before this, a transport error (e.g. an SSE
+    read timeout) reached only the observer, so a request already waiting on its response
+    sat until its own `opts["timeout"]` elapsed. Now the dispatcher fails the waiter at once,
+    and the error message carries the transport exception so the caller can see the cause.
+    """
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    outcome: dict[str, BaseException] = {}
+    boom = TimeoutError("sse read timed out")
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, on_request, on_notify)
+
+            async def call() -> None:
+                # No `timeout` opt: without the fix this would block forever.
+                try:
+                    await client.send_raw_request("tools/call", {"name": "slow"})
+                except BaseException as exc:  # noqa: BLE001 - capture whatever the waiter raises
+                    outcome["exc"] = exc
+
+            tg.start_soon(call)
+            # Let the request register in `_pending` and park on its response.
+            with anyio.fail_after(5):
+                sent = await s2c_recv.receive()
+            assert isinstance(sent, SessionMessage)
+            assert isinstance(sent.message, JSONRPCRequest)
+
+            # The transport now yields an exception instead of a response.
+            await c2s_send.send(boom)
+            with anyio.fail_after(5):
+                while "exc" not in outcome:
+                    await anyio.sleep(0)
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+    raised = outcome["exc"]
+    assert isinstance(raised, MCPError)
+    assert raised.error.code == CONNECTION_CLOSED
+    # The original transport exception is preserved in the message for debugging.
+    assert "sse read timed out" in raised.error.message
+
+
+def test_fail_pending_reports_transport_exception_and_clears_pending():
+    """White-box: `_fail_pending` wakes waiters with the exception detail, then empties `_pending`."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    send, recv = anyio.create_memory_object_stream[dict[str, Any] | ErrorData](1)
+    d._pending[1] = _Pending(send=send, receive=recv)  # pyright: ignore[reportPrivateUsage]
+
+    d._fail_pending(TimeoutError("sse read timed out"))  # pyright: ignore[reportPrivateUsage]
+
+    signalled = recv.receive_nowait()
+    assert isinstance(signalled, ErrorData)
+    assert signalled.code == CONNECTION_CLOSED
+    assert "sse read timed out" in signalled.message
+    assert d._pending == {}  # pyright: ignore[reportPrivateUsage]
+    for s in (c2s_send, c2s_recv, s2c_send, s2c_recv, send, recv):
+        s.close()
+
+
+def test_fail_pending_keeps_existing_outcome_when_waiter_already_resolved():
+    """White-box: a waiter that already holds a real result is not clobbered by the fault signal."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    send, recv = anyio.create_memory_object_stream[dict[str, Any] | ErrorData](1)
+    d._pending[1] = _Pending(send=send, receive=recv)  # pyright: ignore[reportPrivateUsage]
+    send.send_nowait({"real": "result"})
+
+    d._fail_pending(TimeoutError("sse read timed out"))  # pyright: ignore[reportPrivateUsage]
+
+    assert recv.receive_nowait() == {"real": "result"}
+    assert d._pending == {}  # pyright: ignore[reportPrivateUsage]
+    for s in (c2s_send, c2s_recv, s2c_send, s2c_recv, send, recv):
+        s.close()

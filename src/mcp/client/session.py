@@ -243,6 +243,15 @@ class MessageHandlerFnT(Protocol):
 
 
 async def _default_message_handler(message: IncomingMessage) -> None:
+    # Transport-level faults (e.g. an SSE read timeout) reach the handler as the
+    # `Exception` arm of `IncomingMessage`. The default used to only checkpoint,
+    # so these vanished with no trace. Log them at ERROR: in-flight requests are
+    # already failed by the dispatcher, but a fault with no request in flight
+    # (an idle SSE stream dropping) would otherwise leave no signal at all.
+    # Server notifications remain a no-op - a handler is optional for those.
+    if isinstance(message, Exception):
+        logger.error("transport error surfaced to message handler: %r", message)
+        return
     await anyio.lowlevel.checkpoint()
 
 

@@ -536,6 +536,11 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         are awaited; any other `await` would head-of-line block the read loop.
         """
         if isinstance(item, Exception):
+            # A transport fault fails every in-flight request now, rather than
+            # leaving each waiter to block until its own `opts["timeout"]`
+            # elapses (or forever, if it has none). Done before the observer
+            # runs so a slow observer can't delay freeing the waiters.
+            self._fail_pending(item)
             if self.on_stream_exception is None:
                 logger.debug("transport yielded exception: %r", item)
                 return
@@ -685,18 +690,35 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         else:
             self._tg.start_soon(fn, *args)
 
-    def _fan_out_closed(self) -> None:
-        """Wake every pending `send_raw_request` waiter with `CONNECTION_CLOSED`.
+    def _fan_out_error(self, error: ErrorData) -> None:
+        """Wake every pending `send_raw_request` waiter with `error`.
 
-        Synchronous: callers may be inside a cancelled scope. Idempotent.
+        Synchronous: callers may be inside a cancelled scope. Idempotent - the
+        `_pending` table is cleared, so a second call is a no-op. A waiter that
+        already holds an outcome (buffer-of-1 full) keeps it: the `WouldBlock`
+        is swallowed rather than clobbering the real response with the signal.
         """
-        closed = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
         for pending in self._pending.values():
             try:
-                pending.send.send_nowait(closed)
+                pending.send.send_nowait(error)
             except (anyio.WouldBlock, anyio.BrokenResourceError, anyio.ClosedResourceError):
                 pass
         self._pending.clear()
+
+    def _fan_out_closed(self) -> None:
+        """Wake every pending `send_raw_request` waiter with `CONNECTION_CLOSED` (EOF/shutdown)."""
+        self._fan_out_error(ErrorData(code=CONNECTION_CLOSED, message="Connection closed"))
+
+    def _fail_pending(self, exc: Exception) -> None:
+        """Wake every pending waiter because the read stream yielded a transport fault.
+
+        Reported as `CONNECTION_CLOSED` for parity with the EOF path (`send_raw_request`
+        raises `MCPError` either way), but the message carries `exc` so callers can see
+        what actually broke - e.g. an `httpx.ReadTimeout` from a low `sse_read_timeout` -
+        instead of the request hanging until its own timeout. The raw `exc` still reaches
+        any `on_stream_exception` observer untouched.
+        """
+        self._fan_out_error(ErrorData(code=CONNECTION_CLOSED, message=f"Transport error: {exc!r}"))
 
     async def _handle_request(
         self,
