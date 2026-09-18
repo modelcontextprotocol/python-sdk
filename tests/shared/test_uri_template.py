@@ -479,6 +479,25 @@ def test_expand_encodes_special_chars_in_simple():
     assert t.expand({"v": "a&b=c"}) == "a%26b%3Dc"
 
 
+def test_expand_encodes_non_ascii_and_space_literals():
+    # RFC 6570 §3.1 / uritemplate-test "Literal Encoding"
+    t = UriTemplate.parse("file:///docs/café/{name}")
+    assert t.expand({"name": "a.txt"}) == "file:///docs/caf%C3%A9/a.txt"
+
+    spaced = UriTemplate.parse("file:///my docs/{name}")
+    assert spaced.expand({"name": "a.txt"}) == "file:///my%20docs/a.txt"
+
+
+def test_match_accepts_pct_encoded_literals_not_raw_iri():
+    t = UriTemplate.parse("file:///docs/café/{name}")
+    assert t.match("file:///docs/caf%C3%A9/a.txt") == {"name": "a.txt"}
+    assert t.match("file:///docs/café/a.txt") is None
+
+    spaced = UriTemplate.parse("file:///my docs/{name}")
+    assert spaced.match("file:///my%20docs/a.txt") == {"name": "a.txt"}
+    assert spaced.match("file:///my docs/a.txt") is None
+
+
 def test_expand_preserves_special_chars_in_reserved():
     t = UriTemplate.parse("{+v}")
     assert t.expand({"v": "a&b=c"}) == "a&b=c"

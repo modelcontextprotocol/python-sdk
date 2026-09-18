@@ -91,6 +91,12 @@ def test_matches_null_byte_check_can_be_disabled():
     assert t.matches("file://docs/key%00.txt") == {"name": "key\x00.txt"}
 
 
+def test_matches_pct_encoded_non_ascii_literal():
+    t = _make("file:///docs/café/{name}")
+    assert t.matches("file:///docs/caf%C3%A9/a.txt") == {"name": "a.txt"}
+    assert t.matches("file:///docs/café/a.txt") is None
+
+
 def test_security_rejection_does_not_fall_through_to_next_template():
     # A strict template's security rejection must halt iteration, not
     # fall through to a later permissive template. Previously matches()

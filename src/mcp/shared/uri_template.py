@@ -225,6 +225,17 @@ def _encode(value: str, *, allow_reserved: bool) -> str:
     return "".join(out)
 
 
+def _encode_literal(text: str) -> str:
+    """Percent-encode a template literal per RFC 6570 §3.1.
+
+    Characters the URI grammar does not allow (non-ASCII, space, and other
+    non-unreserved/non-reserved octets) are UTF-8 percent-encoded. Reserved
+    and unreserved characters, and existing ``%XX`` triplets, are left as-is
+    so ``file://`` paths stay intact.
+    """
+    return _encode(text, allow_reserved=True)
+
+
 def _expand_expression(expr: _Expression, variables: Mapping[str, str | Sequence[str]]) -> str:
     """Expand a single ``{...}`` expression into its URI fragment.
 
@@ -734,12 +745,12 @@ def _parse(template: str, *, max_variables: int) -> tuple[list[_Part], list[Vari
 
         if brace == -1:
             # No more expressions; everything left is a trailing literal.
-            parts.append(template[i:])
+            parts.append(_encode_literal(template[i:]))
             break
 
         if brace > i:
             # Literal text between cursor and the brace.
-            parts.append(template[i:brace])
+            parts.append(_encode_literal(template[i:brace]))
 
         end = template.find("}", brace)
         if end == -1:
