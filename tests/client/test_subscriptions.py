@@ -10,6 +10,7 @@ import anyio
 import mcp_types as types
 import pytest
 from mcp_types import SubscriptionFilter
+from trio.testing import MockClock
 
 import mcp.client.subscriptions as subscriptions_module
 from mcp import Client, MCPError
@@ -34,8 +35,15 @@ from mcp.server.subscriptions import (
 )
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import CallOptions
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import SessionMessage
 
 pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared runner because the cleanup timeout test parametrizes `anyio_backend`."""
 
 
 def _bus_server(bus: InMemorySubscriptionBus, *, max_subscriptions: int | None = None) -> Server[Any]:
@@ -214,6 +222,7 @@ async def test_server_sent_cancelled_for_the_listen_id_raises_subscription_lost(
                     await anext(sub)
 
 
+@pytest.mark.parametrize("anyio_backend", ["asyncio", "trio"])
 async def test_exiting_the_context_frees_the_server_slot():
     """Leaving the block ends the subscription server-side: a one-slot handler admits a second listen."""
     bus = InMemorySubscriptionBus()
@@ -224,6 +233,162 @@ async def test_exiting_the_context_frees_the_server_slot():
             async with client.listen(tools_list_changed=True) as second:  # pragma: no branch
                 assert second.honored.tools_list_changed is True
                 assert second.subscription_id != first.subscription_id
+
+
+@pytest.mark.parametrize("anyio_backend", ["asyncio", "trio"])
+async def test_a_cancelled_task_can_close_a_subscription_opened_by_another_task() -> None:
+    """SDK-defined: cross-task exit joins direct handler cleanup even when the closing task is cancelled."""
+    handler = ListenHandler(InMemorySubscriptionBus())
+    cleanup_started = anyio.Event()
+    release_cleanup = anyio.Event()
+    cleanup_finished = anyio.Event()
+    closed = anyio.Event()
+
+    async def slow_cleanup(
+        ctx: ServerRequestContext, params: types.SubscriptionsListenRequestParams
+    ) -> types.SubscriptionsListenResult:
+        assert params.notifications.tools_list_changed is True
+        try:
+            return await handler(ctx, params)
+        finally:
+            with anyio.fail_after(5, shield=True):
+                cleanup_started.set()
+                await release_cleanup.wait()
+                cleanup_finished.set()
+
+    server = Server("subs", on_subscriptions_listen=slow_cleanup)
+    with anyio.fail_after(5):
+        async with Client(server) as client, anyio.create_task_group() as tg:
+            subscription = client.listen(tools_list_changed=True)
+            await subscription.__aenter__()
+
+            async def close() -> None:
+                with anyio.CancelScope() as scope:
+                    scope.cancel()
+                    try:
+                        await anyio.Event().wait()
+                    except anyio.get_cancelled_exc_class() as exc:
+                        await subscription.__aexit__(type(exc), exc, exc.__traceback__)
+                        assert cleanup_finished.is_set()
+                        closed.set()
+                        raise
+
+            tg.start_soon(close)
+            try:
+                await cleanup_started.wait()
+                await anyio.wait_all_tasks_blocked()
+                assert not closed.is_set()
+            finally:
+                release_cleanup.set()
+            await closed.wait()
+
+
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
+)
+async def test_exiting_a_subscription_bounds_uncooperative_direct_handler_cleanup() -> None:
+    """SDK-defined: exit stops waiting after five seconds if a direct handler shields its cleanup."""
+    handler = ListenHandler(InMemorySubscriptionBus())
+    cleanup_started = anyio.Event()
+    release_cleanup = anyio.Event()
+    cleanup_finished = anyio.Event()
+
+    async def shielded_cleanup(
+        ctx: ServerRequestContext, params: types.SubscriptionsListenRequestParams
+    ) -> types.SubscriptionsListenResult:
+        assert params.notifications.tools_list_changed is True
+        try:
+            return await handler(ctx, params)
+        finally:
+            # The watchdog must outlast the SDK's five-second cleanup cap.
+            with anyio.fail_after(10, shield=True):
+                cleanup_started.set()
+                await release_cleanup.wait()
+                cleanup_finished.set()
+
+    server = Server("subs", on_subscriptions_listen=shielded_cleanup)
+    async with Client(server) as client:
+        subscription = client.listen(tools_list_changed=True)
+        with anyio.fail_after(5):
+            sub = await subscription.__aenter__()
+        try:
+            started = anyio.current_time()
+            await subscription.__aexit__(None, None, None)
+            assert anyio.current_time() - started == 5  # MockClock time, never wall-clock time.
+            assert cleanup_started.is_set()
+            assert not cleanup_finished.is_set()
+            with pytest.raises(StopAsyncIteration):
+                await anext(sub)
+        finally:
+            release_cleanup.set()
+        with anyio.fail_after(5):
+            await cleanup_finished.wait()
+
+
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
+)
+@pytest.mark.parametrize("cancelled", [False, True], ids=["normal-exit", "cancelled-exit"])
+async def test_sequential_remote_subscription_exits_do_not_wait_for_courtesy_writes(
+    monkeypatch: pytest.MonkeyPatch, cancelled: bool
+) -> None:
+    """SDK-defined: remote exits leave courtesy writes to session-owned drivers, even when cancelled.
+
+    Block the public stream `send` boundary; typed server handlers cannot wedge a client's transport write.
+    """
+    server = Server("subs", on_subscriptions_listen=ListenHandler(InMemorySubscriptionBus()))
+    client_write, server_read = anyio.create_memory_object_stream[SessionMessage | Exception]()
+    server_write, client_read = anyio.create_memory_object_stream[SessionMessage | Exception]()
+    release_writes = anyio.Event()
+    attempted: list[types.RequestId] = []
+    delivered: list[types.RequestId] = []
+    send = client_write.send
+
+    async def block_courtesy_write(item: SessionMessage | Exception) -> None:
+        assert isinstance(item, SessionMessage)
+        message = item.message
+        if isinstance(message, types.JSONRPCNotification) and message.method == "notifications/cancelled":
+            assert message.params is not None
+            request_id = message.params["requestId"]
+            attempted.append(request_id)
+            with anyio.fail_after(5):
+                await release_writes.wait()
+            await send(item)
+            delivered.append(request_id)
+        else:
+            await send(item)
+
+    monkeypatch.setattr(client_write, "send", block_courtesy_write)
+    dispatcher = JSONRPCDispatcher(client_read, client_write)
+    with anyio.fail_after(5):
+        async with client_write, server_read, server_write, client_read, anyio.create_task_group() as tg:
+            tg.start_soon(server.run, server_read, server_write, server.create_initialization_options())
+            async with ClientSession(dispatcher=dispatcher) as session:
+                await session.discover()
+                subscription_ids: list[types.RequestId] = []
+                started = anyio.current_time()
+                try:
+                    for _ in range(2):
+                        subscription = listen(session, tools_list_changed=True)
+                        sub = await subscription.__aenter__()
+                        subscription_ids.append(sub.subscription_id)
+                        with anyio.CancelScope() as scope:
+                            if cancelled:
+                                scope.cancel()
+                            await subscription.__aexit__(None, None, None)
+                        assert anyio.current_time() == started  # MockClock time, never wall-clock time.
+                        with pytest.raises(StopAsyncIteration):
+                            await anext(sub)
+                        await anyio.wait_all_tasks_blocked()
+                        assert attempted == subscription_ids
+                        assert delivered == []
+                finally:
+                    release_writes.set()
+                await anyio.wait_all_tasks_blocked()
+                assert set(delivered) == set(subscription_ids)
+            tg.cancel_scope.cancel()
 
 
 async def test_concurrent_subscriptions_demux_independently():
@@ -599,6 +764,8 @@ async def test_client_listen_installs_the_cache_eviction_barrier_exactly_when_a_
         with anyio.fail_after(5):
             async with uncached_client.listen(tools_list_changed=True) as sub:  # pragma: no branch
                 assert sub._on_event is None  # pyright: ignore[reportPrivateUsage]
+                await bus.publish(ToolsListChanged())
+                assert await anext(sub) == ToolsListChanged()
 
 
 async def test_the_cache_eviction_barrier_maps_events_and_contains_store_faults(

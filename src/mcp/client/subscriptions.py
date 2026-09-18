@@ -18,6 +18,7 @@ import anyio
 import mcp_types as types
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
+from mcp.shared.direct_dispatcher import DirectDispatcher
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import MCPError
 from mcp.shared.subscriptions import (
@@ -241,42 +242,51 @@ async def listen(
     data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
     opts: CallOptions = {"request_id": request_id}
     session._stamp(data, opts)  # pyright: ignore[reportPrivateUsage]
+    dispatcher = session._dispatcher  # pyright: ignore[reportPrivateUsage]
     driver_scope = anyio.CancelScope()
+    driver_done = anyio.Event()
 
     async def drive() -> None:
         # Deliberately no result timeout: the response arrives when the stream ends.
-        with driver_scope:
-            try:
-                await session._dispatcher.send_raw_request(  # pyright: ignore[reportPrivateUsage]
-                    data["method"], data.get("params"), opts
-                )
-            except MCPError as error:
-                route.settle("lost", error=error)
-                return
-            except ValueError as error:
-                # A raw request id collided with our minted listen id: fail this subscription
-                # and release the route in this same slice, so it cannot consume the raw caller's ack.
-                session._unregister_listen_route(request_id)  # pyright: ignore[reportPrivateUsage]
-                route.settle("lost", error=MCPError(types.INTERNAL_ERROR, str(error)))
-                return
-            # A result, whatever its body, is the spec's graceful close; with no prior ack
-            # it opens the subscription already closed.
-            route.set_acked(types.SubscriptionFilter())
-            route.settle("graceful")
+        try:
+            with driver_scope:
+                try:
+                    await dispatcher.send_raw_request(data["method"], data.get("params"), opts)
+                except MCPError as error:
+                    route.settle("lost", error=error)
+                    return
+                except ValueError as error:
+                    # A raw request id collided with our minted listen id: fail this subscription
+                    # and release the route in this same slice, so it cannot consume the raw caller's ack.
+                    session._unregister_listen_route(request_id)  # pyright: ignore[reportPrivateUsage]
+                    route.settle("lost", error=MCPError(types.INTERNAL_ERROR, str(error)))
+                    return
+                # A result, whatever its body, is the spec's graceful close; with no prior ack
+                # it opens the subscription already closed.
+                route.set_acked(types.SubscriptionFilter())
+                route.settle("graceful")
+        finally:
+            driver_done.set()
 
     # Register the demux route before the request is written so the ack cannot race it.
     route = session._register_listen_route(request_id)  # pyright: ignore[reportPrivateUsage]
     try:
         task_group.start_soon(drive)
-        with anyio.fail_after(session._session_read_timeout_seconds):  # pyright: ignore[reportPrivateUsage]
-            await route.acked.wait()
-        if route.honored is None:
-            # Only reachable on failure paths: a graceful no-ack result acked an empty filter in drive().
-            if route.error is not None:
-                raise route.error
-            raise SubscriptionLost(f"subscription {request_id!r} ended before it was acknowledged")
-        yield Subscription(route, request_id, route.honored, on_event)
+        try:
+            with anyio.fail_after(session._session_read_timeout_seconds):  # pyright: ignore[reportPrivateUsage]
+                await route.acked.wait()
+            if route.honored is None:
+                # Only reachable on failure paths: a graceful no-ack result acked an empty filter in drive().
+                if route.error is not None:
+                    raise route.error
+                raise SubscriptionLost(f"subscription {request_id!r} ended before it was acknowledged")
+            yield Subscription(route, request_id, route.honored, on_event)
+        finally:
+            route.settle("local")
+            driver_scope.cancel()
+            # Only direct drivers own handler cleanup; remote courtesy writes remain session-owned.
+            if isinstance(dispatcher, DirectDispatcher):
+                with anyio.move_on_after(5, shield=True):
+                    await driver_done.wait()
     finally:
-        route.settle("local")
-        driver_scope.cancel()
         session._unregister_listen_route(request_id)  # pyright: ignore[reportPrivateUsage]
