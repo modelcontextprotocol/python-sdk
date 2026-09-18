@@ -9,8 +9,6 @@ import pytest
 import sse_starlette.sse
 from mcp_types import JSONRPCRequest, JSONRPCResponse
 from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import Response
 from starlette.routing import Mount, Route
 from starlette.types import Message, Receive, Scope, Send
 
@@ -45,20 +43,17 @@ def sse_security_client(security_settings: TransportSecuritySettings | None = No
     server = Server(SERVER_NAME)
     sse_transport = SseServerTransport("/messages/", security_settings)
 
-    async def handle_sse(request: Request) -> Response:
-        try:
-            async with sse_transport.connect_sse(request.scope, request.receive, request._send) as (read, write):
-                await server.run(read, write, server.create_initialization_options())
-        except ValueError as e:
-            # Validation error was already handled inside connect_sse, which sent the rejection
-            # response itself; its non-empty body checkpoints, so the test reads the rejection
-            # status before the trailing Response() below sends a second response start.
-            logger.debug(f"SSE connection failed validation: {e}")
-        return Response()
+    class SSEApp:
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+            try:
+                async with sse_transport.connect_sse(scope, receive, send) as (read, write):
+                    await server.run(read, write, server.create_initialization_options())
+            except ValueError:
+                logger.exception("SSE connection failed validation")
 
     app = Starlette(
         routes=[
-            Route("/sse", endpoint=handle_sse),
+            Route("/sse", endpoint=SSEApp()),
             Mount("/messages/", app=sse_transport.handle_post_message),
         ]
     )

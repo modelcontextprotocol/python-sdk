@@ -12,18 +12,18 @@ Let's assume you have a simple server with a single tool:
 --8<-- "docs_src/testing/tutorial001.py"
 ```
 
-To run the test below you'll need two extra (development) dependencies:
+Install the development dependencies to run the test on both async backends:
 
 === "uv"
 
     ```bash
-    uv add --dev pytest inline-snapshot
+    uv add --dev pytest inline-snapshot trio
     ```
 
 === "pip"
 
     ```bash
-    pip install pytest inline-snapshot
+    pip install pytest inline-snapshot trio
     ```
 
 !!! info
@@ -45,9 +45,9 @@ from mcp.types import CallToolResult, TextContent
 from server import mcp
 
 
-@pytest.fixture
-def anyio_backend():  # (1)!
-    return "asyncio"
+@pytest.fixture(params=["asyncio", "trio"])
+def anyio_backend(request: pytest.FixtureRequest) -> str:  # (1)!
+    return request.param
 
 
 @pytest.fixture
@@ -69,7 +69,7 @@ async def test_call_add_tool(client: Client):
     )
 ```
 
-1. If you are using `trio`, return `"trio"` instead. See the [anyio documentation](https://anyio.readthedocs.io/en/stable/testing.html#specifying-the-backends-to-run-on) for the details.
+1. Each test runs once with `asyncio` and once with `trio`. Testing both catches backend-specific assumptions and scheduling races. If your application requires one backend, keep only that name in `params`. See the [anyio documentation](https://anyio.readthedocs.io/en/stable/testing.html#specifying-the-backends-to-run-on) for details.
 2. The fixture yields a connected client. Every test that takes `client` gets a fresh in-memory connection to the same server.
 
 There you go! You can now extend your tests to cover more scenarios.

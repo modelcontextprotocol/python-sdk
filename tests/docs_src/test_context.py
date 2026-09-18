@@ -1,6 +1,7 @@
 """`docs/handlers/context.md`: every claim the page makes, proved against the real SDK."""
 
 import re
+from importlib import reload
 
 import pytest
 from inline_snapshot import snapshot
@@ -62,6 +63,7 @@ async def test_a_context_only_tool_takes_no_arguments() -> None:
 
 async def test_register_a_tool_at_runtime_and_notify_the_client() -> None:
     """tutorial003: `mcp.add_tool` takes effect immediately and `send_tool_list_changed` reaches the client."""
+    reload(tutorial003)
     messages: list[object] = []
 
     async def collect(message: object) -> None:

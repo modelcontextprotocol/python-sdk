@@ -905,8 +905,15 @@ async def test_invalid_utf8_flushed_by_a_dying_server_does_not_break_shutdown(
     abort the drain or surface a UnicodeDecodeError out of the context manager.
     """
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
-    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+    process = FakeProcess()
     terminated = install_fake_process(monkeypatch, process)
+
+    def exit_when_flushed() -> None:
+        if process.stdin_closed.is_set() and process.pending_stdout_chunks() == 0:
+            process.exit(0)
+
+    process.on_stdin_close = exit_when_flushed
+    process.on_stdout_receive = exit_when_flushed
 
     with anyio.fail_after(5):
         async with stdio_client(FAKE_PARAMS):

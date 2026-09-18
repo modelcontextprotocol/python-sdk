@@ -1,6 +1,7 @@
 """`docs/troubleshooting.md`: every error string the page names, reproduced against the real SDK."""
 
 import logging
+from importlib import reload
 from typing import Any
 
 import httpx2
@@ -147,6 +148,7 @@ async def test_the_default_streamable_http_app_answers_a_real_hostname_with_421(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """tutorial003: one 421, three spellings. The page presents all three as the same event."""
+    reload(tutorial003)
     transport = httpx2.ASGITransport(app=tutorial003.app)
     async with tutorial003.mcp.session_manager.run():
         # What curl (or the reverse proxy's access log) shows: the status and the plain-text body.
@@ -169,6 +171,7 @@ async def test_the_default_streamable_http_app_answers_a_real_hostname_with_421(
 
 async def test_an_allowlisted_hostname_connects_and_calls_a_tool() -> None:
     """tutorial004: `transport_security=` names the deployed hostname, and the same client connects."""
+    reload(tutorial004)
     transport = httpx2.ASGITransport(app=tutorial004.app)
     async with tutorial004.mcp.session_manager.run():
         async with httpx2.AsyncClient(transport=transport) as http_client:
@@ -265,6 +268,7 @@ async def test_a_legacy_ctx_elicit_without_a_callback_says_elicitation_not_suppo
 
 async def test_ctx_elicit_over_stateless_http_has_no_back_channel() -> None:
     """tutorial008: `stateless_http=True` leaves the server no channel to send `elicitation/create`."""
+    reload(tutorial008)
     transport = httpx2.ASGITransport(app=tutorial008.app)
     async with tutorial008.mcp.session_manager.run():
         async with httpx2.AsyncClient(transport=transport) as http_client:

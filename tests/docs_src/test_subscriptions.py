@@ -1,6 +1,7 @@
 """`docs/{handlers,client}/subscriptions.md`: every claim the two pages make, proved against the real SDK."""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import anyio
@@ -19,17 +20,13 @@ from docs_src.subscriptions import (
     tutorial006,
 )
 from mcp import Client
+from mcp.client.subscriptions import Subscription
 from mcp.server.auth.middleware.auth_context import auth_context_var
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
-from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from mcp.server.subscriptions import SUBSCRIPTION_ID_META_KEY, ListenHandler, ToolsListChanged
 from mcp.shared.exceptions import MCPError
-
-_ReadResource = Callable[
-    [ServerRequestContext[Any], types.ReadResourceRequestParams], Awaitable[types.ReadResourceResult]
-]
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -68,24 +65,18 @@ class _Stream:
                 await self._arrival.wait()
 
 
-class _Reads:
-    """Counts server-side resource reads so a test can await the Nth refetch."""
+class _Output:
+    """Counts completed prints so tests wait for client output, not server-side reads."""
 
     def __init__(self) -> None:
         self.count = 0
         self._bump = anyio.Event()
 
-    def counting(self, handler: _ReadResource) -> _ReadResource:
-        async def counted(
-            ctx: ServerRequestContext[Any], params: types.ReadResourceRequestParams
-        ) -> types.ReadResourceResult:
-            result = await handler(ctx, params)
-            self.count += 1
-            self._bump.set()
-            self._bump = anyio.Event()
-            return result
-
-        return counted
+    def __call__(self, *values: str | list[str]) -> None:
+        print(*values)
+        self.count += 1
+        self._bump.set()
+        self._bump = anyio.Event()
 
     async def wait_for(self, count: int) -> None:
         with anyio.fail_after(5):
@@ -209,18 +200,34 @@ async def test_lowlevel_composition_serves_the_same_stream() -> None:
 
 
 async def test_follow_board_prints_the_refetched_board_and_the_new_tool_list(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """tutorial003: each event drives a refetch - the board reprints, and a tools change reprints the tool names."""
+    output = _Output()
+    monkeypatch.setattr(tutorial003, "print", output, raising=False)
+    listening = anyio.Event()
     async with Client(tutorial001.mcp) as client:
+        listen = client.listen
+
+        @asynccontextmanager
+        async def listen_when_ready(
+            *, tools_list_changed: bool, resource_subscriptions: list[str]
+        ) -> AsyncIterator[Subscription]:
+            async with listen(
+                tools_list_changed=tools_list_changed, resource_subscriptions=resource_subscriptions
+            ) as sub:
+                listening.set()
+                yield sub
+
+        monkeypatch.setattr(client, "listen", listen_when_ready)
         async with anyio.create_task_group() as tg:
             tg.start_soon(tutorial003.follow_board, client)
-            # Let the watcher park on its stream (ack complete) before publishing.
-            await anyio.wait_all_tasks_blocked()
+            with anyio.fail_after(5):
+                await listening.wait()
             await client.call_tool("complete_task", {"board": "sprint", "task": "design"})
-            await anyio.wait_all_tasks_blocked()
+            await output.wait_for(1)
             await client.call_tool("enable_reports", {})
-            await anyio.wait_all_tasks_blocked()
+            await output.wait_for(2)
             tg.cancel_scope.cancel()
 
     printed = capsys.readouterr().out
@@ -243,13 +250,15 @@ def _assert_snapshot_then_current_board(printed: str) -> None:
     assert printed.strip().endswith(FINISHED_BOARD), printed
 
 
+@pytest.mark.parametrize("anyio_backend", [pytest.param("asyncio", id="asyncio")])
 async def test_the_asyncio_watcher_runs_beside_the_main_flow(capsys: pytest.CaptureFixture[str]) -> None:
     """tutorial004 (asyncio tab): run_sprint opens the subscription, snapshots the board, then a watcher
     task reprints it while the main flow keeps calling tools.
 
     The example connects over HTTP; the in-memory client here is the maintainer-side stand-in."""
     async with Client(tutorial001.mcp) as client:
-        await tutorial004_asyncio.run_sprint(client)
+        with anyio.fail_after(5):
+            await tutorial004_asyncio.run_sprint(client)
     _assert_snapshot_then_current_board(capsys.readouterr().out)
 
 
@@ -257,14 +266,16 @@ async def test_the_asyncio_watcher_runs_beside_the_main_flow(capsys: pytest.Capt
 async def test_the_trio_watcher_runs_beside_the_main_flow(capsys: pytest.CaptureFixture[str]) -> None:
     """tutorial004 (trio tab): the same shape as the asyncio tab, with a nursery owning the watcher."""
     async with Client(tutorial001.mcp) as client:
-        await tutorial004_trio.run_sprint(client)
+        with anyio.fail_after(5):
+            await tutorial004_trio.run_sprint(client)
     _assert_snapshot_then_current_board(capsys.readouterr().out)
 
 
 async def test_the_anyio_watcher_runs_beside_the_main_flow(capsys: pytest.CaptureFixture[str]) -> None:
     """tutorial004 (anyio tab): the same shape again, with a task group owning the watcher."""
     async with Client(tutorial001.mcp) as client:
-        await tutorial004_anyio.run_sprint(client)
+        with anyio.fail_after(5):
+            await tutorial004_anyio.run_sprint(client)
     _assert_snapshot_then_current_board(capsys.readouterr().out)
 
 
@@ -272,16 +283,19 @@ async def test_the_anyio_watcher_runs_beside_the_main_flow(capsys: pytest.Captur
     "anyio_backend",
     [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
 )
-async def test_the_follower_re_listens_after_the_stream_ends(capsys: pytest.CaptureFixture[str]) -> None:
+async def test_the_follower_re_listens_after_the_stream_ends(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """tutorial005: a graceful server close ends one stream; the loop backs off, re-listens, and refetches.
 
     Runs on trio's autojumping MockClock so the loop's backoff sleep takes no wall-clock time.
     """
-    reads = _Reads()
+    output = _Output()
+    monkeypatch.setattr(tutorial005, "print", output, raising=False)
     handler = ListenHandler(tutorial002.bus)
     server = Server(
         "sprint-board",
-        on_read_resource=reads.counting(tutorial002.read_resource),
+        on_read_resource=tutorial002.read_resource,
         on_list_tools=tutorial002.list_tools,
         on_call_tool=tutorial002.call_tool,
         on_subscriptions_listen=handler,
@@ -290,17 +304,16 @@ async def test_the_follower_re_listens_after_the_stream_ends(capsys: pytest.Capt
     async with Client(server) as client:
         async with anyio.create_task_group() as tg:
             tg.start_soon(tutorial005.keep_following, client)
-            # First stream: the entry refetch reads the board, then an event reads it again.
-            await reads.wait_for(1)
+            # First stream: print the entry snapshot, then the board after the event.
+            await output.wait_for(1)
             await client.call_tool("complete_task", {"task": "design"})
-            await reads.wait_for(2)
+            await output.wait_for(2)
 
-            # End that stream gracefully. The loop backs off (the mock clock jumps the
-            # sleep), re-listens, and refetches on entry: that is the third read.
+            # The mock clock jumps the backoff; the third print is the new stream's snapshot.
             handler.close()
-            await reads.wait_for(3)
+            await output.wait_for(3)
             await client.call_tool("complete_task", {"task": "build"})
-            await reads.wait_for(4)
+            await output.wait_for(4)
             tg.cancel_scope.cancel()
 
     printed = capsys.readouterr().out
