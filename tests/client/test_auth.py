@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 import httpx2
 import pytest
 from inline_snapshot import Is, snapshot
-from pydantic import AnyHttpUrl, AnyUrl
+from pydantic import AnyHttpUrl, AnyUrl, ConfigDict, TypeAdapter
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
@@ -1795,8 +1795,6 @@ async def test_403_without_a_scope_challenge_is_returned_to_the_caller(
         "revocation_endpoint",
     ),
     (
-        # Pydantic's AnyUrl incorrectly adds trailing slash to base URLs
-        # This is being fixed in https://github.com/pydantic/pydantic-core/pull/1719 (Pydantic 2.12+)
         pytest.param(
             "https://auth.example.com",
             "https://auth.example.com/docs",
@@ -1805,9 +1803,6 @@ async def test_403_without_a_scope_challenge_is_returned_to_the_caller(
             "https://auth.example.com/register",
             "https://auth.example.com/revoke",
             id="simple-url",
-            marks=pytest.mark.xfail(
-                reason="Pydantic AnyUrl adds trailing slash to base URLs - fixed in Pydantic 2.12+"
-            ),
         ),
         pytest.param(
             "https://auth.example.com/",
@@ -1837,9 +1832,15 @@ def test_build_metadata(
     registration_endpoint: str,
     revocation_endpoint: str,
 ):
+    # Use url_preserve_empty_path=True to match how AuthSettings parses these URLs in production.
+    # Plain AnyHttpUrl(...) normalizes a path-less URL to add a trailing slash at construction,
+    # before OAuthMetadata's own url_preserve_empty_path=True config has any effect. Passing an
+    # already-normalized AnyHttpUrl object bypasses that config — only string-to-model parsing
+    # benefits from it (see docs/migration.md).
+    url_adapter = TypeAdapter(AnyHttpUrl, config=ConfigDict(url_preserve_empty_path=True))
     metadata = build_metadata(
-        issuer_url=AnyHttpUrl(issuer_url),
-        service_documentation_url=AnyHttpUrl(service_documentation_url),
+        issuer_url=url_adapter.validate_python(issuer_url),
+        service_documentation_url=url_adapter.validate_python(service_documentation_url),
         client_registration_options=ClientRegistrationOptions(enabled=True, valid_scopes=["read", "write", "admin"]),
         revocation_options=RevocationOptions(enabled=True),
     )
