@@ -37,6 +37,7 @@ from mcp.shared._httpx_utils import (
     create_mcp_http_client,
     redirect_location,
     request_within_origin,
+    sse_events,
     sse_within_origin,
     stream_within_origin,
 )
@@ -231,7 +232,10 @@ class StreamableHTTPTransport:
                 if last_event_id:
                     headers[LAST_EVENT_ID] = last_event_id
 
-                async with sse_within_origin(client, self.url, headers=headers) as event_source:
+                async with (
+                    sse_within_origin(client, self.url, headers=headers) as event_source,
+                    sse_events(event_source) as events,
+                ):
                     if (redirect := _unfollowed_redirect(event_source.response)) is not None:
                         # The same GET would be redirected again, so retrying cannot help.
                         logger.warning(f"GET stream not opened: {redirect}")
@@ -239,7 +243,7 @@ class StreamableHTTPTransport:
                     event_source.response.raise_for_status()
                     logger.debug("GET SSE connection established")
 
-                    async for sse in event_source:
+                    async for sse in events:
                         # Track last event ID for reconnection
                         if sse.id:
                             last_event_id = sse.id
@@ -278,7 +282,10 @@ class StreamableHTTPTransport:
         if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
             original_request_id = ctx.session_message.message.id
 
-        async with sse_within_origin(ctx.client, self.url, headers=headers) as event_source:
+        async with (
+            sse_within_origin(ctx.client, self.url, headers=headers) as event_source,
+            sse_events(event_source) as events,
+        ):
             if (redirect := _unfollowed_redirect(event_source.response)) is not None:
                 logger.warning(redirect)
                 assert original_request_id is not None
@@ -289,7 +296,7 @@ class StreamableHTTPTransport:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
-            async for sse in event_source:  # pragma: no branch
+            async for sse in events:  # pragma: no branch
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
@@ -464,27 +471,27 @@ class StreamableHTTPTransport:
         original_request_id = ctx.session_message.message.id
 
         try:
-            event_source = EventSource(response)
-            async for sse in event_source:  # pragma: no branch
-                # Track last event ID for potential reconnection
-                if sse.id:
-                    last_event_id = sse.id
+            async with sse_events(EventSource(response)) as events:
+                async for sse in events:  # pragma: no branch
+                    # Track last event ID for potential reconnection
+                    if sse.id:
+                        last_event_id = sse.id
 
-                # Track retry interval from server
-                if sse.retry is not None:
-                    retry_interval_ms = sse.retry
+                    # Track retry interval from server
+                    if sse.retry is not None:
+                        retry_interval_ms = sse.retry
 
-                is_complete = await self._handle_sse_event(
-                    sse,
-                    ctx.read_stream_writer,
-                    original_request_id=original_request_id,
-                    resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
-                )
-                # If the SSE event indicates completion, like returning response/error
-                # break the loop
-                if is_complete:
-                    await response.aclose()
-                    return  # Normal completion, no reconnect needed
+                    is_complete = await self._handle_sse_event(
+                        sse,
+                        ctx.read_stream_writer,
+                        original_request_id=original_request_id,
+                        resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
+                    )
+                    # If the SSE event indicates completion, like returning response/error
+                    # break the loop
+                    if is_complete:
+                        await response.aclose()
+                        return  # Normal completion, no reconnect needed
         except Exception:
             logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover
 
@@ -542,7 +549,10 @@ class StreamableHTTPTransport:
         headers[LAST_EVENT_ID] = last_event_id
 
         try:
-            async with sse_within_origin(ctx.client, self.url, headers=headers) as event_source:
+            async with (
+                sse_within_origin(ctx.client, self.url, headers=headers) as event_source,
+                sse_events(event_source) as events,
+            ):
                 event_source.response.raise_for_status()
                 logger.info("Reconnected to SSE stream")
 
@@ -550,7 +560,7 @@ class StreamableHTTPTransport:
                 reconnect_last_event_id: str = last_event_id
                 reconnect_retry_ms = retry_interval_ms
 
-                async for sse in event_source:
+                async for sse in events:
                     if sse.id:  # pragma: no branch
                         reconnect_last_event_id = sse.id
                     if sse.retry is not None:

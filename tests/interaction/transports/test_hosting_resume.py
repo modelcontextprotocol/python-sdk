@@ -10,6 +10,7 @@ no real time. Every server here uses `retry_interval=0` so reconnection waits ar
 """
 
 import json
+from collections.abc import AsyncGenerator
 
 import anyio
 import httpx2
@@ -70,9 +71,13 @@ def _tools_call(request_id: int, name: str, arguments: dict[str, object]) -> str
 
 
 async def _read_events(response: httpx2.Response, count: int) -> list[ServerSentEvent]:
-    """Read exactly `count` SSE events from a streaming response without closing it."""
+    """Read exactly `count` SSE events and close the iterator."""
     source = aiter(EventSource(response))
-    return [await anext(source) for _ in range(count)]
+    try:
+        return [await anext(source) for _ in range(count)]
+    finally:
+        assert isinstance(source, AsyncGenerator)
+        await source.aclose()
 
 
 @requirement("hosting:resume:event-ids")

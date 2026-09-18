@@ -120,8 +120,12 @@ async def test_raw_sse_connection() -> None:
             assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
 
             lines = response.aiter_lines()
-            assert await anext(lines) == "event: endpoint"
-            assert (await anext(lines)).startswith("data: /messages/?session_id=")
+            try:
+                assert await anext(lines) == "event: endpoint"
+                assert (await anext(lines)).startswith("data: /messages/?session_id=")
+            finally:
+                assert isinstance(lines, AsyncGenerator)
+                await lines.aclose()
 
 
 @pytest.mark.anyio

@@ -55,6 +55,11 @@ from tests.interaction.transports import StreamingASGITransport
 from tests.shared.test_dispatcher import Recorder, echo_handlers
 
 
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared runner because iterator cleanup parametrizes `anyio_backend`."""
+
+
 @pytest.mark.parametrize(
     ("raw", "expected", "wrapped"),
     [
@@ -915,6 +920,80 @@ async def test_resumption_redirected_elsewhere_resolves_that_request_with_an_err
         "Redirect to http://other.example/mcp not followed; use that URL as the endpoint if it is the intended server"
     )
     assert seen == [("GET http://test/mcp", "evt-41")]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("iterator_kind", ["generator", "closable", "plain"])
+@pytest.mark.parametrize("anyio_backend", ["asyncio", "trio"])
+async def test_resumed_response_accepts_async_iterators_and_closes_them_when_supported(
+    monkeypatch: pytest.MonkeyPatch, iterator_kind: str
+) -> None:
+    """SDK-defined: resumption accepts any EventSource async iterator and closes it when supported.
+
+    Substitute the public iterator boundary to isolate representation from HTTPX2's nested-generator cleanup.
+    """
+    expected = JSONRPCResponse(jsonrpc="2.0", id="resume-1", result={"ok": True})
+    event = httpx2.ServerSentEvent(data=expected.model_dump_json(by_alias=True))
+    body = f"data: {event.data}\n\n"
+    closed: list[bool] = []
+
+    async def generate() -> AsyncIterator[httpx2.ServerSentEvent]:
+        try:
+            yield event
+        finally:
+            closed.append(True)
+
+    class EventIterator:
+        def __aiter__(self) -> AsyncIterator[httpx2.ServerSentEvent]:
+            return self
+
+        async def __anext__(self) -> httpx2.ServerSentEvent:
+            return event
+
+    class ClosingEventIterator:
+        def __aiter__(self) -> AsyncIterator[httpx2.ServerSentEvent]:
+            return self
+
+        async def __anext__(self) -> httpx2.ServerSentEvent:
+            return event
+
+        async def aclose(self) -> None:
+            closed.append(True)
+
+    iterators: dict[str, AsyncIterator[httpx2.ServerSentEvent]] = {
+        "generator": generate(),
+        "closable": ClosingEventIterator(),
+        "plain": EventIterator(),
+    }
+
+    def iterate(source: httpx2.EventSource) -> AsyncIterator[httpx2.ServerSentEvent]:
+        assert source.response.text == body
+        return iterators[iterator_kind]
+
+    monkeypatch.setattr(httpx2.EventSource, "__aiter__", iterate)
+    token = "evt-41"
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.method == "GET"
+        assert request.headers["last-event-id"] == token
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, text=body)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    JSONRPCRequest(jsonrpc="2.0", id=expected.id, method="tools/call", params={}),
+                    metadata=ClientMessageMetadata(resumption_token=token),
+                )
+            )
+            reply = await read.receive()
+
+    assert isinstance(reply, SessionMessage)
+    assert reply.message == expected
+    assert closed == ([] if iterator_kind == "plain" else [True])
 
 
 async def _redirected_call_error(url: str, location: str) -> str:
