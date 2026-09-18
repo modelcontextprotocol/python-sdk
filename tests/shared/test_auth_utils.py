@@ -121,3 +121,33 @@ def test_check_resource_allowed_empty_paths():
     assert check_resource_allowed("https://example.com", "https://example.com") is True
     assert check_resource_allowed("https://example.com/", "https://example.com") is True
     assert check_resource_allowed("https://example.com/api", "https://example.com") is True
+
+
+def test_check_resource_allowed_rejects_dot_segment_traversal():
+    """Traversal like /api/../admin resolves to /admin and must not match."""
+    assert check_resource_allowed("https://example.com/api/../admin", "https://example.com/api") is False
+    assert check_resource_allowed("https://example.com/api/../../etc", "https://example.com/api") is False
+    assert check_resource_allowed("https://example.com/api/./../admin", "https://example.com/api") is False
+
+
+def test_check_resource_allowed_rejects_percent_encoded_traversal():
+    """Percent-encoded dot-segments must be decoded before matching."""
+    assert check_resource_allowed("https://example.com/api/%2e%2e/admin", "https://example.com/api") is False
+    assert check_resource_allowed("https://example.com/api/%2e%2e%2fadmin", "https://example.com/api") is False
+
+
+def test_check_resource_allowed_allows_harmless_dot_segments():
+    """Dot-segments that resolve back within the configured resource still match."""
+    assert check_resource_allowed("https://example.com/api/v1/../v1/users", "https://example.com/api") is True
+    assert check_resource_allowed("https://example.com/api/./v1", "https://example.com/api") is True
+
+
+def test_check_resource_allowed_decodes_a_single_pass():
+    """Single-pass decode (RFC 3986): double-encoded "%252e%252e" stays literal."""
+    assert check_resource_allowed("https://example.com/api/%252e%252e/x", "https://example.com/api") is True
+
+
+def test_check_resource_allowed_normalizes_configured_path_encoding():
+    """Both sides are normalized, so encoded and decoded paths compare equal."""
+    assert check_resource_allowed("https://example.com/a b/x", "https://example.com/a%20b") is True
+    assert check_resource_allowed("https://example.com/a%20b/x", "https://example.com/a b") is True

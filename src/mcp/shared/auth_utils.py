@@ -1,7 +1,8 @@
 """Utilities for OAuth 2.0 Resource Indicators (RFC 8707) and PKCE (RFC 7636)."""
 
+import posixpath
 import time
-from urllib.parse import urlparse, urlsplit, urlunsplit
+from urllib.parse import unquote, urlparse, urlsplit, urlunsplit
 
 from pydantic import AnyUrl, HttpUrl
 
@@ -28,6 +29,18 @@ def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
     return canonical
 
 
+def _normalize_path(path: str) -> str:
+    """Percent-decode (single pass, per RFC 3986) and resolve "."/".." segments.
+
+    Anchoring at "/" keeps ".." from escaping above root. "%2f" decodes to "/"
+    and is treated as a separator (conservative for an authorization check).
+    """
+    decoded = unquote(path)
+    if not decoded:
+        return "/"
+    return posixpath.normpath("/" + decoded.lstrip("/"))
+
+
 def check_resource_allowed(requested_resource: str, configured_resource: str) -> bool:
     """Check if a requested resource URL matches a configured resource URL.
 
@@ -51,10 +64,12 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
     if requested.scheme.lower() != configured.scheme.lower() or requested.netloc.lower() != configured.netloc.lower():
         return False
 
+    # Resolve dot-segments/encoding so "/api/../admin" can't pass as "/api".
+    requested_path = _normalize_path(requested.path)
+    configured_path = _normalize_path(configured.path)
+
     # Normalize trailing slashes before comparison so that
     # "/foo" and "/foo/" are treated as equivalent.
-    requested_path = requested.path
-    configured_path = configured.path
     if not requested_path.endswith("/"):
         requested_path += "/"
     if not configured_path.endswith("/"):
