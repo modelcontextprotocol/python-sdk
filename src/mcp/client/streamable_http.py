@@ -671,7 +671,9 @@ class StreamableHTTPTransport:
 
             if response.status_code == 405:
                 logger.debug("Server does not allow session termination")
-            elif response.status_code not in (200, 204):
+            elif not 200 <= response.status_code < 300:
+                # Any 2xx is a successful termination; servers may answer an
+                # asynchronous delete with 202 Accepted (spec only carves out 405).
                 logger.warning(f"Session termination failed: {response.status_code}")  # pragma: no cover
         except Exception as exc:  # pragma: no cover
             logger.warning(f"Session termination failed: {exc}")

@@ -1208,6 +1208,56 @@ async def test_streamable_http_client_session_termination_204(basic_app: Starlet
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("delete_status,expect_warning", [(202, False), (500, True)])
+async def test_streamable_http_client_session_termination_status_handling(
+    basic_app: Starlette, caplog: pytest.LogCaptureFixture, delete_status: int, expect_warning: bool
+) -> None:
+    """Any 2xx DELETE response is a successful termination; only other statuses warn.
+
+    202 Accepted is a valid answer for a server that processes termination asynchronously;
+    a warning there is a false positive (see #3546). 500 is a real failure and still warns.
+    """
+
+    class AnswerDeleteWithStatus(httpx2.AsyncBaseTransport):
+        def __init__(self, inner: StreamingASGITransport, status: int) -> None:
+            self.inner = inner
+            self.status = status
+
+        async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+            response = await self.inner.handle_async_request(request)
+            if request.method != "DELETE" or response.status_code != 200:
+                return response
+            await response.aread()
+            return httpx2.Response(self.status, headers=response.headers, request=request)
+
+        async def __aenter__(self) -> AnswerDeleteWithStatus:
+            await self.inner.__aenter__()
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            await self.inner.__aexit__(*args)
+
+    httpx_client, _ = create_session_id_capturing_client(
+        basic_app, transport=AnswerDeleteWithStatus(StreamingASGITransport(basic_app), delete_status)
+    )
+
+    with caplog.at_level(logging.WARNING, logger="mcp.client.streamable_http"):
+        async with httpx_client:
+            async with streamable_http_client(f"{BASE_URL}/mcp", http_client=httpx_client) as (
+                read_stream,
+                write_stream,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                    await session.initialize()
+                    await session.list_tools()
+
+    warning_logged = "Session termination failed" in caplog.text
+    assert warning_logged is expect_warning, (
+        f"delete_status={delete_status}: warning_logged={warning_logged}, expected={expect_warning}"
+    )
+
+
+@pytest.mark.anyio
 async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventStore, Starlette]) -> None:
     """A second client resumes an interrupted request with a resumption token and receives the rest."""
     _, app = event_app
