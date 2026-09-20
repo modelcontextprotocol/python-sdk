@@ -53,6 +53,16 @@ class ClientAuthenticator:
         """
         form_data = await request.form()
         client_id = form_data.get("client_id")
+        auth_header = request.headers.get("Authorization", "")
+        if not client_id and auth_header.startswith("Basic "):
+            # RFC 6749 §2.3.1 lets a client_secret_basic client carry its id
+            # only in the Basic header, so fall back to it before giving up.
+            try:
+                decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+                if ":" in decoded:
+                    client_id = unquote(decoded.split(":", 1)[0]) or None
+            except (ValueError, UnicodeDecodeError, binascii.Error):
+                client_id = None
         if not client_id:
             raise AuthenticationError("Missing client_id")
 
@@ -61,7 +71,6 @@ class ClientAuthenticator:
             raise AuthenticationError("Invalid client_id")  # pragma: no cover
 
         request_client_secret: str | None = None
-        auth_header = request.headers.get("Authorization", "")
 
         if client.token_endpoint_auth_method == "client_secret_basic":
             if not auth_header.startswith("Basic "):
