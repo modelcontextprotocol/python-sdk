@@ -204,6 +204,14 @@ class RedirectAwareAuth(ABC, httpx2.Auth):
         try:
             outgoing = await flow.__anext__()
             while True:
+                if (
+                    isinstance(outgoing, httpx2.Request)
+                    and outgoing is not request
+                    and "user-agent" not in outgoing.headers
+                ):
+                    user_agent = request.headers.get("user-agent")
+                    if user_agent is not None:
+                        outgoing.headers["user-agent"] = user_agent
                 response = yield outgoing
                 if outgoing is not request:
                     for _ in range(_AUTH_REDIRECT_LIMIT):

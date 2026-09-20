@@ -323,6 +323,24 @@ class TestOAuthFlow:
         assert str(request.url) == "https://example.com"
         assert "mcp-protocol-version" in request.headers
 
+    @pytest.mark.anyio
+    async def test_auth_flow_forwards_user_agent_header(self, oauth_provider: OAuthClientProvider):
+        """Test that auth flow requests inherit User-Agent from the authenticated request."""
+        oauth_provider.context.current_tokens = None
+        oauth_provider.context.token_expiry_time = None
+        oauth_provider._initialized = True
+        test_request = httpx2.Request(
+            "POST", "https://api.example.com/v1/mcp", headers={"User-Agent": "test-agent/1.0"}
+        )
+        flow = oauth_provider.async_auth_flow(test_request)
+        sent = await flow.__anext__()
+        assert sent is test_request
+
+        unauthorized = httpx2.Response(401, request=test_request)
+        discovery_req = await flow.asend(unauthorized)
+        assert discovery_req.headers.get("user-agent") == "test-agent/1.0"
+        await flow.aclose()
+
 
 class TestOAuthFallback:
     """Test OAuth discovery fallback behavior for legacy (act as AS not RS) servers."""
