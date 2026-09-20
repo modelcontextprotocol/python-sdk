@@ -8,6 +8,7 @@ the public client never exposes.
 
 import base64
 import json
+import logging
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
@@ -968,3 +969,23 @@ Redirect to http://backend.lan:8000/mcp/ not followed: it would downgrade this H
 The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,
 often combined with a trailing-slash difference. Try https://backend.lan:8000/mcp/ instead, or fix the proxy settings.\
 """)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [200, 202, 204])
+async def test_terminate_session_accepts_successful_delete_status_codes(
+    status_code: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    """HTTP 200, 202 (Accepted), and 204 (No Content) are valid DELETE success statuses (#3546)."""
+    transport = StreamableHTTPTransport("http://test/mcp")
+    transport.session_id = "test-session"
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.method == "DELETE"
+        return httpx2.Response(status_code)
+
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http:
+        with caplog.at_level(logging.WARNING):
+            await transport.terminate_session(http)
+
+    assert not [rec for rec in caplog.records if "Session termination failed" in rec.message]
