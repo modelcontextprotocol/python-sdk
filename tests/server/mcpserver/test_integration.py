@@ -9,6 +9,7 @@ single-feature example servers over an in-memory transport.
 # pyright: reportUnknownVariableType=false
 # pyright: reportUnknownArgumentType=false
 
+import base64
 import json
 
 import pytest
@@ -47,6 +48,7 @@ from examples.snippets.servers import (
     tool_progress,
 )
 from mcp.client import Client, ClientRequestContext, IncomingMessage
+from mcp.server.mcpserver import MCPServer
 
 pytestmark = pytest.mark.anyio
 
@@ -342,3 +344,27 @@ async def test_structured_output() -> None:
         assert "sunny" in result_text  # condition
         assert "45" in result_text  # humidity
         assert "5.2" in result_text  # wind_speed
+
+
+async def test_binary_tool_result_is_base64_encoded() -> None:
+    """A tool returning binary bytes delivers base64 in both channels, not an error.
+
+    Pins the #3554 fix: mode="json" used to raise on non-UTF-8 bytes, so the
+    tool call failed before the payload reached the client.
+    """
+    server = MCPServer("Binary Result")
+
+    @server.tool()
+    def read_thumbnail() -> bytes:
+        """Return PNG magic bytes."""
+        return b"\x89PNG\r\n\x1a\n\x00\x00"
+
+    async with Client(server) as client:
+        result = await client.call_tool("read_thumbnail", {})
+
+    encoded = base64.b64encode(b"\x89PNG\r\n\x1a\n\x00\x00").decode()
+    assert not result.is_error
+    assert result.structured_content == {"result": encoded}
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == encoded

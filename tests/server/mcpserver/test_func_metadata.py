@@ -3,6 +3,7 @@
 # pyright: reportMissingParameterType=false
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownLambdaType=false
+import base64
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, TypedDict
@@ -722,6 +723,102 @@ def test_structured_output_primitives():
         "required": ["result"],
         "title": "func_bytesOutput",
     }
+
+
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+
+
+def test_bytes_result_is_base64_encoded_in_both_channels():
+    """Binary tool results are delivered base64-encoded in both channels.
+
+    Pins the #3554 fix: mode="json" decodes bytes as UTF-8 and used to raise on
+    the first non-UTF-8 byte, failing the whole tool call.
+    """
+
+    def read_thumbnail() -> bytes:  # pragma: no cover
+        return PNG_MAGIC
+
+    meta = func_metadata(read_thumbnail)
+    encoded = base64.b64encode(PNG_MAGIC).decode()
+
+    result = meta.convert_result(PNG_MAGIC)
+
+    assert isinstance(result, CallToolResult)
+    assert not result.is_error
+    assert result.structured_content == {"result": encoded}
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == encoded
+
+
+def test_utf8_bytes_result_is_base64_encoded():
+    """UTF-8-decodable bytes take the same base64 encoding as binary bytes."""
+
+    def read_note() -> bytes:  # pragma: no cover
+        return b"hello"
+
+    meta = func_metadata(read_note)
+
+    result = meta.convert_result(b"hello")
+
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"result": base64.b64encode(b"hello").decode()}
+
+
+def test_bytes_field_in_output_model_is_base64_encoded():
+    """A bytes field inside an output model is base64-encoded, not a crash."""
+
+    class Thumb(BaseModel):
+        data: bytes
+
+    def get_thumbnail() -> Thumb:  # pragma: no cover
+        return Thumb(data=PNG_MAGIC)
+
+    meta = func_metadata(get_thumbnail)
+
+    result = meta.convert_result(Thumb(data=PNG_MAGIC))
+
+    assert isinstance(result, CallToolResult)
+    assert not result.is_error
+    assert result.structured_content == {"data": base64.b64encode(PNG_MAGIC).decode()}
+
+
+def test_bytes_inside_generic_result_is_base64_encoded():
+    """bytes nested in a generic result are base64-encoded leaf by leaf."""
+
+    def two_blobs() -> list[bytes]:  # pragma: no cover
+        return [PNG_MAGIC, b"hello"]
+
+    def blob_map() -> dict[str, bytes]:  # pragma: no cover
+        return {"a": PNG_MAGIC}
+
+    listed = func_metadata(two_blobs).convert_result([PNG_MAGIC, b"hello"])
+    mapped = func_metadata(blob_map).convert_result({"a": PNG_MAGIC})
+
+    assert isinstance(listed, CallToolResult)
+    assert listed.structured_content == {
+        "result": [base64.b64encode(PNG_MAGIC).decode(), base64.b64encode(b"hello").decode()]
+    }
+    assert isinstance(mapped, CallToolResult)
+    assert mapped.structured_content == {"a": base64.b64encode(PNG_MAGIC).decode()}
+
+
+def test_result_without_bytes_is_serialized_unchanged():
+    """Payloads without bytes keep the plain JSON serialization, byte for byte."""
+
+    def get_note() -> str:  # pragma: no cover
+        return "hello"
+
+    def get_count() -> int:  # pragma: no cover
+        return 7
+
+    noted = func_metadata(get_note).convert_result("hello")
+    counted = func_metadata(get_count).convert_result(7)
+
+    assert isinstance(noted, CallToolResult)
+    assert noted.structured_content == {"result": "hello"}
+    assert isinstance(counted, CallToolResult)
+    assert counted.structured_content == {"result": 7}
 
 
 def test_structured_output_generic_types():

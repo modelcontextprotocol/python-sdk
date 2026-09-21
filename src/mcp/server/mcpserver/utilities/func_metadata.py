@@ -1,3 +1,4 @@
+import base64
 import functools
 import inspect
 import json
@@ -217,11 +218,7 @@ class FuncMetadata(BaseModel):
         # The tool hands back Python-side names; the wire (and outputSchema) use aliases.
         adapter = self._output_adapter(output_model)
         validated = adapter.validate_python(result, by_alias=True, by_name=True)
-        if isinstance(validated, BaseModel):
-            # Dump via the instance so a returned subclass keeps its own fields.
-            structured_content = validated.model_dump(mode="json", by_alias=True)
-        else:
-            structured_content = adapter.dump_python(validated, mode="json", by_alias=True)
+        structured_content = _dump_structured(validated, adapter)
 
         return CallToolResult(content=unstructured_content, structured_content=structured_content)
 
@@ -621,6 +618,69 @@ def _create_wrapped_model(func_name: str, annotation: Any) -> type[BaseModel]:
     return create_model(model_name, result=annotation)
 
 
+def _base64_encode(data: bytes | bytearray | memoryview) -> str:
+    return base64.b64encode(bytes(data)).decode("ascii")
+
+
+def _has_bytes(value: Any) -> bool:
+    """Whether a python-mode dump (or a raw value) carries bytes anywhere."""
+    if isinstance(value, bytes | bytearray | memoryview):
+        return True
+    if isinstance(value, dict):
+        return any(_has_bytes(item) for item in cast("dict[Any, Any]", value).values())
+    if isinstance(value, list | tuple | set | frozenset):
+        return any(_has_bytes(item) for item in cast("list[Any]", value))
+    if isinstance(value, BaseModel):
+        return _has_bytes(value.model_dump(mode="python", by_alias=True))
+    return False
+
+
+def _json_safe(value: Any) -> Any:
+    """Base64-encode bytes leaves; JSON-encode every other leaf as mode="json" would."""
+    if isinstance(value, bytes | bytearray | memoryview):
+        return _base64_encode(cast("bytes | bytearray | memoryview", value))
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in cast("dict[Any, Any]", value).items()}
+    if isinstance(value, list | tuple | set | frozenset):
+        return [_json_safe(item) for item in cast("list[Any]", value)]
+    if isinstance(value, BaseModel):
+        return _json_safe(value.model_dump(mode="python", by_alias=True))
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    return json.loads(pydantic_core.to_json(value, fallback=str))
+
+
+def _result_json_text(value: Any) -> str:
+    """JSON text for an unstructured result, base64-encoding bytes leaves."""
+    if _has_bytes(value):
+        value = _json_safe(value)
+    return pydantic_core.to_json(value, fallback=str, indent=2).decode()
+
+
+def _dump_structured(validated: Any, adapter: TypeAdapter[Any]) -> Any:
+    """Dump validated structured output as JSON, base64-encoding bytes leaves.
+
+    ``mode="json"`` decodes bytes as UTF-8 and raises on binary data, so a
+    payload carrying bytes is dumped in Python mode with those leaves
+    base64-encoded first — the encoding every other bytes path in this package
+    uses (BlobResourceContents, Image/Audio content). A payload without bytes
+    takes the plain JSON dump, byte for byte.
+    """
+    dumped = (
+        # Dump via the instance so a returned subclass keeps its own fields.
+        validated.model_dump(mode="python", by_alias=True)
+        if isinstance(validated, BaseModel)
+        else adapter.dump_python(validated, mode="python", by_alias=True)
+    )
+    if _has_bytes(dumped):
+        return _json_safe(dumped)
+    return (
+        validated.model_dump(mode="json", by_alias=True)
+        if isinstance(validated, BaseModel)
+        else adapter.dump_python(validated, mode="json", by_alias=True)
+    )
+
+
 def _convert_to_content(result: Any) -> list[ContentBlock]:
     """Convert a result to a sequence of content objects.
 
@@ -649,7 +709,11 @@ def _convert_to_content(result: Any) -> list[ContentBlock]:
             )
         )
 
+    if isinstance(result, bytes | bytearray | memoryview):
+        # Binary payloads cannot survive JSON verbatim; publish them base64-encoded.
+        return [TextContent(type="text", text=_base64_encode(cast("bytes | bytearray | memoryview", result)))]
+
     if not isinstance(result, str):
-        result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
+        result = _result_json_text(result)
 
     return [TextContent(type="text", text=result)]
