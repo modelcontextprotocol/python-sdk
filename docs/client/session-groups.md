@@ -75,6 +75,8 @@ If you already hold a connected `ClientSession` (`Client.session` is one), hand 
 When connecting to HTTP servers using `StreamableHttpParameters` or `SseServerParameters`, you can configure an authentication provider (such as an OAuth 2.0 `OAuthClientProvider` or custom `httpx2.Auth` handler) via the `auth=` parameter:
 
 ```python
+import asyncio
+
 from mcp.client.auth import OAuthClientProvider
 from mcp.client.session_group import ClientSessionGroup, StreamableHttpParameters
 
@@ -95,6 +97,10 @@ async def main() -> None:
 
     async with ClientSessionGroup() as group:
         await group.connect_to_server(server_params)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 Because `auth` is configured per `ServerParameters` instance, each server in the session group maintains independent authentication context, scopes, and token-refresh lifecycle. Custom headers can still be supplied alongside `auth` via `headers=`.
