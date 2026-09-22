@@ -1273,8 +1273,20 @@ class MCPServer(Generic[LifespanResultT]):
         # mount these routes last, so they have the lowest route matching precedence
         routes.extend(self._custom_starlette_routes)
 
+        @asynccontextmanager
+        async def sse_lifespan(_app: Starlette):
+            try:
+                yield
+            finally:
+                await sse.close()
+
         # Create Starlette app with routes and middleware
-        return Starlette(debug=self.settings.debug, routes=routes, middleware=middleware)
+        return Starlette(
+            debug=self.settings.debug,
+            routes=routes,
+            middleware=middleware,
+            lifespan=sse_lifespan,
+        )
 
     def streamable_http_app(
         self,

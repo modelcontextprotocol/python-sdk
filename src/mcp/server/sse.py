@@ -130,6 +130,8 @@ class SseServerTransport:
         self._endpoint = endpoint
         self._read_stream_writers = {}
         self._session_owners = {}
+        # SSE body writers; closed on shutdown so EventSourceResponse can finish.
+        self._sse_stream_writers: dict[UUID, Any] = {}
         self._security = TransportSecurityMiddleware(security_settings)
         self._post_message_app = RequestBodyLimitMiddleware(self._handle_post_message, max_request_body_size)
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
@@ -175,6 +177,7 @@ class SseServerTransport:
         client_post_uri_data = f"{quote(full_message_path_for_client)}?session_id={session_id.hex}"
 
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, Any]](0)
+        self._sse_stream_writers[session_id] = sse_stream_writer
 
         async def sse_writer():
             logger.debug("Starting SSE writer")
@@ -214,7 +217,25 @@ class SseServerTransport:
                 yield (read_stream, write_stream)
         finally:
             self._read_stream_writers.pop(session_id, None)
+            self._sse_stream_writers.pop(session_id, None)
             self._session_owners.pop(session_id, None)
+
+    async def close(self) -> None:
+        """Close all active SSE sessions so the ASGI server can shut down.
+
+        Uvicorn waits for outstanding streaming responses on SIGINT. Closing the
+        per-session SSE and read streams unblocks EventSourceResponse and the
+        MCP session task so the process can exit.
+        """
+        session_ids = set(self._read_stream_writers) | set(self._sse_stream_writers)
+        for session_id in session_ids:
+            read_writer = self._read_stream_writers.pop(session_id, None)
+            sse_writer = self._sse_stream_writers.pop(session_id, None)
+            self._session_owners.pop(session_id, None)
+            if read_writer is not None:
+                await read_writer.aclose()
+            if sse_writer is not None:
+                await sse_writer.aclose()
 
     async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         """ASGI application for the message endpoint.

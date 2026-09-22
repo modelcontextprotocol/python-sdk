@@ -523,3 +523,42 @@ async def test_sse_session_cleanup_on_disconnect() -> None:
             headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_sse_transport_close_unblocks_active_session() -> None:
+    """Closing the transport ends active SSE streams so the server can shut down."""
+    sse = SseServerTransport(
+        "/messages/", security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    )
+    server = Server(SERVER_NAME)
+
+    async def handle_sse(request: Request) -> Response:
+        async with sse.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
+        return Response()
+
+    app = Starlette(routes=[Route("/sse", endpoint=handle_sse), Mount("/messages/", app=sse.handle_post_message)])
+    http_client = httpx2.AsyncClient(
+        transport=StreamingASGITransport(app, cancel_on_close=False), base_url=BASE_URL
+    )
+
+    async with http_client:
+        async with anyio.create_task_group() as tg:
+            connected = anyio.Event()
+
+            async def hold_sse() -> None:
+                async with http_client.stream("GET", "/sse") as response:
+                    assert response.status_code == 200
+                    lines = response.aiter_lines()
+                    assert await anext(lines) == "event: endpoint"
+                    connected.set()
+                    # Stay connected until the transport is closed.
+                    async for _ in lines:
+                        pass
+
+            tg.start_soon(hold_sse)
+            await connected.wait()
+            assert sse._sse_stream_writers  # noqa: SLF001
+            await sse.close()
+
