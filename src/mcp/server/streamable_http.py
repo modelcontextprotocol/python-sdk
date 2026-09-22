@@ -587,10 +587,16 @@ class StreamableHTTPServerTransport:
             try:
                 message = jsonrpc_message_adapter.validate_python(raw_message, by_name=False)
             except ValidationError as e:
+                # A body that parsed as JSON but is not a JSON-RPC message has no
+                # params to be invalid, so JSON-RPC 2.0 reserves -32600
+                # (INVALID_REQUEST) for it; -32602 would misreport it as bad params.
+                # A batch (a JSON array) keeps INVALID_PARAMS, as pinned by the
+                # hosting conformance test for unsupported batch bodies.
+                error_code = INVALID_PARAMS if isinstance(raw_message, list) else INVALID_REQUEST
                 response = self._create_error_response(
                     f"Validation error: {str(e)}",
                     HTTPStatus.BAD_REQUEST,
-                    INVALID_PARAMS,
+                    error_code,
                 )
                 await response(scope, receive, send)
                 return

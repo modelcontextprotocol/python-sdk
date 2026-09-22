@@ -513,6 +513,39 @@ async def test_json_parsing(basic_app: Starlette) -> None:
 
 
 @pytest.mark.anyio
+async def test_non_request_body_is_invalid_request(basic_app: Starlette) -> None:
+    """A body that is not a JSON-RPC Request is INVALID_REQUEST, not INVALID_PARAMS.
+
+    JSON-RPC 2.0 reserves -32602 for invalid params and -32600 for a message
+    that is not a valid Request; a body with no params to be invalid belongs
+    to the latter (issue #3557). A batch (a JSON array) keeps INVALID_PARAMS,
+    as pinned by the hosting conformance test for unsupported batch bodies.
+    """
+    async with make_client(basic_app) as client:
+        response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json={"foo": "bar"},
+        )
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == INVALID_REQUEST
+
+        batched = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=[{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}],
+        )
+        assert batched.status_code == 400
+        assert batched.json()["error"]["code"] == INVALID_PARAMS
+
+
+@pytest.mark.anyio
 async def test_method_not_allowed(basic_app: Starlette) -> None:
     """Unsupported HTTP methods are rejected with 405."""
     async with make_client(basic_app) as client:
