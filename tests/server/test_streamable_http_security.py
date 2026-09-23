@@ -124,7 +124,8 @@ async def test_streamable_http_security_get_request() -> None:
         assert response.text == "Invalid Host header"
 
         response = await client.get("/", headers={"Accept": "text/event-stream", "Host": "127.0.0.1"})
-        # An allowed host passes security and fails on session validation instead.
-        assert response.status_code == 400
+        # An allowed host passes security but fails because GET requires an established session.
+        # Per MCP spec, pre-session GETs return 405 Method Not Allowed (issue #3102).
+        assert response.status_code == 405
         body = response.json()
-        assert "Missing session ID" in body["error"]["message"]
+        assert "Method Not Allowed" in body["error"]["message"]
