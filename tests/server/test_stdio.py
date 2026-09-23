@@ -692,3 +692,43 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     # resultType is modern-only: proves the request was served at the discovered version.
     assert responses[1].result["tools"] == []
     assert responses[1].result["resultType"] == "complete"
+
+
+@pytest.mark.anyio
+async def test_stdio_server_serves_bufferless_text_streams_in_place() -> None:
+    """stdio_server() serves when sys.stdin/stdout are replaced with bufferless text streams.
+
+    Regression for the issue where _claim_fd's fallback dereferences `.buffer` on a stream
+    that has none (e.g. io.StringIO), raising AttributeError before serving any message.
+    Bufferless streams are already text; there is no binary layer to re-encode and nothing
+    for _UnownedTextWrapper to protect from close, so the text stream is served in place.
+    """
+    # Replace sys.stdin/stdout with bufferless StringIO - the exact shape that crashed.
+    original_stdin = sys.stdin
+    original_stdout = sys.stdout
+    try:
+        sys.stdin = io.StringIO(
+            JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+            .model_dump_json(by_alias=True, exclude_none=True)
+            + "\n"
+        )
+        sys.stdout = io.StringIO()
+
+        request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+        response = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+
+        with anyio.fail_after(5):
+            async with stdio_server() as (read_stream, write_stream):
+                async with read_stream:
+                    received = await read_stream.receive()
+                    assert isinstance(received, SessionMessage)
+                    assert received.message == request
+
+                    await write_stream.send(SessionMessage(response))
+                    await write_stream.aclose()
+
+        # The transport wrote to the replaced stdout; nothing leaked to the real stdout.
+        assert sys.stdout.getvalue()
+    finally:
+        sys.stdin = original_stdin
+        sys.stdout = original_stdout

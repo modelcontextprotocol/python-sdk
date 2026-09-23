@@ -105,7 +105,7 @@ def _restore_fd(fd: int, private_fd: int) -> bool:
 
 def _claim_fd(
     fd: int, stream: TextIO, mode: Literal["rb", "wb"], open_diversion: Callable[[], int]
-) -> tuple[BinaryIO, Callable[[], None] | None]:
+) -> tuple[BinaryIO | None, Callable[[], None] | None]:
     """Claim a standard stream: divert fd and serve the wire from a private duplicate.
 
     Best-effort: when descriptors cannot be duplicated or diverted, serves the
@@ -115,7 +115,12 @@ def _claim_fd(
         RuntimeError: fd is already claimed by another transport in this process.
     """
     if not _is_backed_by_fd(stream, fd):
-        return stream.buffer, None
+        if hasattr(stream, "buffer"):
+            return stream.buffer, None
+        # Bufferless text stream (e.g. io.StringIO): serve the text stream in place.
+        # There is no binary layer to re-encode and nothing for _UnownedTextWrapper to
+        # protect from close, so register no teardown and let the caller wrap it directly.
+        return None, None
     claim = _StreamClaim(fd)
     with _claims_lock:
         if fd in _claims:
@@ -173,10 +178,18 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     try:
         if not stdin:
             stdin_buffer, restore_stdin = _claim_fd(0, sys.stdin, "rb", _open_stdin_diversion)
-            stdin = anyio.wrap_file(_UnownedTextWrapper(stdin_buffer, encoding="utf-8", errors="replace"))
+            if stdin_buffer is not None:
+                stdin = anyio.wrap_file(_UnownedTextWrapper(stdin_buffer, encoding="utf-8", errors="replace"))
+            else:
+                # Bufferless text stream (e.g. io.StringIO): serve in place.
+                stdin = anyio.wrap_file(sys.stdin)
         if not stdout:
             stdout_buffer, restore_stdout = _claim_fd(1, sys.stdout, "wb", _open_stdout_diversion)
-            stdout = anyio.wrap_file(_UnownedTextWrapper(stdout_buffer, encoding="utf-8"))
+            if stdout_buffer is not None:
+                stdout = anyio.wrap_file(_UnownedTextWrapper(stdout_buffer, encoding="utf-8"))
+            else:
+                # Bufferless text stream (e.g. io.StringIO): serve in place.
+                stdout = anyio.wrap_file(sys.stdout)
 
         read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
         write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
