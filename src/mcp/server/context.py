@@ -47,6 +47,8 @@ class ServerRequestContext(Generic[LifespanContextT, RequestT]):
     request: RequestT | None = None
     close_sse_stream: CloseSSEStreamCallback | None = None
     close_standalone_sse_stream: CloseSSEStreamCallback | None = None
+    transport: TransportContext | None = None
+    """Transport metadata supplied by the dispatcher; absent on manually constructed contexts unless provided."""
 
 
 # Covariant: `lifespan` is exposed read-only, so a `Context[AppState]` passes as `Context[object]`.
