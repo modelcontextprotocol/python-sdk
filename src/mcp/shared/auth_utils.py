@@ -1,16 +1,41 @@
 """Utilities for OAuth 2.0 Resource Indicators (RFC 8707) and PKCE (RFC 7636)."""
 
 import time
-from urllib.parse import urlparse, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import AnyUrl, HttpUrl
+
+# WHATWG URL treats these percent-encoded spellings as dot-segments too.
+_SINGLE_DOT_SEGMENTS = {".", "%2e"}
+_DOUBLE_DOT_SEGMENTS = {"..", ".%2e", "%2e.", "%2e%2e"}
+
+
+def _remove_dot_segments(path: str) -> str:
+    """Resolve "." and ".." segments in a URL path (RFC 3986 section 5.2.4)."""
+    segments = path.split("/")
+    output: list[str] = []
+    for index, segment in enumerate(segments):
+        is_last = index == len(segments) - 1
+        kind = segment.lower()
+        if kind in _DOUBLE_DOT_SEGMENTS:
+            if len(output) > 1:
+                output.pop()
+            if is_last:
+                output.append("")
+        elif kind in _SINGLE_DOT_SEGMENTS:
+            if is_last:
+                output.append("")
+        else:
+            output.append(segment)
+    return "/".join(output)
 
 
 def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
     """Convert server URL to canonical resource URL per RFC 8707.
 
     RFC 8707 section 2 states that resource URIs "MUST NOT include a fragment component".
-    Returns absolute URI with lowercase scheme/host for canonical form.
+    Returns absolute URI with lowercase scheme/host and dot-segments resolved, so the
+    resource identifies the same location an HTTP client would actually request.
 
     Args:
         url: Server URL to convert
@@ -23,7 +48,14 @@ def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
 
     # Parse the URL and remove fragment, create canonical form
     parsed = urlsplit(url_str)
-    canonical = urlunsplit(parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), fragment=""))
+    canonical = urlunsplit(
+        parsed._replace(
+            scheme=parsed.scheme.lower(),
+            netloc=parsed.netloc.lower(),
+            path=_remove_dot_segments(parsed.path),
+            fragment="",
+        )
+    )
 
     return canonical
 
@@ -34,7 +66,8 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
     A requested resource matches if it has the same scheme, domain, port,
     and its path starts with the configured resource's path. This allows
     hierarchical matching where a token for a parent resource can be used
-    for child resources.
+    for child resources. Dot-segments in either path are resolved before
+    comparing.
 
     Args:
         requested_resource: The resource URL being requested
@@ -44,8 +77,8 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
         True if the requested resource matches the configured resource
     """
     # Parse both URLs
-    requested = urlparse(requested_resource)
-    configured = urlparse(configured_resource)
+    requested = urlsplit(requested_resource)
+    configured = urlsplit(configured_resource)
 
     # Compare scheme, host, and port (origin)
     if requested.scheme.lower() != configured.scheme.lower() or requested.netloc.lower() != configured.netloc.lower():
@@ -53,8 +86,8 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
 
     # Normalize trailing slashes before comparison so that
     # "/foo" and "/foo/" are treated as equivalent.
-    requested_path = requested.path
-    configured_path = configured.path
+    requested_path = _remove_dot_segments(requested.path)
+    configured_path = _remove_dot_segments(configured.path)
     if not requested_path.endswith("/"):
         requested_path += "/"
     if not configured_path.endswith("/"):

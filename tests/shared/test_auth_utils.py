@@ -1,6 +1,9 @@
 """Tests for OAuth 2.0 Resource Indicators utilities."""
 
-from pydantic import HttpUrl
+import itertools
+
+import pytest
+from pydantic import AnyHttpUrl, HttpUrl
 
 from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
 
@@ -44,6 +47,42 @@ def test_resource_url_from_server_url_handles_pydantic_urls():
     """Should handle Pydantic URL types."""
     url = HttpUrl("https://example.com/path")
     assert resource_url_from_server_url(url) == "https://example.com/path"
+
+
+@pytest.mark.parametrize(
+    ("server_url", "expected"),
+    [
+        ("https://example.com/api/../admin", "https://example.com/admin"),
+        ("https://example.com/api/%2E%2e/admin", "https://example.com/admin"),
+        ("https://example.com/api/.%2e/admin", "https://example.com/admin"),
+        ("https://example.com/api/./v1", "https://example.com/api/v1"),
+        ("https://example.com/api/v1/..", "https://example.com/api/"),
+        ("https://example.com/api/v1/.", "https://example.com/api/v1/"),
+        ("https://example.com/../admin", "https://example.com/admin"),
+        ("https://example.com/a//b", "https://example.com/a//b"),
+        ("https://example.com/a%2Fb/c", "https://example.com/a%2Fb/c"),
+    ],
+)
+def test_resource_url_from_server_url_resolves_dot_segments(server_url: str, expected: str):
+    """Dot-segments (including `%2E` spellings) are resolved per RFC 3986 section 5.2.4.
+
+    Empty segments and encoded slashes are not path separators and stay as written.
+    """
+    assert resource_url_from_server_url(server_url) == expected
+
+
+def test_resource_url_from_server_url_path_matches_whatwg_resolution_for_literal_dot_segments():
+    """Every combination of literal `.`, `..`, empty and plain segments resolves as pydantic's WHATWG parser does.
+
+    The PRM `resource` side is parsed by `AnyHttpUrl`, so both operands of `check_resource_allowed`
+    must agree on dot-segment resolution for the comparison to be meaningful.
+    """
+    atoms = ["", ".", "..", "a", "b.", "..."]
+    for count in range(1, 5):
+        for segments in itertools.product(atoms, repeat=count):
+            path = "/" + "/".join(segments)
+            expected = AnyHttpUrl(f"https://example.com{path}").path
+            assert resource_url_from_server_url(f"https://example.com{path}") == f"https://example.com{expected}"
 
 
 # Tests for check_resource_allowed function
@@ -121,3 +160,30 @@ def test_check_resource_allowed_empty_paths():
     assert check_resource_allowed("https://example.com", "https://example.com") is True
     assert check_resource_allowed("https://example.com/", "https://example.com") is True
     assert check_resource_allowed("https://example.com/api", "https://example.com") is True
+
+
+@pytest.mark.parametrize(
+    "requested",
+    [
+        "https://example.com/api/../admin",
+        "https://example.com/api/%2e%2e/admin",
+        "https://example.com/api/v1/../../admin",
+        "https://example.com/api/..",
+    ],
+)
+def test_check_resource_allowed_rejects_dot_segments_escaping_configured_path(requested: str):
+    """A requested path that resolves outside the configured path is not a hierarchical match."""
+    assert check_resource_allowed(requested, "https://example.com/api") is False
+
+
+def test_check_resource_allowed_resolves_dot_segments_on_both_sides():
+    """Both URLs are compared in resolved form, so equivalent spellings agree (SDK-defined matching)."""
+    assert check_resource_allowed("https://example.com/api/./v1", "https://example.com/api") is True
+    assert check_resource_allowed("https://example.com/api/v1", "https://example.com/other/../api") is True
+    assert check_resource_allowed("https://example.com/api/v1", "https://example.com/api/v1/../v2") is False
+
+
+def test_check_resource_allowed_keeps_encoded_slash_and_params_in_segment():
+    """`%2F` and `;params` are part of a segment (RFC 3986 sections 2.2, 3.3), not a boundary."""
+    assert check_resource_allowed("https://example.com/api%2Fv1", "https://example.com/api") is False
+    assert check_resource_allowed("https://example.com/api/v1", "https://example.com/api;x") is False
