@@ -1,23 +1,26 @@
-"""Client-side convenience wrappers for the Skills extension (SEP-2640).
+"""Client-side Skills extension (SEP-2640).
 
-SEP-2640 needs no client-side method registration: `skills/list`, `skills/get`,
-and `resources/directory/read` are ordinary vendor requests sent through
-`ClientSession.send_request`, exactly like [Extension verbs](../advanced/extensions.md#extension-verbs).
-The functions below are the thin, named wrappers SEP-2640's "SDKs: Convenience
-Wrappers" section recommends — each validates the server's advertised support
-before sending, and `list_skills`/`read_directory` follow `nextCursor` to
-completion so a caller sees one page's worth of ergonomics regardless of how
-many requests it took.
+`Skills` is an opt-in [`ClientExtension`](../advanced/extensions.md) for talking
+to a skills catalog server. Register it with `Client(extensions=[Skills()])`,
+then call `bind(client)` for the SEP-2640 verbs — `list_skills`, `get_skill`,
+`read_skill_uri`, and `read_directory` — tied to that connection:
 
-    async with Client("http://localhost:8000/mcp") as client:
-        for skill in await list_skills(client.session):
+    async with Client("http://localhost:8000/mcp", extensions=[skills := Skills()]) as client:
+        for skill in await skills.bind(client).list_skills():
             print(skill.uri, skill.frontmatter["description"])
+
+`bind(client)` returns a `BoundSkills`. Each verb validates that the server
+advertises the extension before sending; `list_skills` and `read_directory`
+follow `nextCursor` to completion, so one call returns every page's results.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from mcp_types import ReadResourceResult, Resource
 
+from mcp.client.extension import ClientExtension
 from mcp.client.session import ClientSession
 from mcp.shared.skills import (
     EXTENSION_ID,
@@ -37,94 +40,124 @@ from mcp.shared.skills import (
 )
 from mcp.shared.skills import verify_skill_resource as verify_skill_resource
 
-__all__ = ["get_skill", "list_skills", "read_directory", "read_skill_uri", "verify_skill_resource"]
+if TYPE_CHECKING:
+    from mcp.client.client import Client
+
+__all__ = ["BoundSkills", "Skills", "verify_skill_resource"]
 
 
-def _require_extension(session: ClientSession, *, directory_read: bool = False) -> None:
-    capabilities = session.server_capabilities
-    settings = (capabilities.extensions or {}).get(EXTENSION_ID) if capabilities else None
-    if settings is None:
-        raise ValueError(f"server does not advertise the {EXTENSION_ID!r} extension")
-    if directory_read and not settings.get("directoryRead"):
-        raise ValueError(f"server does not advertise {EXTENSION_ID!r}'s directoryRead setting")
+class Skills(ClientExtension):
+    """The client-side Skills extension: register, then `bind` for typed verbs.
 
-
-async def list_skills(session: ClientSession, params: ListSkillsParams | None = None) -> list[Skill]:
-    """Call `skills/list`, following `nextCursor` to completion, and validate the result.
-
-    Raises:
-        ValueError: If the server doesn't advertise the Skills extension, or
-            its response is not SEP-2640 conformant.
+    Pass an instance to `Client(extensions=[Skills()])` — this advertises
+    `io.modelcontextprotocol/skills` under the client's capabilities — and call
+    `bind(client)` once the client is connected for a `BoundSkills` handle.
     """
-    _require_extension(session)
-    base = params if params is not None else ListSkillsParams()
-    cursor = base.cursor
-    skills: list[Skill] = []
-    seen_cursors: set[str] = {cursor} if cursor is not None else set()
-    while True:
-        page = await session.send_request(
-            ListSkillsRequest(params=base.model_copy(update={"cursor": cursor})), ListSkillsResult
-        )
-        validate_list_result(page)
-        skills.extend(page.skills)
-        if page.next_cursor is None:
-            return skills
-        if page.next_cursor in seen_cursors:
-            raise ValueError(f"server repeated skills/list pagination cursor {page.next_cursor!r}")
-        seen_cursors.add(page.next_cursor)
-        cursor = page.next_cursor
+
+    identifier = EXTENSION_ID
+
+    def bind(self, client: Client) -> BoundSkills:
+        """Return the SEP-2640 verbs bound to `client`'s connected session.
+
+        Raises:
+            RuntimeError: If `client` has not entered its `async with` block yet.
+        """
+        return BoundSkills(client.session)
 
 
-async def get_skill(session: ClientSession, uri: str) -> Skill:
-    """Call `skills/get` for `uri` and validate the result.
+class BoundSkills:
+    """The SEP-2640 verbs bound to one connected session.
 
-    Unlike `list_skills`, this succeeds for a skill absent from any listing —
-    per SEP-2640, a server MUST answer `skills/get` for every skill it serves.
-
-    Raises:
-        ValueError: If the server doesn't advertise the Skills extension, its
-            response names a different skill, or the skill is not conformant.
+    Obtain it from `Skills.bind(client)`. `list_skills` and `read_directory`
+    follow `nextCursor` to completion; every method validates the server's
+    response against the SEP-2640 conformance rules before returning it.
     """
-    _require_extension(session)
-    result = await session.send_request(GetSkillRequest(params=GetSkillParams(uri=uri)), GetSkillResult)
-    if result.skill.uri != uri:
-        raise ValueError(f"server returned skill {result.skill.uri!r} for requested {uri!r}")
-    validate_skill(result.skill)
-    return result.skill
 
+    def __init__(self, session: ClientSession) -> None:
+        self._session = session
 
-async def read_skill_uri(session: ClientSession, uri: str) -> ReadResourceResult:
-    """Read a skill file's content via `resources/read`.
+    def _require_extension(self, *, directory_read: bool = False) -> None:
+        capabilities = self._session.server_capabilities
+        settings = (capabilities.extensions or {}).get(EXTENSION_ID) if capabilities else None
+        if settings is None:
+            raise ValueError(f"server does not advertise the {EXTENSION_ID!r} extension")
+        if directory_read and not settings.get("directoryRead"):
+            raise ValueError(f"server does not advertise {EXTENSION_ID!r}'s directoryRead setting")
 
-    A thin, discoverable alias: works for any `skill://` (or other-scheme)
-    file regardless of whether the skill was ever enumerated. Verify the
-    result against a held `Skill` entry with `verify_skill_resource` before
-    treating it as trusted content — this call does not verify anything itself.
-    """
-    return await session.read_resource(uri)
+    async def list_skills(self, params: ListSkillsParams | None = None) -> list[Skill]:
+        """Call `skills/list`, following `nextCursor` to completion, and validate the result.
 
+        Raises:
+            ValueError: If the server doesn't advertise the Skills extension, or
+                its response is not SEP-2640 conformant.
+        """
+        self._require_extension()
+        base = params if params is not None else ListSkillsParams()
+        cursor = base.cursor
+        skills: list[Skill] = []
+        seen_cursors: set[str] = {cursor} if cursor is not None else set()
+        while True:
+            page = await self._session.send_request(
+                ListSkillsRequest(params=base.model_copy(update={"cursor": cursor})), ListSkillsResult
+            )
+            validate_list_result(page)
+            skills.extend(page.skills)
+            if page.next_cursor is None:
+                return skills
+            if page.next_cursor in seen_cursors:
+                raise ValueError(f"server repeated skills/list pagination cursor {page.next_cursor!r}")
+            seen_cursors.add(page.next_cursor)
+            cursor = page.next_cursor
 
-async def read_directory(session: ClientSession, uri: str, params: ReadDirectoryParams | None = None) -> list[Resource]:
-    """Call `resources/directory/read` for `uri`, following `nextCursor` to completion.
+    async def get_skill(self, uri: str) -> Skill:
+        """Call `skills/get` for `uri` and validate the result.
 
-    Raises:
-        ValueError: If the server doesn't advertise the `directoryRead`
-            setting, or its response is not a valid child listing of `uri`.
-    """
-    _require_extension(session, directory_read=True)
-    base = params if params is not None else ReadDirectoryParams(uri=uri)
-    cursor = base.cursor
-    resources: list[Resource] = []
-    seen_cursors: set[str] = {cursor} if cursor is not None else set()
-    while True:
-        page = await session.send_request(
-            ReadDirectoryRequest(params=base.model_copy(update={"uri": uri, "cursor": cursor})), ReadDirectoryResult
-        )
-        validate_directory_result(uri, page)
-        resources.extend(page.resources)
-        if page.next_cursor is None:
-            return resources
-        if page.next_cursor in seen_cursors:
-            raise ValueError(f"server repeated resources/directory/read pagination cursor {page.next_cursor!r}")
-        seen_cursors.add(page.next_cursor)
-        cursor = page.next_cursor
+        Unlike `list_skills`, this succeeds for a skill absent from any listing —
+        per SEP-2640, a server MUST answer `skills/get` for every skill it serves.
+
+        Raises:
+            ValueError: If the server doesn't advertise the Skills extension, its
+                response names a different skill, or the skill is not conformant.
+        """
+        self._require_extension()
+        result = await self._session.send_request(GetSkillRequest(params=GetSkillParams(uri=uri)), GetSkillResult)
+        if result.skill.uri != uri:
+            raise ValueError(f"server returned skill {result.skill.uri!r} for requested {uri!r}")
+        validate_skill(result.skill)
+        return result.skill
+
+    async def read_skill_uri(self, uri: str) -> ReadResourceResult:
+        """Read a skill file's content via `resources/read`.
+
+        A thin, discoverable alias: works for any `skill://` (or other-scheme)
+        file regardless of whether the skill was ever enumerated. Verify the
+        result against a held `Skill` entry with `verify_skill_resource` before
+        treating it as trusted content — this call does not verify anything itself.
+        """
+        return await self._session.read_resource(uri)
+
+    async def read_directory(self, uri: str, params: ReadDirectoryParams | None = None) -> list[Resource]:
+        """Call `resources/directory/read` for `uri`, following `nextCursor` to completion.
+
+        Raises:
+            ValueError: If the server doesn't advertise the `directoryRead`
+                setting, or its response is not a valid child listing of `uri`.
+        """
+        self._require_extension(directory_read=True)
+        base = params if params is not None else ReadDirectoryParams(uri=uri)
+        cursor = base.cursor
+        resources: list[Resource] = []
+        seen_cursors: set[str] = {cursor} if cursor is not None else set()
+        while True:
+            page = await self._session.send_request(
+                ReadDirectoryRequest(params=base.model_copy(update={"uri": uri, "cursor": cursor})),
+                ReadDirectoryResult,
+            )
+            validate_directory_result(uri, page)
+            resources.extend(page.resources)
+            if page.next_cursor is None:
+                return resources
+            if page.next_cursor in seen_cursors:
+                raise ValueError(f"server repeated resources/directory/read pagination cursor {page.next_cursor!r}")
+            seen_cursors.add(page.next_cursor)
+            cursor = page.next_cursor

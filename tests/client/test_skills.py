@@ -1,13 +1,16 @@
-"""Tests for the client-side Skills convenience wrappers (SEP-2640, `mcp.client.skills`)."""
+"""Tests for the client-side Skills extension (SEP-2640, `mcp.client.skills`)."""
 
 import hashlib
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
 from mcp_types import INVALID_PARAMS, Resource, TextResourceContents
 
 from mcp.client.client import Client
-from mcp.client.skills import get_skill, list_skills, read_directory, read_skill_uri, verify_skill_resource
+from mcp.client.skills import BoundSkills, verify_skill_resource
+from mcp.client.skills import Skills as ClientSkills
 from mcp.server.context import ServerRequestContext
 from mcp.server.extension import Extension, MethodBinding
 from mcp.server.mcpserver import MCPServer
@@ -134,44 +137,52 @@ def _server(*, with_directory_read: bool = False) -> MCPServer:
     return server
 
 
+@asynccontextmanager
+async def _skills(server: MCPServer) -> AsyncIterator[BoundSkills]:
+    """Register the client `Skills` extension, connect, and yield the bound verbs."""
+    extension = ClientSkills()
+    async with Client(server, extensions=[extension]) as client:
+        yield extension.bind(client)
+
+
 async def test_list_skills_follows_next_cursor_to_completion() -> None:
-    async with Client(_server()) as client:
-        skills = await list_skills(client.session)
-    assert [s.uri for s in skills] == [_SKILL_URI, "skill://other/SKILL.md"]
+    async with _skills(_server()) as skills:
+        result = await skills.list_skills()
+    assert [s.uri for s in result] == [_SKILL_URI, "skill://other/SKILL.md"]
 
 
 async def test_list_skills_raises_on_a_server_that_repeats_its_cursor() -> None:
     server = MCPServer(
         "catalog", extensions=[Skills(list_skills=_repeating_cursor_list_handler(), get_skill=_get_skill)]
     )
-    async with Client(server) as client:
+    async with _skills(server) as skills:
         with pytest.raises(ValueError, match="repeated"):
-            await list_skills(client.session)
+            await skills.list_skills()
 
 
 async def test_list_skills_requires_the_extension_to_be_advertised() -> None:
     """No `Skills` extension at all: the server never advertises `io.modelcontextprotocol/skills`."""
-    async with Client(MCPServer("plain")) as client:
+    async with _skills(MCPServer("plain")) as skills:
         with pytest.raises(ValueError, match="does not advertise"):
-            await list_skills(client.session)
+            await skills.list_skills()
 
 
 async def test_get_skill_returns_the_matching_entry() -> None:
-    async with Client(_server()) as client:
-        skill = await get_skill(client.session, _SKILL_URI)
+    async with _skills(_server()) as skills:
+        skill = await skills.get_skill(_SKILL_URI)
     assert skill.uri == _SKILL_URI
 
 
 async def test_get_skill_propagates_the_servers_unknown_skill_error() -> None:
-    async with Client(_server()) as client:
+    async with _skills(_server()) as skills:
         with pytest.raises(MCPError) as exc_info:
-            await get_skill(client.session, "skill://missing/SKILL.md")
+            await skills.get_skill("skill://missing/SKILL.md")
     assert exc_info.value.code == INVALID_PARAMS
 
 
 async def test_read_skill_uri_reads_the_registered_resource() -> None:
-    async with Client(_server()) as client:
-        result = await read_skill_uri(client.session, _SKILL_URI)
+    async with _skills(_server()) as skills:
+        result = await skills.read_skill_uri(_SKILL_URI)
     contents = result.contents[0]
     assert isinstance(contents, TextResourceContents)
     assert contents.text == _SKILL_CONTENT
@@ -179,17 +190,17 @@ async def test_read_skill_uri_reads_the_registered_resource() -> None:
 
 async def test_read_skill_uri_content_verifies_against_the_held_skill() -> None:
     """End-to-end: `skills/get`'s digest and `resources/read`'s bytes agree."""
-    async with Client(_server()) as client:
-        skill = await get_skill(client.session, _SKILL_URI)
-        result = await read_skill_uri(client.session, _SKILL_URI)
+    async with _skills(_server()) as skills:
+        skill = await skills.get_skill(_SKILL_URI)
+        result = await skills.read_skill_uri(_SKILL_URI)
     contents = result.contents[0]
     assert isinstance(contents, TextResourceContents)
     verify_skill_resource(skill, _SKILL_URI, contents.text.encode())
 
 
 async def test_read_directory_follows_next_cursor_to_completion() -> None:
-    async with Client(_server(with_directory_read=True)) as client:
-        resources = await read_directory(client.session, "skill://git-workflow/references")
+    async with _skills(_server(with_directory_read=True)) as skills:
+        resources = await skills.read_directory("skill://git-workflow/references")
     assert [r.uri for r in resources] == [
         "skill://git-workflow/references/A.md",
         "skill://git-workflow/references/B.md",
@@ -198,9 +209,9 @@ async def test_read_directory_follows_next_cursor_to_completion() -> None:
 
 async def test_read_directory_requires_the_directory_read_setting() -> None:
     """The extension is advertised, but without `directoryRead: true`."""
-    async with Client(_server(with_directory_read=False)) as client:
+    async with _skills(_server(with_directory_read=False)) as skills:
         with pytest.raises(ValueError, match="directoryRead"):
-            await read_directory(client.session, "skill://git-workflow/references")
+            await skills.read_directory("skill://git-workflow/references")
 
 
 async def test_read_directory_raises_on_a_server_that_repeats_its_cursor() -> None:
@@ -214,16 +225,16 @@ async def test_read_directory_raises_on_a_server_that_repeats_its_cursor() -> No
             )
         ],
     )
-    async with Client(server) as client:
+    async with _skills(server) as skills:
         with pytest.raises(ValueError, match="repeated"):
-            await read_directory(client.session, "skill://git-workflow/references")
+            await skills.read_directory("skill://git-workflow/references")
 
 
 async def test_get_skill_rejects_a_mismatched_uri_from_a_non_conformant_server() -> None:
     server = MCPServer("catalog", extensions=[_NonConformantGetSkill()])
-    async with Client(server) as client:
+    async with _skills(server) as skills:
         with pytest.raises(ValueError, match="returned skill"):
-            await get_skill(client.session, "skill://other/SKILL.md")
+            await skills.get_skill("skill://other/SKILL.md")
 
 
 async def test_get_skill_round_trips_a_dynamic_skill() -> None:
@@ -241,8 +252,8 @@ async def test_get_skill_round_trips_a_dynamic_skill() -> None:
         return GetSkillResult(skill=dynamic)
 
     server = MCPServer("catalog", extensions=[Skills(list_skills=_paginated_list_handler(), get_skill=get_dynamic)])
-    async with Client(server) as client:
-        skill = await get_skill(client.session, dynamic.uri)
+    async with _skills(server) as skills:
+        skill = await skills.get_skill(dynamic.uri)
     assert skill.resources == "dynamic"
     assert skill.frontmatter["name"] == "generated"
 
@@ -250,9 +261,9 @@ async def test_get_skill_round_trips_a_dynamic_skill() -> None:
 async def test_list_skills_starts_from_a_caller_supplied_cursor() -> None:
     """A host resuming from a saved cursor: `list_skills` begins at that cursor rather than the
     top, so only the pages after it come back (here, page 1's skill is skipped)."""
-    async with Client(_server()) as client:
-        skills = await list_skills(client.session, ListSkillsParams(cursor="page-2"))
-    assert [s.uri for s in skills] == ["skill://other/SKILL.md"]
+    async with _skills(_server()) as skills:
+        result = await skills.list_skills(ListSkillsParams(cursor="page-2"))
+    assert [s.uri for s in result] == ["skill://other/SKILL.md"]
 
 
 async def test_list_skills_detects_a_server_repeating_the_caller_supplied_cursor() -> None:
@@ -266,9 +277,9 @@ async def test_list_skills_detects_a_server_repeating_the_caller_supplied_cursor
         return ListSkillsResult(skills=[_skill()], next_cursor="resume-here")
 
     server = MCPServer("catalog", extensions=[Skills(list_skills=handler, get_skill=_get_skill)])
-    async with Client(server) as client:
+    async with _skills(server) as skills:
         with pytest.raises(ValueError, match="repeated"):
-            await list_skills(client.session, ListSkillsParams(cursor="resume-here"))
+            await skills.list_skills(ListSkillsParams(cursor="resume-here"))
     assert calls == 1
 
 
@@ -290,9 +301,9 @@ async def test_list_skills_threads_request_meta_onto_every_page() -> None:
         )
 
     server = MCPServer("catalog", extensions=[Skills(list_skills=handler, get_skill=_get_skill)])
-    async with Client(server) as client:
+    async with _skills(server) as skills:
         params = ListSkillsParams.model_validate({"_meta": {"progressToken": "t"}})
-        await list_skills(client.session, params)
+        await skills.list_skills(params)
     # `_meta` crosses the wire camelCase (`progressToken`), but the server deserializes it back
     # through the meta model, which exposes the known field snake_case as `progress_token`; the
     # transport also enriches `_meta` with its own keys. What matters is the caller's token
