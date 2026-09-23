@@ -137,6 +137,27 @@ class TestAddTools:
         assert tool.is_async is True
         assert tool.parameters["properties"]["x"]["type"] == "integer"
 
+    @pytest.mark.anyio
+    async def test_add_callable_object_with_context(self):
+        """Test registering a callable object with an injected context parameter."""
+
+        class MyTool:
+            def __init__(self):
+                self.__name__ = "MyTool"
+
+            async def __call__(self, query: str, ctx: Context) -> str:
+                assert isinstance(ctx, Context)
+                return f"Results for: {query}"
+
+        manager = ToolManager()
+        tool = manager.add_tool(MyTool())
+
+        assert tool.context_kwarg == "ctx"
+        assert "query" in tool.parameters["properties"]
+        assert "ctx" not in tool.parameters["properties"]
+        assert tool.parameters["required"] == ["query"]
+        assert await tool.run({"query": "books"}, Context()) == "Results for: books"
+
     def test_add_invalid_tool(self):
         manager = ToolManager()
         with pytest.raises(AttributeError):
