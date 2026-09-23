@@ -11,6 +11,10 @@
   target for the cross-SDK
   [conformance suite](https://github.com/modelcontextprotocol/conformance).
   Exercises every server capability in one process.
+- [`servers/todos-server/`](servers/todos-server/) — the reference server: a
+  small todo board where every server-side feature has a real job, serving
+  both protocol revisions over stdio and Streamable HTTP. A faithful port of
+  the TypeScript SDK's `examples/todos-server`.
 - [`mcpserver/`](mcpserver/) — single-file v1-era examples retained for the
   migration guide; superseded by `stories/` and slated for removal.
 - [`clients/`](clients/) and the remaining [`servers/`](servers/) directories
