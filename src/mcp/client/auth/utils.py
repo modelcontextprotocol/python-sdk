@@ -40,6 +40,16 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
     return None
 
 
+# RFC 6749 §3.3 separates scopes with spaces, but some authorization servers return
+# comma-separated lists; accept both so a compliant client is not broken by the server's choice.
+_SCOPE_SEPARATOR_RE = re.compile(r"[\s,]+")
+
+
+def parse_scopes(scope: str) -> list[str]:
+    """Split a scope string into individual scopes, accepting space and comma separators."""
+    return [item for item in _SCOPE_SEPARATOR_RE.split(scope.strip()) if item]
+
+
 def extract_scope_from_www_auth(response: Response) -> str | None:
     """Extract scope parameter from WWW-Authenticate header as per RFC 6750.
 
@@ -127,7 +137,7 @@ def get_client_metadata_scopes(
         and "offline_access" in authorization_server_metadata.scopes_supported
         and client_grant_types is not None
         and "refresh_token" in client_grant_types
-        and "offline_access" not in selected_scope.split()
+        and "offline_access" not in parse_scopes(selected_scope)
     ):
         selected_scope = f"{selected_scope} offline_access"
 
@@ -135,7 +145,7 @@ def get_client_metadata_scopes(
 
 
 def union_scopes(previous_scope: str | None, new_scope: str | None) -> str | None:
-    """Merge two space-delimited scope strings, preserving order and dropping duplicates.
+    """Merge two scope strings, preserving order and dropping duplicates.
 
     SEP-2350: on step-up re-authorization the client requests the union of previously requested
     scopes and the newly challenged scopes, so escalating one operation does not drop the
@@ -147,9 +157,9 @@ def union_scopes(previous_scope: str | None, new_scope: str | None) -> str | Non
     if not new_scope:
         return previous_scope
 
-    merged = previous_scope.split()
+    merged = parse_scopes(previous_scope)
     seen = set(merged)
-    for scope in new_scope.split():
+    for scope in parse_scopes(new_scope):
         if scope not in seen:
             merged.append(scope)
             seen.add(scope)

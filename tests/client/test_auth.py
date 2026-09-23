@@ -28,6 +28,7 @@ from mcp.client.auth.utils import (
     handle_auth_metadata_response,
     handle_registration_response,
     is_valid_client_metadata_url,
+    parse_scopes,
     should_use_client_metadata_url,
     union_scopes,
     validate_authorization_response_iss,
@@ -3066,11 +3067,27 @@ def test_validate_metadata_issuer_rejects_mismatch():
         pytest.param(None, "mcp:write", "mcp:write", id="no-previous"),
         pytest.param("mcp:basic", None, "mcp:basic", id="no-new"),
         pytest.param(None, None, None, id="both-empty"),
+        pytest.param("read,write", "write, admin", "read write admin", id="comma-separated-normalized"),
     ],
 )
 def test_union_scopes(previous: str | None, new: str | None, expected: str | None):
     """SEP-2350: union merges previous and new scopes, dedups, and preserves order."""
     assert union_scopes(previous, new) == expected
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected"),
+    [
+        pytest.param("read write", ["read", "write"], id="space-separated"),
+        pytest.param("read,write", ["read", "write"], id="comma-separated"),
+        pytest.param("read, write,\tadmin", ["read", "write", "admin"], id="mixed-separators"),
+        pytest.param("  read  ", ["read"], id="surrounding-whitespace"),
+        pytest.param("", [], id="empty"),
+    ],
+)
+def test_parse_scopes(scope: str, expected: list[str]):
+    """RFC 6749 §3.3 separates scopes with spaces, but some servers use commas; accept both."""
+    assert parse_scopes(scope) == expected
 
 
 def test_credentials_match_issuer_same_issuer():
