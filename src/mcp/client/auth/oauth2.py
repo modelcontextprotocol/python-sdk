@@ -578,7 +578,7 @@ class OAuthClientProvider(RedirectAwareAuth):
         self.context.oauth_metadata = metadata
 
     async def _validate_resource_match(self, prm: ProtectedResourceMetadata) -> None:
-        """Validate that PRM resource matches the server URL per RFC 8707."""
+        """Validate that the PRM resource permits the server URL."""
         prm_resource = str(prm.resource) if prm.resource else None
 
         if self._validate_resource_url_callback is not None:
