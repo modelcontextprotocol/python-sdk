@@ -169,6 +169,7 @@ class StreamableHTTPServerTransport:
         security_settings: TransportSecuritySettings | None = None,
         retry_interval: int | None = None,
         idle_timeout: float | None = None,
+        stateless: bool = False,
     ) -> None:
         """Initialize a new StreamableHTTP server transport.
 
@@ -196,6 +197,10 @@ class StreamableHTTPServerTransport:
                          (available once `connect()` has been entered) around the session's
                          message loop to end the session when it fires. Default is None: no
                          `idle_scope`, the session never expires.
+            stateless: If True, this transport never sends server-initiated messages, so the
+                      listen-mode GET (`Accept: text/event-stream`) answers 405 Method Not
+                      Allowed instead of opening a stream that would otherwise sit open
+                      forever with nothing to write. Default is False.
 
         Raises:
             ValueError: If the session ID contains invalid characters, or if `idle_timeout`
@@ -211,6 +216,7 @@ class StreamableHTTPServerTransport:
         self._event_store = event_store
         self._security = TransportSecurityMiddleware(security_settings)
         self._retry_interval = retry_interval
+        self._stateless = stateless
         self._request_streams: dict[
             RequestId,
             tuple[
@@ -735,6 +741,18 @@ class StreamableHTTPServerTransport:
         writer = self._read_stream_writer
         if writer is None:  # pragma: no cover
             raise ValueError("No read stream writer available. Ensure connect() is called first.")
+
+        if self._stateless:
+            # A stateless transport never sends server-initiated messages, so the
+            # listen stream would sit open with nothing to write. Per the
+            # 2025-03-26 spec, a server that doesn't support server-initiated
+            # messages MUST answer the listen-mode GET with 405.
+            response = self._create_error_response(
+                "Method Not Allowed: This server does not support server-initiated messages",
+                HTTPStatus.METHOD_NOT_ALLOWED,
+            )
+            await response(request.scope, request.receive, send)
+            return
 
         # Validate Accept header - must include text/event-stream
         _, has_sse = check_accept_headers(request)

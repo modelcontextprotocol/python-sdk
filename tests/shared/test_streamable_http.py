@@ -333,6 +333,7 @@ async def running_app(
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
     server: Server[Any] | None = None,
+    stateless: bool = False,
 ) -> AsyncIterator[Starlette]:
     """Serve the test server's streamable HTTP app in process for the duration.
 
@@ -341,6 +342,7 @@ async def running_app(
         event_store: Optional event store for testing resumability.
         retry_interval: Retry interval in milliseconds for SSE polling.
         server: Server to mount; defaults to the file's shared test server.
+        stateless: If True, run the session manager in stateless mode.
     """
     # DNS-rebinding protection validates Host/Origin headers against a network attack that cannot
     # exist for an in-process app; the protection itself is pinned by
@@ -349,6 +351,7 @@ async def running_app(
         app=server if server is not None else _create_server(),
         event_store=event_store,
         json_response=is_json_response_enabled,
+        stateless=stateless,
         security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
         retry_interval=retry_interval,
     )
@@ -381,6 +384,13 @@ async def basic_app() -> AsyncIterator[Starlette]:
 async def json_app() -> AsyncIterator[Starlette]:
     """The test server's app with JSON response mode."""
     async with running_app(is_json_response_enabled=True) as app:
+        yield app
+
+
+@pytest.fixture
+async def stateless_app() -> AsyncIterator[Starlette]:
+    """The test server's app in stateless mode."""
+    async with running_app(stateless=True) as app:
         yield app
 
 
@@ -900,6 +910,15 @@ async def test_get_sse_stream(basic_app: Starlette) -> None:
 
             # The second GET gets CONFLICT (409): only one standalone stream is allowed per session.
             assert second_get.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_get_sse_stream_returns_405_when_stateless(stateless_app: Starlette) -> None:
+    """A stateless server never pushes, so the listen-mode GET answers 405 instead of hanging (#3492)."""
+    async with make_client(stateless_app) as client:
+        with anyio.fail_after(5):
+            get_response = await client.get("/mcp", headers={"Accept": "text/event-stream"})
+        assert get_response.status_code == 405
 
 
 @pytest.mark.anyio

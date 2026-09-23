@@ -214,6 +214,7 @@ class StreamableHTTPSessionManager:
             is_json_response_enabled=self.json_response,
             event_store=None,  # No event store in stateless mode
             security_settings=self.security_settings,
+            stateless=True,
         )
 
         # Start server in a new task
