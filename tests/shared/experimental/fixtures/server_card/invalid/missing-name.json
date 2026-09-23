@@ -1,0 +1,5 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+  "version": "1.0.0",
+  "description": "Missing required `name` field."
+}
