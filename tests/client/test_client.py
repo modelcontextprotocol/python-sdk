@@ -134,6 +134,7 @@ async def test_client_custom_protocol_version(app: MCPServer):
     """Test that the client negotiates a custom protocol version when configured."""
     async with Client(app, mode="legacy", protocol_version_override="2024-11-05") as client:
         assert client.protocol_version == "2024-11-05"
+        assert client.server_info is not None
         assert client.server_info.name == "test"
 
 

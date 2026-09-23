@@ -199,6 +199,7 @@ async def test_auto_mode_with_a_protocol_version_override_skips_discover_and_ini
             ) as client,
         ):
             assert client.protocol_version == "2024-11-05"
+            assert client.server_info is not None
             assert client.server_info.name == "discoverable"
 
     bodies = [json.loads(r.content)["method"] for r in requests if r.method == "POST"]
