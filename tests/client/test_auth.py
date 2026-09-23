@@ -3667,3 +3667,45 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+@pytest.mark.anyio
+async def test_authorization_url_preserves_existing_endpoint_query(
+    oauth_provider: OAuthClientProvider,
+):
+    """RFC 6749 §3.1: the authorization endpoint URI may include a query component, so the
+    flow's parameters must be merged into it rather than appended after a second `?`."""
+    oauth_provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.example.com"),
+        authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize?audience=mcp&prompt="),
+        token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+    )
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+
+    captured_url: str | None = None
+    captured_state: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_url, captured_state
+        captured_url = url
+        captured_state = parse_qs(urlparse(url).query)["state"][0]
+
+    async def mock_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = mock_callback
+
+    auth_code, _ = await oauth_provider._perform_authorization_code_grant()
+
+    assert auth_code == "auth_code"
+    assert captured_url is not None
+    assert captured_url.count("?") == 1
+    params = parse_qs(urlparse(captured_url).query, keep_blank_values=True)
+    assert params["audience"] == ["mcp"]  # the endpoint's own parameters survive
+    assert params["prompt"] == [""]  # including blank-valued ones
+    assert params["client_id"] == ["test_client_id"]
+    assert params["response_type"] == ["code"]

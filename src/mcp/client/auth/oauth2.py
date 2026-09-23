@@ -12,7 +12,7 @@ import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, get_args
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 import anyio
 import httpx2
@@ -60,6 +60,18 @@ from mcp.shared.auth_utils import (
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 logger = logging.getLogger(__name__)
+
+
+def _build_authorization_url(auth_endpoint: str, auth_params: dict[str, str]) -> str:
+    """Append authorization parameters to the endpoint, preserving any query it already has.
+
+    RFC 6749 §3.1 allows the authorization endpoint URI to include a query component; the
+    discovered `authorization_endpoint` therefore cannot be extended with a bare `?`.
+    """
+    parsed = urlparse(auth_endpoint)
+    query = urlencode(parse_qsl(parsed.query, keep_blank_values=True) + list(auth_params.items()))
+    return urlunparse(parsed._replace(query=query))
+
 
 # Methods a registered client's record may carry without a token request being an error,
 # derived from the set the SDK is willing to request so the two cannot drift. `None`/"none"
@@ -424,7 +436,7 @@ class OAuthClientProvider(RedirectAwareAuth):
             if "offline_access" in self.context.client_metadata.scope.split():
                 auth_params["prompt"] = "consent"
 
-        authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
+        authorization_url = _build_authorization_url(auth_endpoint, auth_params)
         await self.context.redirect_handler(authorization_url)
 
         # Wait for callback
