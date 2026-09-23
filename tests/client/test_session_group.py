@@ -402,3 +402,67 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+async def test_connect_with_session_empty_server_does_not_raise():
+    """A server exposing no components connects cleanly via connect_with_session.
+
+    Regression: the caller-supplied session is never registered in
+    _session_exit_stacks, so the old empty-server cleanup deleted a missing key
+    and raised KeyError.
+    """
+    server_info = mock.Mock(spec=types.Implementation)
+    server_info.name = "EmptyServer"
+    session = mock.AsyncMock(spec=mcp.ClientSession)
+    session.list_tools.return_value = mock.AsyncMock(tools=[])
+    session.list_resources.return_value = mock.AsyncMock(resources=[])
+    session.list_prompts.return_value = mock.AsyncMock(prompts=[])
+
+    group = ClientSessionGroup()
+    await group.connect_with_session(server_info, session)
+
+    assert session in group._sessions
+    assert not group.tools
+    assert not group.resources
+    assert not group.prompts
+    assert session not in group._session_exit_stacks
+
+
+@pytest.mark.anyio
+async def test_connect_to_server_empty_server_keeps_exit_stack(
+    mock_exit_stack: contextlib.AsyncExitStack,
+):
+    """An empty server connected via connect_to_server retains its exit stack.
+
+    Regression: the old cleanup dropped the freshly-registered stack, so a later
+    disconnect could not close the transport.
+    """
+    server_info = mock.Mock(spec=types.Implementation)
+    server_info.name = "EmptyServer"
+    session = mock.AsyncMock(spec=mcp.ClientSession)
+    session.list_tools.return_value = mock.AsyncMock(tools=[])
+    session.list_resources.return_value = mock.AsyncMock(resources=[])
+    session.list_prompts.return_value = mock.AsyncMock(prompts=[])
+    session_stack = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+
+    async def fake_establish(
+        server_params: StdioServerParameters,
+        session_params: ClientSessionParameters,
+    ) -> tuple[types.Implementation, mcp.ClientSession]:
+        group._session_exit_stacks[session] = session_stack
+        return server_info, session
+
+    with mock.patch.object(group, "_establish_session", side_effect=fake_establish):
+        await group.connect_to_server(StdioServerParameters(command="test"))
+
+    assert session in group._sessions
+    assert group._session_exit_stacks[session] is session_stack
+
+    await group.disconnect_from_server(session)
+
+    assert session not in group._sessions
+    assert session not in group._session_exit_stacks
+    session_stack.aclose.assert_awaited_once()

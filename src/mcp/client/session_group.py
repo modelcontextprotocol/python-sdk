@@ -281,8 +281,8 @@ class ClientSessionGroup:
 
         # Clean up the session's resources via its dedicated exit stack
         if session_known_for_stack:
-            session_stack_to_close = self._session_exit_stacks.pop(session)  # pragma: no cover
-            await session_stack_to_close.aclose()  # pragma: no cover
+            session_stack_to_close = self._session_exit_stacks.pop(session)
+            await session_stack_to_close.aclose()
 
     async def connect_with_session(
         self, server_info: types.Implementation, session: mcp.ClientSession
@@ -413,11 +413,6 @@ class ClientSessionGroup:
                 component_names.tools.add(name)
         except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch tools: {err}")
-
-        # Clean up exit stack for session if we couldn't retrieve anything
-        # from the server.
-        if not any((prompts_temp, resources_temp, tools_temp)):
-            del self._session_exit_stacks[session]  # pragma: no cover
 
         # Check for duplicates.
         matching_prompts = prompts_temp.keys() & self._prompts.keys()
