@@ -35,6 +35,7 @@ from typing import Any
 from mcp_types import CacheableResult
 from mcp_types.jsonrpc import INTERNAL_ERROR, INVALID_PARAMS
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+from pydantic import ValidationError
 
 from mcp.server.context import HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension, MethodBinding
@@ -53,8 +54,6 @@ from mcp.shared.skills import (
     parse_directory_uri,
     skill_name_from_uri,
     validate_directory_result,
-    validate_list_result,
-    validate_skill,
 )
 
 __all__ = ["Skills"]
@@ -103,25 +102,27 @@ class Skills(Extension):
         return bindings
 
     async def _handle_list(self, ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> HandlerResult:
-        result = await self._list_skills(ctx, params)
+        # `ListSkillsResult`/`Skill` self-validate on construction, so a handler that builds a
+        # non-conformant listing raises `ValidationError` here — a server fault, surfaced as an
+        # Internal error rather than the framework's default Invalid params for a bad body.
         try:
-            validate_list_result(result)
-        except ValueError:
+            result = await self._list_skills(ctx, params)
+        except ValidationError:
             logger.exception("list_skills handler returned an invalid result")
             raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         return _finalize_cacheable(result, ctx.protocol_version)
 
     async def _handle_get(self, ctx: ServerRequestContext[Any, Any], params: GetSkillParams) -> HandlerResult:
         _require_skill_md_uri(params.uri)
-        result = await self._get_skill(ctx, params)
+        # `Skill` self-validates on construction (see `_handle_list`).
+        try:
+            result = await self._get_skill(ctx, params)
+        except ValidationError:
+            logger.exception("get_skill handler returned an invalid result")
+            raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         if result.skill.uri != params.uri:
             logger.error("get_skill handler returned %r for requested %r", result.skill.uri, params.uri)
             raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result")
-        try:
-            validate_skill(result.skill)
-        except ValueError:
-            logger.exception("get_skill handler returned an invalid result")
-            raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         return _finalize_cacheable(result, ctx.protocol_version)
 
     async def _handle_read_directory(

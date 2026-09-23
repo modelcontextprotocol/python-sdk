@@ -38,8 +38,6 @@ from mcp.shared.skills import (
     ReadDirectoryResult,
     Skill,
     validate_directory_result,
-    validate_list_result,
-    validate_skill,
 )
 from mcp.shared.skills import verify_skill_resource as verify_skill_resource
 
@@ -105,10 +103,11 @@ class BoundSkills:
         skills: list[Skill] = []
         seen_cursors: set[str] = {cursor} if cursor is not None else set()
         while True:
+            # `send_request` parses each page into `ListSkillsResult`, whose validators reject a
+            # non-conformant skill or a duplicate URI — no separate conformance call is needed.
             page = await self._session.send_request(
                 ListSkillsRequest(params=base.model_copy(update={"cursor": cursor})), ListSkillsResult
             )
-            validate_list_result(page)
             skills.extend(page.skills)
             if page.next_cursor is None:
                 return skills
@@ -130,10 +129,11 @@ class BoundSkills:
                 for a URI it does not serve.
         """
         self._require_extension()
+        # Parsing `GetSkillResult` validates the skill's own conformance; the requested-URI match
+        # is the one rule the skill body can't carry, so it stays an explicit check here.
         result = await self._session.send_request(GetSkillRequest(params=GetSkillParams(uri=uri)), GetSkillResult)
         if result.skill.uri != uri:
             raise ValueError(f"server returned skill {result.skill.uri!r} for requested {uri!r}")
-        validate_skill(result.skill)
         return result.skill
 
     async def read_skill_uri(self, uri: str) -> ReadResourceResult:

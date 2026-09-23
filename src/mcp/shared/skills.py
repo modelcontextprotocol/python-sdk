@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 from mcp_types import CacheableResult, PaginatedRequestParams, PaginatedResult, Request, RequestParams, Resource
-from pydantic import BaseModel, ConfigDict
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 EXTENSION_ID = "io.modelcontextprotocol/skills"
@@ -27,8 +27,8 @@ MAX_RESOURCES_PER_SKILL = 512
 """SEP-2640 per-skill resource-count threshold (`SKILL.md` included).
 
 A SHOULD NOT limit, not a hard cap: the spec requires a host to support skills
-*up to and including* 512 entries and permits it to support larger ones, so
-`validate_skill` does not reject an over-count manifest."""
+*up to and including* 512 entries and permits it to support larger ones, so a
+`Skill` does not reject an over-count manifest."""
 
 MAX_TOTAL_SIZE = 16 * 1024 * 1024
 """SEP-2640 per-skill total-byte-size threshold (16 MiB), summed over `resources[].size`.
@@ -38,6 +38,12 @@ manifest is not rejected."""
 
 _NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def _check_digest(value: str) -> str:
+    if not _DIGEST_RE.fullmatch(value):
+        raise ValueError(f"invalid SHA-256 digest {value!r}; expected 'sha256:' + 64 lowercase hex characters")
+    return value
 
 
 class _SkillModel(BaseModel):
@@ -51,12 +57,16 @@ class _SkillModel(BaseModel):
 
 
 class SkillResource(_SkillModel):
-    """One file in a skill's manifest: `{uri, digest, size}`."""
+    """One file in a skill's manifest: `{uri, digest, size}`.
+
+    Shape rules are intrinsic: a `digest` that isn't `sha256:` + 64 lowercase
+    hex characters, or a negative `size`, is rejected at construction.
+    """
 
     uri: str
-    digest: str
+    digest: Annotated[str, AfterValidator(_check_digest)]
     """SHA-256 digest of the file's raw bytes, formatted `sha256:{64 hex chars}`."""
-    size: int
+    size: Annotated[int, Field(ge=0)]
     """Length in bytes of the file's raw content."""
 
 
@@ -68,12 +78,48 @@ SkillResources = list[SkillResource] | Literal["dynamic"]
 
 
 class Skill(_SkillModel):
-    """An entry returned by `skills/list` or `skills/get`."""
+    """An entry returned by `skills/list` or `skills/get`.
+
+    SEP-2640 conformance is intrinsic: constructing (or parsing) a `Skill`
+    validates the frontmatter `name`/`description`, and — unless `resources` is
+    `"dynamic"` — that every entry names a file within the skill's own directory,
+    with no duplicates and `SKILL.md` present. The 512-entry/16-MiB limits are
+    SHOULD NOT thresholds, not MUST NOT, so an over-limit manifest is accepted.
+    """
 
     uri: str
     """Resource URI of the skill's `SKILL.md`."""
     frontmatter: Frontmatter
     resources: SkillResources
+
+    @model_validator(mode="after")
+    def _check_conformance(self) -> Skill:
+        name = skill_name_from_uri(self.uri)
+        frontmatter_name = self.frontmatter.get("name")
+        if (
+            not isinstance(frontmatter_name, str)
+            or not _NAME_RE.fullmatch(frontmatter_name)
+            or len(frontmatter_name) > 64
+        ):
+            raise ValueError(f"skill {self.uri!r} frontmatter name must be 1-64 lowercase, digits, or hyphens")
+        if frontmatter_name != name:
+            raise ValueError(
+                f"skill {self.uri!r} frontmatter name {frontmatter_name!r} does not match URI name {name!r}"
+            )
+        description = self.frontmatter.get("description")
+        if not isinstance(description, str) or not (1 <= len(description) <= 1024):
+            raise ValueError(f"skill {self.uri!r} frontmatter description must contain 1 to 1024 characters")
+        if self.resources == "dynamic":
+            return self
+        seen: set[str] = set()
+        for resource in self.resources:
+            _validate_resource_uri_in_skill(self.uri, resource.uri)
+            if resource.uri in seen:
+                raise ValueError(f"skill {self.uri!r} lists resource {resource.uri!r} more than once")
+            seen.add(resource.uri)
+        if self.uri not in seen:
+            raise ValueError(f"skill {self.uri!r} resources does not include its own SKILL.md")
+        return self
 
 
 class ListSkillsParams(PaginatedRequestParams):
@@ -83,6 +129,9 @@ class ListSkillsParams(PaginatedRequestParams):
 class ListSkillsResult(PaginatedResult, CacheableResult):
     """Result of `skills/list`.
 
+    Each skill self-validates; on top of that, constructing (or parsing) this
+    result rejects two entries that share a `uri`.
+
     `ttl_ms`/`cache_scope` are SEP-2549 fields inherited from `CacheableResult`;
     unlike a core spec method, nothing sieves them off the wire for a
     pre-2026-07-28 connection automatically (see `mcp.server.skills`), so
@@ -90,6 +139,15 @@ class ListSkillsResult(PaginatedResult, CacheableResult):
     """
 
     skills: list[Skill]
+
+    @model_validator(mode="after")
+    def _check_unique_uris(self) -> ListSkillsResult:
+        seen: set[str] = set()
+        for skill in self.skills:
+            if skill.uri in seen:
+                raise ValueError(f"skills/list result lists skill {skill.uri!r} more than once")
+            seen.add(skill.uri)
+        return self
 
 
 class GetSkillParams(RequestParams):
@@ -181,60 +239,6 @@ def _validate_resource_uri_in_skill(skill_uri: str, resource_uri: str) -> None:
         raise ValueError(f"resource URI {resource_uri!r} is outside the skill root {skill_uri!r}")
     if any(segment in (".", "..") for segment in resource_parts.path.split("/")):
         raise ValueError(f"resource URI {resource_uri!r} contains a traversal segment")
-
-
-def validate_skill(skill: Skill) -> None:
-    """Validate `skill` against the SEP-2640 and Agent Skills conformance rules.
-
-    Checks the frontmatter's `name`/`description` fields, that `resources` (when
-    not `"dynamic"`) is complete — every entry names a file within the skill's
-    own directory, has a well-formed digest, and `SKILL.md` is present. The
-    512-entry/16-MiB limits are SEP-2640 SHOULD NOT thresholds, not MUST NOT, so
-    an over-limit manifest is accepted (a conforming host must support up to the
-    limits and may support larger).
-
-    Raises:
-        ValueError: If `skill` violates any of the above.
-    """
-    name = skill_name_from_uri(skill.uri)
-    frontmatter_name = skill.frontmatter.get("name")
-    if not isinstance(frontmatter_name, str) or not _NAME_RE.fullmatch(frontmatter_name) or len(frontmatter_name) > 64:
-        raise ValueError(f"skill {skill.uri!r} frontmatter name must be 1-64 lowercase, digits, or hyphens")
-    if frontmatter_name != name:
-        raise ValueError(f"skill {skill.uri!r} frontmatter name {frontmatter_name!r} does not match URI name {name!r}")
-    description = skill.frontmatter.get("description")
-    if not isinstance(description, str) or not (1 <= len(description) <= 1024):
-        raise ValueError(f"skill {skill.uri!r} frontmatter description must contain 1 to 1024 characters")
-
-    if skill.resources == "dynamic":
-        return
-    resources = skill.resources
-    seen: set[str] = set()
-    for resource in resources:
-        _validate_resource_uri_in_skill(skill.uri, resource.uri)
-        if resource.uri in seen:
-            raise ValueError(f"skill {skill.uri!r} lists resource {resource.uri!r} more than once")
-        seen.add(resource.uri)
-        if not _DIGEST_RE.fullmatch(resource.digest):
-            raise ValueError(f"skill {skill.uri!r} resource {resource.uri!r} has an invalid SHA-256 digest")
-        if resource.size < 0:
-            raise ValueError(f"skill {skill.uri!r} resource {resource.uri!r} has a negative size")
-    if skill.uri not in seen:
-        raise ValueError(f"skill {skill.uri!r} resources does not include its own SKILL.md")
-
-
-def validate_list_result(result: ListSkillsResult) -> None:
-    """Validate every skill in `result.skills` and reject duplicate URIs.
-
-    Raises:
-        ValueError: If any skill is invalid, or two entries share a `uri`.
-    """
-    seen: set[str] = set()
-    for skill in result.skills:
-        validate_skill(skill)
-        if skill.uri in seen:
-            raise ValueError(f"skills/list result lists skill {skill.uri!r} more than once")
-        seen.add(skill.uri)
 
 
 def parse_directory_uri(uri: str) -> tuple[str, str, str]:
