@@ -6,6 +6,7 @@ import mcp_types as types
 import pytest
 
 import mcp
+from mcp import Client
 from mcp.client.session_group import (
     ClientSessionGroup,
     ClientSessionParameters,
@@ -13,6 +14,7 @@ from mcp.client.session_group import (
     StreamableHttpParameters,
 )
 from mcp.client.stdio import StdioServerParameters
+from mcp.server import MCPServer
 from mcp.shared.exceptions import MCPError
 
 
@@ -402,3 +404,137 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+async def test_read_resource_routes_to_owning_session():
+    """read_resource resolves the aggregate key to the owning session and passes the wire URI."""
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+    resource = types.Resource(name="hours", uri="library://hours")
+    expected = types.ReadResourceResult(contents=[])
+    mock_session.read_resource.return_value = expected
+
+    group = ClientSessionGroup()
+    group._resources = {"Library.hours": resource}
+    group._resource_to_session = {"Library.hours": mock_session}
+
+    result = await group.read_resource("Library.hours")
+
+    assert result is expected
+    mock_session.read_resource.assert_awaited_once_with(
+        "library://hours",
+        input_responses=None,
+        request_state=None,
+        meta=None,
+        allow_input_required=False,
+    )
+
+
+@pytest.mark.anyio
+async def test_read_resource_unknown_name_raises_key_error():
+    group = ClientSessionGroup()
+    with pytest.raises(KeyError):
+        await group.read_resource("missing")
+
+
+@pytest.mark.anyio
+async def test_get_prompt_routes_to_owning_session():
+    """get_prompt resolves the aggregate key to the owning session and passes the wire name."""
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+    prompt = types.Prompt(name="greet")
+    expected = types.GetPromptResult(messages=[])
+    mock_session.get_prompt.return_value = expected
+
+    group = ClientSessionGroup()
+    group._prompts = {"Web.greet": prompt}
+    group._prompt_to_session = {"Web.greet": mock_session}
+
+    result = await group.get_prompt("Web.greet", {"name": "Ada"})
+
+    assert result is expected
+    mock_session.get_prompt.assert_awaited_once_with(
+        "greet",
+        {"name": "Ada"},
+        input_responses=None,
+        request_state=None,
+        meta=None,
+        allow_input_required=False,
+    )
+
+
+@pytest.mark.anyio
+async def test_get_prompt_unknown_name_raises_key_error():
+    group = ClientSessionGroup()
+    with pytest.raises(KeyError):
+        await group.get_prompt("missing")
+
+
+@pytest.mark.anyio
+async def test_disconnect_clears_resource_and_prompt_reverse_index():
+    """disconnect_from_server drops the session's resource/prompt routing entries."""
+    session = mock.Mock(spec=mcp.ClientSession)
+    group = ClientSessionGroup()
+    group._resources = {"res1": mock.Mock(spec=types.Resource)}
+    group._prompts = {"prm1": mock.Mock(spec=types.Prompt)}
+    group._resource_to_session = {"res1": session}
+    group._prompt_to_session = {"prm1": session}
+    group._sessions = {
+        session: ClientSessionGroup._ComponentNames(
+            prompts={"prm1"},
+            resources={"res1"},
+            tools=set(),
+        )
+    }
+
+    await group.disconnect_from_server(session)
+
+    assert "res1" not in group._resource_to_session
+    assert "prm1" not in group._prompt_to_session
+
+
+def _server_info(client: Client) -> types.Implementation:
+    assert client.server_info is not None
+    return client.server_info
+
+
+@pytest.mark.anyio
+async def test_read_resource_end_to_end_routes_through_the_owning_server():
+    """The group reads an aggregated resource against a real in-memory session."""
+    server = MCPServer("Library")
+
+    @server.resource("library://hours")
+    def hours() -> str:
+        return "Mon-Fri 09:00-17:00"
+
+    async with Client(server) as client:
+        group = ClientSessionGroup()
+        await group.connect_with_session(_server_info(client), client.session)
+
+        (name,) = group.resources
+        result = await group.read_resource(name)
+
+    assert isinstance(result, types.ReadResourceResult)
+    (content,) = result.contents
+    assert isinstance(content, types.TextResourceContents)
+    assert content.text == "Mon-Fri 09:00-17:00"
+
+
+@pytest.mark.anyio
+async def test_get_prompt_end_to_end_routes_through_the_owning_server():
+    """The group gets an aggregated prompt against a real in-memory session."""
+    server = MCPServer("Greeter")
+
+    @server.prompt()
+    def greet(name: str) -> str:
+        return f"Hello, {name}!"
+
+    async with Client(server) as client:
+        group = ClientSessionGroup()
+        await group.connect_with_session(_server_info(client), client.session)
+
+        result = await group.get_prompt("greet", {"name": "Ada"})
+
+    assert isinstance(result, types.GetPromptResult)
+    (message,) = result.messages
+    assert isinstance(message.content, types.TextContent)
+    assert message.content.text == "Hello, Ada!"

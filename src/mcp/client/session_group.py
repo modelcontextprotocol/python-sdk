@@ -116,6 +116,8 @@ class ClientSessionGroup:
     # Client-server connection management.
     _sessions: dict[mcp.ClientSession, _ComponentNames]
     _tool_to_session: dict[str, mcp.ClientSession]
+    _resource_to_session: dict[str, mcp.ClientSession]
+    _prompt_to_session: dict[str, mcp.ClientSession]
     _exit_stack: contextlib.AsyncExitStack
     _session_exit_stacks: dict[mcp.ClientSession, contextlib.AsyncExitStack]
 
@@ -138,6 +140,8 @@ class ClientSessionGroup:
 
         self._sessions = {}
         self._tool_to_session = {}
+        self._resource_to_session = {}
+        self._prompt_to_session = {}
         if exit_stack is None:
             self._exit_stack = contextlib.AsyncExitStack()
             self._owns_exit_stack = True
@@ -249,6 +253,112 @@ class ClientSessionGroup:
             allow_input_required=allow_input_required,
         )
 
+    @overload
+    async def read_resource(
+        self,
+        name: str,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: types.RequestParamsMeta | None = None,
+        allow_input_required: Literal[False] = False,
+    ) -> types.ReadResourceResult: ...
+
+    @overload
+    async def read_resource(
+        self,
+        name: str,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: types.RequestParamsMeta | None = None,
+        allow_input_required: bool,
+    ) -> types.ReadResourceResult | types.InputRequiredResult: ...
+
+    async def read_resource(
+        self,
+        name: str,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: types.RequestParamsMeta | None = None,
+        allow_input_required: bool = False,
+    ) -> types.ReadResourceResult | types.InputRequiredResult:
+        """Reads an aggregated resource, routing to the server that owns it.
+
+        ``name`` is the aggregate key (i.e. the value used in ``resources``,
+        which is affected by ``component_name_hook``), not necessarily the
+        resource's wire URI.
+
+        Raises:
+            KeyError: If ``name`` is not an aggregated resource.
+            RuntimeError: If the server returns an ``InputRequiredResult`` and
+                ``allow_input_required`` is ``False``.
+        """
+        session = self._resource_to_session[name]
+        return await session.read_resource(
+            self.resources[name].uri,
+            input_responses=input_responses,
+            request_state=request_state,
+            meta=meta,
+            allow_input_required=allow_input_required,
+        )
+
+    @overload
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: types.RequestParamsMeta | None = None,
+        allow_input_required: Literal[False] = False,
+    ) -> types.GetPromptResult: ...
+
+    @overload
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: types.RequestParamsMeta | None = None,
+        allow_input_required: bool,
+    ) -> types.GetPromptResult | types.InputRequiredResult: ...
+
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: types.RequestParamsMeta | None = None,
+        allow_input_required: bool = False,
+    ) -> types.GetPromptResult | types.InputRequiredResult:
+        """Gets an aggregated prompt, routing to the server that owns it.
+
+        ``name`` is the aggregate key (i.e. the value used in ``prompts``,
+        which is affected by ``component_name_hook``), not necessarily the
+        prompt's wire name.
+
+        Raises:
+            KeyError: If ``name`` is not an aggregated prompt.
+            RuntimeError: If the server returns an ``InputRequiredResult`` and
+                ``allow_input_required`` is ``False``.
+        """
+        session = self._prompt_to_session[name]
+        return await session.get_prompt(
+            self.prompts[name].name,
+            arguments,
+            input_responses=input_responses,
+            request_state=request_state,
+            meta=meta,
+            allow_input_required=allow_input_required,
+        )
+
     async def disconnect_from_server(self, session: mcp.ClientSession) -> None:
         """Disconnects from a single MCP server."""
 
@@ -272,6 +382,12 @@ class ClientSessionGroup:
             for name in component_names.resources:
                 if name in self._resources:  # pragma: no branch
                     del self._resources[name]
+                if name in self._resource_to_session:  # pragma: no branch
+                    del self._resource_to_session[name]
+            # Remove prompts' reverse index for this session.
+            for name in component_names.prompts:
+                if name in self._prompt_to_session:  # pragma: no branch
+                    del self._prompt_to_session[name]
             # Remove tools associated with the session.
             for name in component_names.tools:
                 if name in self._tools:  # pragma: no branch
@@ -382,6 +498,8 @@ class ClientSessionGroup:
         resources_temp: dict[str, types.Resource] = {}
         tools_temp: dict[str, types.Tool] = {}
         tool_to_session_temp: dict[str, mcp.ClientSession] = {}
+        resource_to_session_temp: dict[str, mcp.ClientSession] = {}
+        prompt_to_session_temp: dict[str, mcp.ClientSession] = {}
 
         # Query the server for its prompts and aggregate to list.
         try:
@@ -389,6 +507,7 @@ class ClientSessionGroup:
             for prompt in prompts:
                 name = self._component_name(prompt.name, server_info)
                 prompts_temp[name] = prompt
+                prompt_to_session_temp[name] = session
                 component_names.prompts.add(name)
         except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch prompts: {err}")
@@ -399,6 +518,7 @@ class ClientSessionGroup:
             for resource in resources:
                 name = self._component_name(resource.name, server_info)
                 resources_temp[name] = resource
+                resource_to_session_temp[name] = session
                 component_names.resources.add(name)
         except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch resources: {err}")
@@ -442,6 +562,8 @@ class ClientSessionGroup:
         self._resources.update(resources_temp)
         self._tools.update(tools_temp)
         self._tool_to_session.update(tool_to_session_temp)
+        self._resource_to_session.update(resource_to_session_temp)
+        self._prompt_to_session.update(prompt_to_session_temp)
 
     def _component_name(self, name: str, server_info: types.Implementation) -> str:
         if self._component_name_hook:

@@ -60,6 +60,20 @@ Run it again. `print(sorted(group.tools))` now shows both:
     The hook runs on **every** name from **every** server, not only on conflicts: there is no
     prefix-on-collision mode. Pick one scheme and let it apply everywhere.
 
+## Reading resources and prompts
+
+`call_tool` is not the only routed call. `group.read_resource(name)` and `group.get_prompt(name, arguments)` work the same way: you pass the aggregate key (the one in `group.resources` / `group.prompts`, prefixed if you use a hook), and the group finds the owning session and forwards the call with the resource's real URI or the prompt's real name.
+
+```python
+# `Library.hours` is the group key; `library://hours` goes on the wire.
+result = await group.read_resource("Library.hours")
+
+# `arguments` are forwarded to the owning server unchanged.
+prompt = await group.get_prompt("Greeter.greet", {"name": "Ada"})
+```
+
+Both raise `KeyError` if the key isn't an aggregated resource/prompt, and both accept the same `allow_input_required` flag as `ClientSession`, so a server that needs input mid-call behaves identically through the group.
+
 ## Adding and removing servers
 
 `connect_to_server` returns the `ClientSession` it opened. Keep it if you ever want that server gone: `await group.disconnect_from_server(session)` removes its tools, resources, and prompts from the group.
@@ -74,7 +88,7 @@ If you already hold a connected `ClientSession` (`Client.session` is one), hand 
 
 * `ClientSessionGroup` holds many server connections and merges their tools, resources, and prompts into one `dict` each.
 * `connect_to_server(params)` per server. It takes transport parameters, never the URL or `Transport` a `Client` takes.
-* `group.call_tool(name, arguments)` routes to the owning server for you.
+* `group.call_tool(name, arguments)` routes to the owning server for you; `group.read_resource(name)` and `group.get_prompt(name, arguments)` route the same way.
 * Names must be unique across the whole group; two servers with a `search` tool cannot coexist on their own.
 * `component_name_hook=` rewrites every registered name. The dict key changes, the wire name does not.
 * `connect_with_session` adds a session you already hold; `disconnect_from_server` removes one.
