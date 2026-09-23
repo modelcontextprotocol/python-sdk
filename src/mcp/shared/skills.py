@@ -24,10 +24,17 @@ METHOD_GET = "skills/get"
 METHOD_READ_DIRECTORY = "resources/directory/read"
 
 MAX_RESOURCES_PER_SKILL = 512
-"""SEP-2640 per-skill resource-count limit, `SKILL.md` included."""
+"""SEP-2640 per-skill resource-count threshold (`SKILL.md` included).
+
+A SHOULD NOT limit, not a hard cap: the spec requires a host to support skills
+*up to and including* 512 entries and permits it to support larger ones, so
+`validate_skill` does not reject an over-count manifest."""
 
 MAX_TOTAL_SIZE = 16 * 1024 * 1024
-"""SEP-2640 per-skill total-byte-size limit (16 MiB), summed over `resources[].size`."""
+"""SEP-2640 per-skill total-byte-size threshold (16 MiB), summed over `resources[].size`.
+
+A SHOULD NOT limit, not a hard cap (see `MAX_RESOURCES_PER_SKILL`); an over-size
+manifest is not rejected."""
 
 _NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -180,9 +187,11 @@ def validate_skill(skill: Skill) -> None:
     """Validate `skill` against the SEP-2640 and Agent Skills conformance rules.
 
     Checks the frontmatter's `name`/`description` fields, that `resources` (when
-    not `"dynamic"`) is complete and within the `MAX_RESOURCES_PER_SKILL`/
-    `MAX_TOTAL_SIZE` limits, and that every resource entry names a file within
-    the skill's own directory with a well-formed digest.
+    not `"dynamic"`) is complete — every entry names a file within the skill's
+    own directory, has a well-formed digest, and `SKILL.md` is present. The
+    512-entry/16-MiB limits are SEP-2640 SHOULD NOT thresholds, not MUST NOT, so
+    an over-limit manifest is accepted (a conforming host must support up to the
+    limits and may support larger).
 
     Raises:
         ValueError: If `skill` violates any of the above.
@@ -200,10 +209,7 @@ def validate_skill(skill: Skill) -> None:
     if skill.resources == "dynamic":
         return
     resources = skill.resources
-    if len(resources) > MAX_RESOURCES_PER_SKILL:
-        raise ValueError(f"skill {skill.uri!r} has {len(resources)} resources, exceeding {MAX_RESOURCES_PER_SKILL}")
     seen: set[str] = set()
-    total_size = 0
     for resource in resources:
         _validate_resource_uri_in_skill(skill.uri, resource.uri)
         if resource.uri in seen:
@@ -213,11 +219,8 @@ def validate_skill(skill: Skill) -> None:
             raise ValueError(f"skill {skill.uri!r} resource {resource.uri!r} has an invalid SHA-256 digest")
         if resource.size < 0:
             raise ValueError(f"skill {skill.uri!r} resource {resource.uri!r} has a negative size")
-        total_size += resource.size
     if skill.uri not in seen:
         raise ValueError(f"skill {skill.uri!r} resources does not include its own SKILL.md")
-    if total_size > MAX_TOTAL_SIZE:
-        raise ValueError(f"skill {skill.uri!r} has {total_size} bytes, exceeding {MAX_TOTAL_SIZE}")
 
 
 def validate_list_result(result: ListSkillsResult) -> None:
@@ -250,7 +253,11 @@ def parse_directory_uri(uri: str) -> tuple[str, str, str]:
 
 
 def validate_directory_result(uri: str, result: ReadDirectoryResult) -> None:
-    """Validate that `result.resources` are exactly the direct children of `uri`.
+    """Validate that each entry in `result.resources` is a unique direct child of `uri`.
+
+    Checks containment and shape only — that every listed resource is a direct
+    child of `uri` with a unique `uri` and `name`. It cannot confirm the listing
+    is exhaustive, since it has no independent view of the directory's contents.
 
     Raises:
         ValueError: If `uri` is malformed, or any entry is not a direct child,

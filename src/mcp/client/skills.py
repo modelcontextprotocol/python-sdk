@@ -9,9 +9,12 @@ then call `bind(client)` for the SEP-2640 verbs — `list_skills`, `get_skill`,
         for skill in await skills.bind(client).list_skills():
             print(skill.uri, skill.frontmatter["description"])
 
-`bind(client)` returns a `BoundSkills`. Each verb validates that the server
-advertises the extension before sending; `list_skills` and `read_directory`
-follow `nextCursor` to completion, so one call returns every page's results.
+`bind(client)` returns a `BoundSkills`. Its catalog verbs — `list_skills`,
+`get_skill`, and `read_directory` — check that the server advertises the
+extension and validate its response; `list_skills` and `read_directory` follow
+`nextCursor` to completion, so one call returns every page's results.
+`read_skill_uri` is a thin `resources/read` alias that does neither — verify its
+result with `verify_skill_resource`.
 """
 
 from __future__ import annotations
@@ -68,9 +71,13 @@ class Skills(ClientExtension):
 class BoundSkills:
     """The SEP-2640 verbs bound to one connected session.
 
-    Obtain it from `Skills.bind(client)`. `list_skills` and `read_directory`
-    follow `nextCursor` to completion; every method validates the server's
-    response against the SEP-2640 conformance rules before returning it.
+    Obtain it from `Skills.bind(client)`. The catalog verbs — `list_skills`,
+    `get_skill`, and `read_directory` — check that the server advertises the
+    extension and validate its response against the SEP-2640 conformance rules
+    before returning; `list_skills` and `read_directory` also follow
+    `nextCursor` to completion. `read_skill_uri` is the exception: a thin
+    `resources/read` alias that neither checks advertisement nor validates —
+    pair it with `verify_skill_resource`.
     """
 
     def __init__(self, session: ClientSession) -> None:
@@ -88,8 +95,9 @@ class BoundSkills:
         """Call `skills/list`, following `nextCursor` to completion, and validate the result.
 
         Raises:
-            ValueError: If the server doesn't advertise the Skills extension, or
-                its response is not SEP-2640 conformant.
+            ValueError: If the server doesn't advertise the Skills extension, its
+                response is not SEP-2640 conformant, or it repeats a pagination cursor.
+            MCPError: If the server returns an error response.
         """
         self._require_extension()
         base = params if params is not None else ListSkillsParams()
@@ -118,6 +126,8 @@ class BoundSkills:
         Raises:
             ValueError: If the server doesn't advertise the Skills extension, its
                 response names a different skill, or the skill is not conformant.
+            MCPError: If the server returns an error response, such as `-32602`
+                for a URI it does not serve.
         """
         self._require_extension()
         result = await self._session.send_request(GetSkillRequest(params=GetSkillParams(uri=uri)), GetSkillResult)
@@ -133,6 +143,11 @@ class BoundSkills:
         file regardless of whether the skill was ever enumerated. Verify the
         result against a held `Skill` entry with `verify_skill_resource` before
         treating it as trusted content — this call does not verify anything itself.
+
+        Raises:
+            MCPError: If the server returns an error response.
+            RuntimeError: If the server returns an `InputRequiredResult`; this
+                alias does not drive the input-required loop.
         """
         return await self._session.read_resource(uri)
 
@@ -141,7 +156,9 @@ class BoundSkills:
 
         Raises:
             ValueError: If the server doesn't advertise the `directoryRead`
-                setting, or its response is not a valid child listing of `uri`.
+                setting, its response is not a valid child listing of `uri`, or
+                it repeats a pagination cursor.
+            MCPError: If the server returns an error response.
         """
         self._require_extension(directory_read=True)
         base = params if params is not None else ReadDirectoryParams(uri=uri)

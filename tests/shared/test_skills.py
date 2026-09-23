@@ -249,25 +249,34 @@ def test_validate_skill_rejects_malformed_digest_formats(digest: str) -> None:
         validate_skill(skill)
 
 
-def test_validate_skill_rejects_more_than_512_resources() -> None:
-    """SEP-2640 Limits: 512 entries per skill, `SKILL.md` included."""
+def test_validate_skill_accepts_exactly_512_resources() -> None:
+    """SEP-2640 Limits: a host MUST support skills up to and including 512 entries
+    (`SKILL.md` counted), so a 512-entry manifest validates."""
+    root = "skill://git-workflow/SKILL.md"
+    resources = [_resource(root)] + [_resource(f"skill://git-workflow/f{i}.md") for i in range(511)]
+    skill = Skill(uri=root, frontmatter={"name": "git-workflow", "description": "d"}, resources=resources)
+    validate_skill(skill)
+
+
+def test_validate_skill_accepts_more_than_512_resources() -> None:
+    """SEP-2640 Limits: 512 is a SHOULD NOT threshold, not a hard cap — a host MAY support
+    larger skills, so an over-count manifest is not rejected."""
     root = "skill://git-workflow/SKILL.md"
     resources = [_resource(root)] + [_resource(f"skill://git-workflow/f{i}.md") for i in range(512)]
     skill = Skill(uri=root, frontmatter={"name": "git-workflow", "description": "d"}, resources=resources)
-    with pytest.raises(ValueError, match="exceeding 512"):
-        validate_skill(skill)
+    validate_skill(skill)
 
 
-def test_validate_skill_rejects_total_size_over_16mib() -> None:
-    """SEP-2640 Limits: 16 MiB total per skill, summed over `resources[].size`."""
+def test_validate_skill_accepts_total_size_over_16mib() -> None:
+    """SEP-2640 Limits: 16 MiB total is a SHOULD NOT threshold, not a hard cap — an over-size
+    manifest is not rejected."""
     root = "skill://git-workflow/SKILL.md"
     skill = Skill(
         uri=root,
         frontmatter={"name": "git-workflow", "description": "d"},
         resources=[_resource(root, size=16 * 1024 * 1024 + 1)],
     )
-    with pytest.raises(ValueError, match="exceeding"):
-        validate_skill(skill)
+    validate_skill(skill)
 
 
 def test_validate_skill_accepts_dynamic_resources_without_further_checks() -> None:
