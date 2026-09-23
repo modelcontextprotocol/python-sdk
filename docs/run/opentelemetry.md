@@ -11,12 +11,14 @@ call `MCPServer(...)`.
 ```
 
 That is a complete, traced server. Call `search_books` and a span is created for it. The same is
-true for the low-level `Server`: the tracing lives on both.
+true when a client reads `catalog://featured` or renders `reading_prompt`. The low-level `Server`
+is traced too.
 
 ## What you get
 
-Every inbound message becomes a `SERVER` span named after the method and its target. So a
-`tools/call` for `search_books` is the span `tools/call search_books`, and a bare `tools/list`
+Every inbound message becomes a `SERVER` span named after the method, plus a target for named
+operations. So a `tools/call` for `search_books` is the span `tools/call search_books`,
+a `prompts/get` for `reading_prompt` is `prompts/get reading_prompt`, and a bare `tools/list`
 is just `tools/list`.
 
 Each span carries a few attributes:
@@ -31,12 +33,24 @@ OpenTelemetry's [GenAI semantic conventions](https://opentelemetry.io/docs/specs
 * `gen_ai.operation.name`, set to `"execute_tool"`.
 * `gen_ai.tool.name`, set to the tool being called.
 
-A `prompts/get` span gets `gen_ai.prompt.name` in the same spirit. The list methods carry no
+A `prompts/get` span gets `gen_ai.prompt.name` in the same spirit. `resources/read` spans are
+created by the same middleware and carry the common `mcp.*` attributes; the SDK does not add the
+resource URI to the span name or to a `gen_ai.*` attribute today. The list methods carry no
 `gen_ai.*` keys, because there is nothing to name.
 
 !!! tip
     Those GenAI attributes are the reason a tracing UI groups your tool calls the way it groups
     any other agent's. You get that grouping for free, with no extra code.
+
+## Adding your own detail
+
+The SDK span wraps the request handler. That means a tool, resource, or prompt function runs with
+the SDK-created span already current.
+
+If you need more detail than the default attributes provide, create child spans inside your handler
+or in your own middleware. For example, a resource handler can add a child span for a database read,
+and a prompt handler can add one for template assembly. Those spans nest under `resources/read` or
+`prompts/get`, so a tracing backend still shows one connected request.
 
 ## It costs nothing until you want it
 
