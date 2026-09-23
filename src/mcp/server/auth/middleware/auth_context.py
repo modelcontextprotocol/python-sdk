@@ -1,5 +1,8 @@
 import contextvars
+from contextvars import Token
+from typing import Any
 
+from starlette.requests import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
@@ -18,6 +21,30 @@ def get_access_token() -> AccessToken | None:
     """
     auth_user = auth_context_var.get()
     return auth_user.access_token if auth_user else None
+
+
+def push_auth_context_from_request(request: Request | None) -> Token[AuthenticatedUser | None] | None:
+    """Set auth context for the current task from an incoming request.
+
+    This is primarily used by server transports where request handlers may run
+    in background tasks that are not part of the original ASGI request task.
+    """
+    if request is None:
+        return None
+    # Avoid Request.user, which asserts AuthenticationMiddleware is installed.
+    user: Any | None = request.scope.get("user")
+    if user is None:
+        try:
+            user = getattr(request, "user", None)
+        except AssertionError:
+            user = None
+    return auth_context_var.set(user if isinstance(user, AuthenticatedUser) else None)
+
+
+def pop_auth_context(token: Token[AuthenticatedUser | None] | None) -> None:
+    if token is None:
+        return
+    auth_context_var.reset(token)
 
 
 class AuthContextMiddleware:
