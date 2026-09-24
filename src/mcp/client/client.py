@@ -366,6 +366,13 @@ class Client:
     derived)."""
 
     _entered: bool = field(init=False, default=False)
+    protocol_version_override: str | None = None
+    """Pin the legacy `initialize` handshake to a specific handshake-era version.
+
+    Only meaningful with `mode='legacy'` or `mode='auto'` (where it skips `server/discover`
+    and negotiates directly); raises at construction with any other `mode`, since a version
+    pin already fixes the negotiated version. Must be a member of `HANDSHAKE_PROTOCOL_VERSIONS`.
+    `None` (the default) negotiates the latest version each `mode` would otherwise pick."""
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _connect: _Connector = field(init=False, repr=False, compare=False)
@@ -382,6 +389,23 @@ class Client:
             raise ValueError(
                 f"mode must be 'legacy', 'auto', or one of {list(MODERN_PROTOCOL_VERSIONS)}; got {self.mode!r}{hint}"
             )
+
+        if self.protocol_version_override is not None:
+            if self.protocol_version_override not in HANDSHAKE_PROTOCOL_VERSIONS:
+                hint = (
+                    f" ({self.protocol_version_override!r} is a modern version; mode='auto' already negotiates it)"
+                    if self.protocol_version_override in MODERN_PROTOCOL_VERSIONS
+                    else ""
+                )
+                raise ValueError(
+                    "protocol_version_override must be one of "
+                    f"{list(HANDSHAKE_PROTOCOL_VERSIONS)}; got {self.protocol_version_override!r}{hint}"
+                )
+            if self.mode not in ("legacy", "auto"):
+                raise ValueError(
+                    f"protocol_version_override has no effect with mode={self.mode!r} "
+                    "(a version pin already fixes the negotiated version); use mode='legacy' or mode='auto'"
+                )
 
         self._folded_extensions = _fold_extensions(self.extensions)
 
@@ -424,7 +448,12 @@ class Client:
 
     async def _build_session(self, exit_stack: AsyncExitStack) -> ClientSession:
         """Enter the resolved connector and return an un-entered ClientSession."""
-        dispatcher = await self._connect(exit_stack, self.mode, self.raise_exceptions)
+        # An override on mode='auto' skips discovery and drives `initialize()` directly
+        # (see `negotiate_auto`), so the in-proc connector must hand back the legacy,
+        # stream-backed dispatcher for this combination too, not the handshake-less
+        # DirectDispatcher it otherwise picks for every non-'legacy' mode.
+        connect_mode = "legacy" if self.mode == "auto" and self.protocol_version_override is not None else self.mode
+        dispatcher = await self._connect(exit_stack, connect_mode, self.raise_exceptions)
         message_handler = self.message_handler
         if self._response_cache is not None:
             message_handler = _evicting_message_handler(self._response_cache, self.message_handler)
@@ -455,9 +484,12 @@ class Client:
             session = await exit_stack.enter_async_context(session)
 
             if self.mode == "legacy":
-                await session.initialize()
+                if self.protocol_version_override is not None:
+                    await session.initialize(protocol_version=self.protocol_version_override)
+                else:
+                    await session.initialize()
             elif self.mode == "auto":
-                await negotiate_auto(session)
+                await negotiate_auto(session, protocol_version=self.protocol_version_override)
             else:
                 session.adopt(self.prior_discover or _synthesize_discover(self.mode))
 
