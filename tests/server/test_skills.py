@@ -150,6 +150,23 @@ async def test_skills_list_rejects_a_handler_result_with_an_invalid_skill() -> N
     assert exc_info.value.code == INTERNAL_ERROR
 
 
+async def test_skills_list_rejects_a_skill_mutated_after_the_result_is_built() -> None:
+    """SDK-defined: the value models validate on construction but stay mutable. A handler that
+    builds a valid result and then mutates a skill in place must not slip a non-conformant
+    listing past the server — the outbound payload is re-validated, so this is an Internal error."""
+
+    async def mutating_list(ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
+        result = ListSkillsResult(skills=[_git_workflow_skill()])
+        result.skills[0].frontmatter["name"] = "not the uri name"
+        return result
+
+    server = MCPServer("catalog", extensions=[Skills(list_skills=mutating_list, get_skill=_get_skill)])
+    async with Client(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.session.send_request(ListSkillsRequest(), ListSkillsResult)
+    assert exc_info.value.code == INTERNAL_ERROR
+
+
 async def test_skills_get_returns_the_matching_skill() -> None:
     async with Client(_server()) as client:
         result = await client.session.send_request(
@@ -241,6 +258,23 @@ async def test_skills_get_rejects_a_matching_but_non_conformant_skill() -> None:
         )
 
     server = MCPServer("catalog", extensions=[Skills(list_skills=_list_skills, get_skill=bad_skill)])
+    async with Client(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.session.send_request(GetSkillRequest(params=GetSkillParams(uri=_SKILL_URI)), GetSkillResult)
+    assert exc_info.value.code == INTERNAL_ERROR
+
+
+async def test_skills_get_rejects_a_skill_mutated_after_the_result_is_built() -> None:
+    """SDK-defined: as on `skills/list`, a handler that mutates the skill in place after building
+    the result can't ship a non-conformant body — the re-validated outbound payload fails it as an
+    Internal error."""
+
+    async def mutating_get(ctx: ServerRequestContext[Any, Any], params: GetSkillParams) -> GetSkillResult:
+        result = GetSkillResult(skill=_git_workflow_skill())
+        result.skill.resources.clear()
+        return result
+
+    server = MCPServer("catalog", extensions=[Skills(list_skills=_list_skills, get_skill=mutating_get)])
     async with Client(server) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.session.send_request(GetSkillRequest(params=GetSkillParams(uri=_SKILL_URI)), GetSkillResult)

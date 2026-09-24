@@ -104,9 +104,12 @@ class Skills(Extension):
     async def _handle_list(self, ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> HandlerResult:
         # `ListSkillsResult`/`Skill` self-validate on construction, so a handler that builds a
         # non-conformant listing raises `ValidationError` here — a server fault, surfaced as an
-        # Internal error rather than the framework's default Invalid params for a bad body.
+        # Internal error rather than the framework's default Invalid params for a bad body. The
+        # models stay mutable, so re-validate the outbound payload too: a handler that mutates a
+        # skill after building the result can't ship a non-conformant listing past this point.
         try:
             result = await self._list_skills(ctx, params)
+            ListSkillsResult.model_validate(result.model_dump())
         except ValidationError:
             logger.exception("list_skills handler returned an invalid result")
             raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
@@ -114,9 +117,11 @@ class Skills(Extension):
 
     async def _handle_get(self, ctx: ServerRequestContext[Any, Any], params: GetSkillParams) -> HandlerResult:
         _require_skill_md_uri(params.uri)
-        # `Skill` self-validates on construction (see `_handle_list`).
+        # `Skill` self-validates on construction, and the re-validation guards post-construction
+        # mutation, both as in `_handle_list`.
         try:
             result = await self._get_skill(ctx, params)
+            GetSkillResult.model_validate(result.model_dump())
         except ValidationError:
             logger.exception("get_skill handler returned an invalid result")
             raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
