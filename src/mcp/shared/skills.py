@@ -17,12 +17,6 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validat
 from pydantic.alias_generators import to_camel
 
 __all__ = [
-    "EXTENSION_ID",
-    "METHOD_LIST",
-    "METHOD_GET",
-    "METHOD_READ_DIRECTORY",
-    "MAX_RESOURCES_PER_SKILL",
-    "MAX_TOTAL_SIZE",
     "Frontmatter",
     "SkillResource",
     "SkillResources",
@@ -33,12 +27,6 @@ __all__ = [
     "GetSkillResult",
     "ReadDirectoryParams",
     "ReadDirectoryResult",
-    "ListSkillsRequest",
-    "GetSkillRequest",
-    "ReadDirectoryRequest",
-    "skill_name_from_uri",
-    "parse_directory_uri",
-    "validate_directory_result",
     "verify_skill_resource",
 ]
 

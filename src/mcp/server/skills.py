@@ -28,7 +28,6 @@ content through the server's ordinary resource-registration APIs
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
@@ -57,8 +56,6 @@ from mcp.shared.skills import (
 )
 
 __all__ = ["Skills"]
-
-logger = logging.getLogger(__name__)
 
 ListSkillsHandler = Callable[[ServerRequestContext[Any, Any], ListSkillsParams], Awaitable[ListSkillsResult]]
 GetSkillHandler = Callable[[ServerRequestContext[Any, Any], GetSkillParams], Awaitable[GetSkillResult]]
@@ -116,7 +113,6 @@ class Skills(Extension):
             result = await self._list_skills(ctx, params)
             ListSkillsResult.model_validate(result.model_dump())
         except ValidationError:
-            logger.exception("list_skills handler returned an invalid result")
             raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         return _finalize_cacheable(result, ctx.protocol_version)
 
@@ -128,10 +124,8 @@ class Skills(Extension):
             result = await self._get_skill(ctx, params)
             GetSkillResult.model_validate(result.model_dump())
         except ValidationError:
-            logger.exception("get_skill handler returned an invalid result")
             raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         if result.skill.uri != params.uri:
-            logger.error("get_skill handler returned %r for requested %r", result.skill.uri, params.uri)
             raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result")
         return _finalize_cacheable(result, ctx.protocol_version)
 
@@ -144,7 +138,6 @@ class Skills(Extension):
         try:
             validate_directory_result(params.uri, result)
         except ValueError:
-            logger.exception("read_directory handler returned an invalid result")
             raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         return result
 
