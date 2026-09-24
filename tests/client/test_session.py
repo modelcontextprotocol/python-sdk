@@ -1002,6 +1002,23 @@ async def test_receive_loop_logs_and_drops_malformed_notification(caplog: pytest
 
 
 @pytest.mark.anyio
+async def test_default_message_handler_raises_on_transport_exception(
+    caplog: pytest.LogCaptureFixture,
+):
+    """With no custom `message_handler`, a transport `Exception` is re-raised by the
+    default handler and logged via `_deliver_stream_exception` (SDK-defined).
+    Raw streams because only a transport can put an `Exception` item on the read stream."""
+    async with raw_client_session() as (_session, to_client, from_client):
+        await to_client.send(ValueError("bad bytes"))
+        # Prove the receive loop kept serving after the default handler re-raised.
+        await to_client.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=9, method="ping")))
+        out = await from_client.receive()
+    assert isinstance(out.message, JSONRPCResponse)
+    assert out.message.id == 9
+    assert "message_handler raised on transport exception" in caplog.text
+
+
+@pytest.mark.anyio
 async def test_raising_message_handler_on_transport_exception_costs_the_delivery_not_the_connection(
     caplog: pytest.LogCaptureFixture,
 ):

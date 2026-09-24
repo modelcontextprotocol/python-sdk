@@ -1595,6 +1595,48 @@ async def test_transport_exception_in_read_stream_is_logged_and_dropped():
 
 
 @pytest.mark.anyio
+async def test_send_raw_request_raises_connection_closed_on_transport_exception():
+    """A blocked send_raw_request is woken with CONNECTION_CLOSED when a transport
+    Exception item arrives; the receive loop stays healthy for a later request."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    hiccup = ValueError("transport hiccup")
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, on_request, on_notify)
+
+            async def caller() -> None:
+                with pytest.raises(MCPError) as exc:
+                    await client.send_raw_request("ping", None)
+                assert exc.value.error.code == CONNECTION_CLOSED
+                assert "Transport error:" in exc.value.error.message
+                assert "transport hiccup" in exc.value.error.message
+
+            tg.start_soon(caller)
+            # Let the outbound request register in `_pending` before the fault.
+            req = await c2s_recv.receive()
+            assert isinstance(req, SessionMessage)
+            assert isinstance(req.message, JSONRPCRequest)
+            await s2c_send.send(hiccup)
+            await anyio.sleep(0)
+            # Loop must still serve after the Exception item (not closed like EOF).
+            await s2c_send.send(
+                SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=99, method="t", params=None))
+            )
+            with anyio.fail_after(5):
+                resp = await c2s_recv.receive()
+            assert isinstance(resp, SessionMessage)
+            assert isinstance(resp.message, JSONRPCResponse)
+            assert resp.message.id == 99
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
 async def test_on_stream_exception_observes_transport_exceptions():
     """With an observer set, Exception items reach it instead of being dropped; the loop stays healthy."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)

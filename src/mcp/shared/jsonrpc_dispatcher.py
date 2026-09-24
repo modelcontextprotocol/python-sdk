@@ -536,6 +536,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         are awaited; any other `await` would head-of-line block the read loop.
         """
         if isinstance(item, Exception):
+            # Fail in-flight waiters with CONNECTION_CLOSED so they do not hang,
+            # but keep the receive loop open (unlike EOF / `_fan_out_closed`).
+            self._fan_out_transport_error(item)
             if self.on_stream_exception is None:
                 logger.debug("transport yielded exception: %r", item)
                 return
@@ -694,6 +697,20 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         for pending in self._pending.values():
             try:
                 pending.send.send_nowait(closed)
+            except (anyio.WouldBlock, anyio.BrokenResourceError, anyio.ClosedResourceError):
+                pass
+        self._pending.clear()
+
+    def _fan_out_transport_error(self, exc: Exception) -> None:
+        """Wake every pending `send_raw_request` waiter after a transport Exception item.
+
+        Unlike `_fan_out_closed`, this does not mark the dispatcher closed: a single
+        Exception item is not EOF, and the receive loop must keep serving.
+        """
+        error = ErrorData(code=CONNECTION_CLOSED, message=f"Transport error: {exc!r}")
+        for pending in self._pending.values():
+            try:
+                pending.send.send_nowait(error)
             except (anyio.WouldBlock, anyio.BrokenResourceError, anyio.ClosedResourceError):
                 pass
         self._pending.clear()

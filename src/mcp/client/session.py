@@ -243,6 +243,8 @@ class MessageHandlerFnT(Protocol):
 
 
 async def _default_message_handler(message: IncomingMessage) -> None:
+    if isinstance(message, Exception):
+        raise message
     await anyio.lowlevel.checkpoint()
 
 

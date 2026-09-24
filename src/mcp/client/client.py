@@ -166,6 +166,8 @@ def _evicting_message_handler(cache: ClientResponseCache, user_handler: MessageH
             await user_handler(message)
         else:
             # Mirrors ClientSession's default handler (session._default_message_handler).
+            if isinstance(message, Exception):
+                raise message
             await anyio.lowlevel.checkpoint()
 
     return handler
