@@ -397,7 +397,7 @@ async def test_client_session_group_establish_session_parameterized(
                 client_info=None,
             )
             mock_raw_session_cm.__aenter__.assert_awaited_once()
-            mock_entered_session.initialize.assert_awaited_once()
+            mock_entered_session.initialize.assert_awaited_once_with()
 
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info

@@ -33,7 +33,7 @@ from mcp_types import (
     Tool,
     ToolsCapability,
 )
-from mcp_types.version import LATEST_HANDSHAKE_VERSION
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from pydantic import FileUrl
 
 from mcp import MCPDeprecationWarning, MCPError, StdioServerParameters
@@ -136,6 +136,32 @@ async def test_client_custom_protocol_version(app: MCPServer):
         assert client.protocol_version == "2024-11-05"
         assert client.server_info is not None
         assert client.server_info.name == "test"
+
+
+async def test_client_auto_mode_with_override_against_in_process_server(app: MCPServer):
+    """Regression: `mode='auto'` with `protocol_version_override` against an in-process
+    `Server`/`MCPServer` used to always get the handshake-less `DirectDispatcher` (every
+    non-'legacy' mode picked it), so `negotiate_auto`'s direct `initialize()` call for the
+    override case had no JSON-RPC dispatcher to run on and the connect failed.
+    """
+    async with Client(app, mode="auto", protocol_version_override="2024-11-05") as client:
+        assert client.protocol_version == "2024-11-05"
+        assert client.server_info is not None
+        assert client.server_info.name == "test"
+
+
+def test_client_rejects_modern_protocol_version_override(app: MCPServer):
+    """`protocol_version_override` only pins the legacy handshake; a modern version string
+    is a construction-time error rather than a confusing failure once connected."""
+    with pytest.raises(ValueError, match="protocol_version_override must be one of"):
+        Client(app, mode="auto", protocol_version_override=LATEST_MODERN_VERSION)
+
+
+def test_client_rejects_protocol_version_override_with_a_version_pin_mode(app: MCPServer):
+    """`protocol_version_override` has no effect once `mode` already pins a version, so it's
+    rejected at construction instead of being silently ignored."""
+    with pytest.raises(ValueError, match="protocol_version_override has no effect with mode="):
+        Client(app, mode=LATEST_MODERN_VERSION, protocol_version_override="2024-11-05")
 
 
 async def test_client_with_simple_server(simple_server: Server):
