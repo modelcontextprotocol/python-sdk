@@ -160,9 +160,9 @@ async def test_list_skills_raises_on_a_server_that_repeats_its_cursor() -> None:
             await skills.list_skills()
 
 
-async def test_list_skills_rejects_a_skill_repeated_across_pages() -> None:
-    """SEP-2640 pagination: a page's own validation dedupes within that page, so the client also
-    rejects a skill URI the server hands back on a second page rather than returning it twice."""
+async def test_list_skills_collapses_a_skill_repeated_across_pages() -> None:
+    """A catalog that changes between page fetches can surface the same skill on two pages; the
+    client returns it once (first occurrence) rather than failing or duplicating it."""
 
     async def handler(ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
         if params.cursor is None:
@@ -171,8 +171,8 @@ async def test_list_skills_rejects_a_skill_repeated_across_pages() -> None:
 
     server = MCPServer("catalog", extensions=[Skills(list_skills=handler, get_skill=_get_skill)])
     async with _skills(server) as skills:
-        with pytest.raises(ValueError, match="more than one skills/list page"):
-            await skills.list_skills()
+        result = await skills.list_skills()
+    assert [s.uri for s in result] == [_SKILL_URI]
 
 
 async def test_list_skills_requires_the_extension_to_be_advertised() -> None:
@@ -245,8 +245,8 @@ async def test_read_directory_raises_on_a_server_that_repeats_its_cursor() -> No
             await skills.read_directory("skill://git-workflow/references")
 
 
-async def test_read_directory_rejects_a_child_repeated_across_pages() -> None:
-    """The client dedupes directory children across pages, not just within a single page."""
+async def test_read_directory_collapses_a_child_repeated_across_pages() -> None:
+    """A changing directory can surface the same child on two pages; the client returns it once."""
     child = Resource(uri="skill://git-workflow/references/A.md", name="A.md")
 
     async def handler(ctx: ServerRequestContext[Any, Any], params: ReadDirectoryParams) -> ReadDirectoryResult:
@@ -259,8 +259,8 @@ async def test_read_directory_rejects_a_child_repeated_across_pages() -> None:
         extensions=[Skills(list_skills=_paginated_list_handler(), get_skill=_get_skill, read_directory=handler)],
     )
     async with _skills(server) as skills:
-        with pytest.raises(ValueError, match="more than one directory page"):
-            await skills.read_directory("skill://git-workflow/references")
+        resources = await skills.read_directory("skill://git-workflow/references")
+    assert [r.uri for r in resources] == ["skill://git-workflow/references/A.md"]
 
 
 async def test_get_skill_rejects_a_mismatched_uri_from_a_non_conformant_server() -> None:

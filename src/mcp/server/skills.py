@@ -77,9 +77,8 @@ class Skills(Extension):
 
     Handler error contract: raise `MCPError` to return a specific error to the
     caller (e.g. `INVALID_PARAMS` from `get_skill` for a URI it doesn't serve).
-    Any other failure — a raised exception, or a result that isn't SEP-2640
-    conformant — is treated as a server fault and reported as `INTERNAL_ERROR`,
-    never the caller's bad params.
+    A result that isn't SEP-2640 conformant is caught here and reported as
+    `INTERNAL_ERROR` — a server fault, not the caller's bad params.
     """
 
     identifier = EXTENSION_ID

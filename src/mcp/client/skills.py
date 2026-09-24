@@ -92,10 +92,12 @@ class BoundSkills:
     async def list_skills(self, params: ListSkillsParams | None = None) -> list[Skill]:
         """Call `skills/list`, following `nextCursor` to completion, and validate the result.
 
+        A skill a changing catalog surfaces on more than one page is returned once, in the order
+        first seen.
+
         Raises:
-            ValueError: If the server doesn't advertise the Skills extension, its
-                response is not SEP-2640 conformant, it repeats a pagination
-                cursor, or it lists the same skill URI on two pages.
+            ValueError: If the server doesn't advertise the Skills extension, its response is not
+                SEP-2640 conformant, or it repeats a pagination cursor.
             MCPError: If the server returns an error response.
         """
         self._require_extension()
@@ -113,12 +115,12 @@ class BoundSkills:
             # A server stuck repeating its cursor is a loop; catch that before the content checks.
             if page.next_cursor is not None and page.next_cursor in seen_cursors:
                 raise ValueError(f"server repeated skills/list pagination cursor {page.next_cursor!r}")
-            # Per-page validation can't catch a URI repeated *across* pages, so track that here.
+            # A catalog that changes between page fetches can legitimately repeat a skill across
+            # pages; keep the first occurrence rather than treating it as an error.
             for skill in page.skills:
-                if skill.uri in seen_uris:
-                    raise ValueError(f"server listed skill {skill.uri!r} on more than one skills/list page")
-                seen_uris.add(skill.uri)
-            skills.extend(page.skills)
+                if skill.uri not in seen_uris:
+                    seen_uris.add(skill.uri)
+                    skills.append(skill)
             if page.next_cursor is None:
                 return skills
             seen_cursors.add(page.next_cursor)
@@ -162,10 +164,12 @@ class BoundSkills:
     async def read_directory(self, uri: str, params: ReadDirectoryParams | None = None) -> list[Resource]:
         """Call `resources/directory/read` for `uri`, following `nextCursor` to completion.
 
+        A child a changing directory surfaces on more than one page is returned once, in the order
+        first seen.
+
         Raises:
-            ValueError: If the server doesn't advertise the `directoryRead`
-                setting, its response is not a valid child listing of `uri`, it
-                repeats a pagination cursor, or it lists the same child on two pages.
+            ValueError: If the server doesn't advertise the `directoryRead` setting, its response
+                is not a valid child listing of `uri`, or it repeats a pagination cursor.
             MCPError: If the server returns an error response.
         """
         self._require_extension(directory_read=True)
@@ -183,12 +187,11 @@ class BoundSkills:
             if page.next_cursor is not None and page.next_cursor in seen_cursors:
                 raise ValueError(f"server repeated resources/directory/read pagination cursor {page.next_cursor!r}")
             validate_directory_result(uri, page)
-            # `validate_directory_result` dedupes within a page; catch a child repeated across pages.
+            # A changing directory can legitimately repeat a child across pages; keep the first.
             for resource in page.resources:
-                if resource.uri in seen_uris:
-                    raise ValueError(f"server listed child {resource.uri!r} on more than one directory page")
-                seen_uris.add(resource.uri)
-            resources.extend(page.resources)
+                if resource.uri not in seen_uris:
+                    seen_uris.add(resource.uri)
+                    resources.append(resource)
             if page.next_cursor is None:
                 return resources
             seen_cursors.add(page.next_cursor)
