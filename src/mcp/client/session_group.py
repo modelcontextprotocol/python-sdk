@@ -414,11 +414,6 @@ class ClientSessionGroup:
         except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch tools: {err}")
 
-        # Clean up exit stack for session if we couldn't retrieve anything
-        # from the server.
-        if not any((prompts_temp, resources_temp, tools_temp)):
-            del self._session_exit_stacks[session]  # pragma: no cover
-
         # Check for duplicates.
         matching_prompts = prompts_temp.keys() & self._prompts.keys()
         if matching_prompts:

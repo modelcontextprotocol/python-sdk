@@ -402,3 +402,27 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+async def test_client_session_group_connect_empty_components_server():
+    """Test connecting a server that exposes no components (tools, prompts, or resources)."""
+    mock_server_info = mock.Mock(spec=types.Implementation)
+    mock_server_info.name = "EmptyServer"
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+    mock_session.list_tools.return_value = mock.AsyncMock(tools=[])
+    mock_session.list_resources.return_value = mock.AsyncMock(resources=[])
+    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[])
+
+    group = ClientSessionGroup()
+    # Should not raise KeyError when aggregating empty components
+    await group.connect_with_session(mock_server_info, mock_session)
+
+    assert mock_session in group._sessions
+    assert group.tools == {}
+    assert group.resources == {}
+    assert group.prompts == {}
+
+    # Disconnecting should also succeed cleanly
+    await group.disconnect_from_server(mock_session)
+    assert mock_session not in group._sessions
