@@ -160,6 +160,21 @@ async def test_list_skills_raises_on_a_server_that_repeats_its_cursor() -> None:
             await skills.list_skills()
 
 
+async def test_list_skills_rejects_a_skill_repeated_across_pages() -> None:
+    """SEP-2640 pagination: a page's own validation dedupes within that page, so the client also
+    rejects a skill URI the server hands back on a second page rather than returning it twice."""
+
+    async def handler(ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
+        if params.cursor is None:
+            return ListSkillsResult(skills=[_skill()], next_cursor="page-2")
+        return ListSkillsResult(skills=[_skill()], next_cursor=None)
+
+    server = MCPServer("catalog", extensions=[Skills(list_skills=handler, get_skill=_get_skill)])
+    async with _skills(server) as skills:
+        with pytest.raises(ValueError, match="more than one skills/list page"):
+            await skills.list_skills()
+
+
 async def test_list_skills_requires_the_extension_to_be_advertised() -> None:
     """No `Skills` extension at all: the server never advertises `io.modelcontextprotocol/skills`."""
     async with _skills(MCPServer("plain")) as skills:
@@ -227,6 +242,24 @@ async def test_read_directory_raises_on_a_server_that_repeats_its_cursor() -> No
     )
     async with _skills(server) as skills:
         with pytest.raises(ValueError, match="repeated"):
+            await skills.read_directory("skill://git-workflow/references")
+
+
+async def test_read_directory_rejects_a_child_repeated_across_pages() -> None:
+    """The client dedupes directory children across pages, not just within a single page."""
+    child = Resource(uri="skill://git-workflow/references/A.md", name="A.md")
+
+    async def handler(ctx: ServerRequestContext[Any, Any], params: ReadDirectoryParams) -> ReadDirectoryResult:
+        if params.cursor is None:
+            return ReadDirectoryResult(resources=[child], next_cursor="page-2")
+        return ReadDirectoryResult(resources=[child], next_cursor=None)
+
+    server = MCPServer(
+        "catalog",
+        extensions=[Skills(list_skills=_paginated_list_handler(), get_skill=_get_skill, read_directory=handler)],
+    )
+    async with _skills(server) as skills:
+        with pytest.raises(ValueError, match="more than one directory page"):
             await skills.read_directory("skill://git-workflow/references")
 
 

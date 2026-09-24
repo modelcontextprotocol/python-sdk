@@ -271,6 +271,7 @@ async def test_skills_get_rejects_a_skill_mutated_after_the_result_is_built() ->
 
     async def mutating_get(ctx: ServerRequestContext[Any, Any], params: GetSkillParams) -> GetSkillResult:
         result = GetSkillResult(skill=_git_workflow_skill())
+        assert isinstance(result.skill.resources, list)
         result.skill.resources.clear()
         return result
 

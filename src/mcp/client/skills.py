@@ -94,7 +94,8 @@ class BoundSkills:
 
         Raises:
             ValueError: If the server doesn't advertise the Skills extension, its
-                response is not SEP-2640 conformant, or it repeats a pagination cursor.
+                response is not SEP-2640 conformant, it repeats a pagination
+                cursor, or it lists the same skill URI on two pages.
             MCPError: If the server returns an error response.
         """
         self._require_extension()
@@ -102,17 +103,24 @@ class BoundSkills:
         cursor = base.cursor
         skills: list[Skill] = []
         seen_cursors: set[str] = {cursor} if cursor is not None else set()
+        seen_uris: set[str] = set()
         while True:
             # `send_request` parses each page into `ListSkillsResult`, whose validators reject a
             # non-conformant skill or a duplicate URI — no separate conformance call is needed.
             page = await self._session.send_request(
                 ListSkillsRequest(params=base.model_copy(update={"cursor": cursor})), ListSkillsResult
             )
+            # A server stuck repeating its cursor is a loop; catch that before the content checks.
+            if page.next_cursor is not None and page.next_cursor in seen_cursors:
+                raise ValueError(f"server repeated skills/list pagination cursor {page.next_cursor!r}")
+            # Per-page validation can't catch a URI repeated *across* pages, so track that here.
+            for skill in page.skills:
+                if skill.uri in seen_uris:
+                    raise ValueError(f"server listed skill {skill.uri!r} on more than one skills/list page")
+                seen_uris.add(skill.uri)
             skills.extend(page.skills)
             if page.next_cursor is None:
                 return skills
-            if page.next_cursor in seen_cursors:
-                raise ValueError(f"server repeated skills/list pagination cursor {page.next_cursor!r}")
             seen_cursors.add(page.next_cursor)
             cursor = page.next_cursor
 
@@ -156,8 +164,8 @@ class BoundSkills:
 
         Raises:
             ValueError: If the server doesn't advertise the `directoryRead`
-                setting, its response is not a valid child listing of `uri`, or
-                it repeats a pagination cursor.
+                setting, its response is not a valid child listing of `uri`, it
+                repeats a pagination cursor, or it lists the same child on two pages.
             MCPError: If the server returns an error response.
         """
         self._require_extension(directory_read=True)
@@ -165,16 +173,23 @@ class BoundSkills:
         cursor = base.cursor
         resources: list[Resource] = []
         seen_cursors: set[str] = {cursor} if cursor is not None else set()
+        seen_uris: set[str] = set()
         while True:
             page = await self._session.send_request(
                 ReadDirectoryRequest(params=base.model_copy(update={"uri": uri, "cursor": cursor})),
                 ReadDirectoryResult,
             )
+            # A server stuck repeating its cursor is a loop; catch that before the content checks.
+            if page.next_cursor is not None and page.next_cursor in seen_cursors:
+                raise ValueError(f"server repeated resources/directory/read pagination cursor {page.next_cursor!r}")
             validate_directory_result(uri, page)
+            # `validate_directory_result` dedupes within a page; catch a child repeated across pages.
+            for resource in page.resources:
+                if resource.uri in seen_uris:
+                    raise ValueError(f"server listed child {resource.uri!r} on more than one directory page")
+                seen_uris.add(resource.uri)
             resources.extend(page.resources)
             if page.next_cursor is None:
                 return resources
-            if page.next_cursor in seen_cursors:
-                raise ValueError(f"server repeated resources/directory/read pagination cursor {page.next_cursor!r}")
             seen_cursors.add(page.next_cursor)
             cursor = page.next_cursor

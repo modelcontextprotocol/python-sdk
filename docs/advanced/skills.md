@@ -84,7 +84,12 @@ a `ReadResourceResult` (text or blob contents) and validates nothing itself — 
     never grant the frontmatter's `allowed-tools` field (or any other permission-widening field)
     without explicit per-skill user approval.
 
-    Both are host responsibilities the SDK cannot discharge for you — read the SEP's
+    A digest match confirms the *bytes*, not the *frontmatter*: it doesn't prove the
+    `frontmatter` the server advertised in `skills/get` matches the frontmatter inside the fetched
+    `SKILL.md`. If you act on `skill.frontmatter` — especially `allowed-tools` — parse the fetched
+    file and compare its frontmatter yourself.
+
+    These are host responsibilities the SDK cannot discharge for you — read the SEP's
     [Security Implications](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640)
     section before building a host on top of this extension.
 

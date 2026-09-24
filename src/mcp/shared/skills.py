@@ -16,6 +16,32 @@ from mcp_types import CacheableResult, PaginatedRequestParams, PaginatedResult, 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
+__all__ = [
+    "EXTENSION_ID",
+    "METHOD_LIST",
+    "METHOD_GET",
+    "METHOD_READ_DIRECTORY",
+    "MAX_RESOURCES_PER_SKILL",
+    "MAX_TOTAL_SIZE",
+    "Frontmatter",
+    "SkillResource",
+    "SkillResources",
+    "Skill",
+    "ListSkillsParams",
+    "ListSkillsResult",
+    "GetSkillParams",
+    "GetSkillResult",
+    "ReadDirectoryParams",
+    "ReadDirectoryResult",
+    "ListSkillsRequest",
+    "GetSkillRequest",
+    "ReadDirectoryRequest",
+    "skill_name_from_uri",
+    "parse_directory_uri",
+    "validate_directory_result",
+    "verify_skill_resource",
+]
+
 EXTENSION_ID = "io.modelcontextprotocol/skills"
 """The Skills extension identifier, advertised under `ServerCapabilities.extensions`."""
 
@@ -83,8 +109,9 @@ class Skill(_SkillModel):
     SEP-2640 conformance is intrinsic: constructing (or parsing) a `Skill`
     validates the frontmatter `name`/`description`, and — unless `resources` is
     `"dynamic"` — that every entry names a file within the skill's own directory,
-    with no duplicates and `SKILL.md` present. The 512-entry/16-MiB limits are
-    SHOULD NOT thresholds, not MUST NOT, so an over-limit manifest is accepted.
+    with no duplicates and `SKILL.md` present. The `MAX_RESOURCES_PER_SKILL`
+    (512-entry) and `MAX_TOTAL_SIZE` (16-MiB) limits are SHOULD NOT thresholds,
+    not MUST NOT, so an over-limit manifest is accepted.
     """
 
     uri: str
@@ -287,16 +314,16 @@ def validate_directory_result(uri: str, result: ReadDirectoryResult) -> None:
 
 
 def verify_skill_resource(skill: Skill, uri: str, content: bytes) -> None:
-    """Verify `content` (the bytes read from `uri`) against `skill`'s held manifest.
+    """Check that `content` (the bytes read from `uri`) matches `skill`'s manifest entry.
 
-    Implements the SEP-2640 Integrity and verification requirement: a host
-    MUST verify a retrieved file's bytes against its manifest entry before
-    using them. Not applicable to a skill whose `resources` is `"dynamic"`,
-    which offers no digest to verify against.
+    Recomputes the size and SHA-256 digest of `content` and compares them to the
+    entry `skill` holds for `uri` — the byte-integrity check SEP-2640 requires
+    before a host trusts a fetched file. A `"dynamic"` skill carries no digests,
+    so it has nothing to verify against.
 
     Raises:
         ValueError: If `uri` is not one of `skill`'s resources, `skill.resources`
-            is `"dynamic"`, or `content` does not match the entry's `size`/`digest`.
+            is `"dynamic"`, or `content`'s size or digest doesn't match the entry.
     """
     if skill.resources == "dynamic":
         raise ValueError(f"skill {skill.uri!r} has dynamic resources and cannot be integrity-verified")

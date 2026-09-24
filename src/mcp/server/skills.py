@@ -74,6 +74,12 @@ class Skills(Extension):
     setting and serves `resources/directory/read`; omitting it advertises
     neither. Handlers run per request, so a catalog that changes over time
     (or is too large to enumerate) can return a partial or empty listing.
+
+    Handler error contract: raise `MCPError` to return a specific error to the
+    caller (e.g. `INVALID_PARAMS` from `get_skill` for a URI it doesn't serve).
+    Any other failure — a raised exception, or a result that isn't SEP-2640
+    conformant — is treated as a server fault and reported as `INTERNAL_ERROR`,
+    never the caller's bad params.
     """
 
     identifier = EXTENSION_ID
