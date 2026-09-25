@@ -109,7 +109,7 @@ class ArgModelBase(BaseModel):
             kwargs[output_name] = value
         return kwargs
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, hide_input_in_errors=True)
 
 
 class FuncMetadata(BaseModel):

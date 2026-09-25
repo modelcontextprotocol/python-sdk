@@ -1520,3 +1520,22 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+def test_validation_error_does_not_echo_input_value():
+    """Tool validation errors must not leak the rejected input value (PII/PHI risk).
+
+    Regression test for: https://github.com/modelcontextprotocol/python-sdk/issues/3572
+    """
+
+    def fn(name: str, age: int) -> str: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    with pytest.raises(Exception) as exc_info:
+        meta.arg_model.model_validate({"name": "Alice", "age": "not-a-number"})
+
+    error_text = str(exc_info.value)
+    assert "not-a-number" not in error_text, "Rejected input value must not appear in validation error message"
+    assert "int_parsing" in error_text or "int" in error_text.lower(), (
+        "Error should still describe the rule (type mismatch)"
+    )
