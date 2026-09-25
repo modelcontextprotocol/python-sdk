@@ -17,6 +17,7 @@ import json
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import cast
 from urllib.parse import parse_qsl, quote, urlsplit
 
 import anyio
@@ -297,7 +298,7 @@ async def test_the_registered_auth_method_is_used_regardless_of_as_metadata_adve
     server = Server("guarded", on_list_tools=list_tools)
 
     override = OAuthMetadata(
-        issuer=AnyHttpUrl(f"{BASE_URL}/"),
+        issuer=cast(AnyHttpUrl, BASE_URL),
         authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize"),
         token_endpoint=AnyHttpUrl(f"{BASE_URL}/token"),
         registration_endpoint=AnyHttpUrl(f"{BASE_URL}/register"),
@@ -367,7 +368,7 @@ async def test_pkce_is_still_sent_when_as_metadata_omits_code_challenge_methods_
     completes. See the divergence on the requirement.
     """
     override = OAuthMetadata(
-        issuer=AnyHttpUrl(f"{BASE_URL}/"),
+        issuer=cast(AnyHttpUrl, BASE_URL),
         authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize"),
         token_endpoint=AnyHttpUrl(f"{BASE_URL}/token"),
         registration_endpoint=AnyHttpUrl(f"{BASE_URL}/register"),

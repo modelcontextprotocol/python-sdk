@@ -23,8 +23,7 @@ DEMO_CLIENT_ID = "finance-agent"
 DEMO_CLIENT_SECRET = "demo-finance-agent-secret"
 DEMO_SCOPE = "mcp"
 # The exact `issuer` string this authorization server's metadata serves. The client must configure
-# the byte-identical string: RFC 8414 issuer comparison is character for character, and the
-# settings' `AnyHttpUrl` renders the path-less loopback origin with a trailing slash.
+# the byte-identical string: RFC 8414 issuer comparison is character for character.
 ISSUER = str(auth_settings().issuer_url)
 
 
