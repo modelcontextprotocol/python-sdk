@@ -68,6 +68,13 @@ jobs:
             uv run --isolated --no-project --find-links dist --with "$package" \
               python scripts/check_client_package.py
           done
+      - name: Type-check the standalone client package
+        run: |
+          uv export --frozen --package mcp-client --no-default-groups --no-dev --no-emit-workspace \
+            --output-file "$RUNNER_TEMP/client-requirements.txt"
+          uv run --isolated --no-project --find-links dist --with dist/mcp_client-*.whl \
+            --with-requirements "$RUNNER_TEMP/client-requirements.txt" --with pyright==1.1.405 \
+            python scripts/check_client_types.py
       - name: Import the full SDK with the client package first
         run: |
           uv run --isolated --no-project --find-links dist --with dist/mcp-*.whl python -c \

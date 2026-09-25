@@ -169,6 +169,7 @@ include = [
     "examples/snippets",
     "examples/clients",
     "scripts/check_client_package.py",
+    "scripts/check_client_types.py",
     "scripts/docs/build_config.py",
     "scripts/docs/translations.py",
 ]

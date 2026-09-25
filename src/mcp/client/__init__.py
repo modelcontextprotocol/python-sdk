@@ -50,14 +50,13 @@ from mcp_client.client import (
     UnexpectedClaimedResult as UnexpectedClaimedResult,
 )
 from mcp_client.client import (
-    _memory as _memory,
-)
-from mcp_client.client import (
     advertise as advertise,
 )
 from mcp_client.client import (
     stdio as stdio,
 )
+
+from . import _memory as _memory
 
 __all__ = [
     "CacheConfig",

@@ -15,9 +15,6 @@ from mcp_client.client.client import (
     _CacheableT as _CacheableT,
 )
 from mcp_client.client.client import (
-    _connect_inproc as _connect_inproc,
-)
-from mcp_client.client.client import (
     _connect_transport as _connect_transport,
 )
 from mcp_client.client.client import (
@@ -34,9 +31,6 @@ from mcp_client.client.client import (
 )
 from mcp_client.client.client import (
     _FoldedExtensions as _FoldedExtensions,
-)
-from mcp_client.client.client import (
-    _no_inbound_client_notifications as _no_inbound_client_notifications,
 )
 from mcp_client.client.client import (
     _ResultT as _ResultT,

@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 import anyio
 import anyio.lowlevel
@@ -40,7 +40,7 @@ from mcp_types import (
     ServerCapabilities,
 )
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
-from typing_extensions import deprecated
+from typing_extensions import Protocol, deprecated
 
 from mcp_client.client._input_required import DEFAULT_INPUT_REQUIRED_MAX_ROUNDS, run_input_required_driver
 from mcp_client.client._probe import negotiate_auto
@@ -61,21 +61,11 @@ from mcp_client.client.stdio import StdioServerParameters, stdio_client
 from mcp_client.client.streamable_http import streamable_http_client
 from mcp_client.client.subscriptions import ServerEvent, Subscription
 from mcp_client.client.subscriptions import listen as _listen
-from mcp_client.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp_client.shared.dispatcher import Dispatcher, ProgressFnT
 from mcp_client.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp_client.shared.extension import validate_extension_identifier
 from mcp_client.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp_client.shared.subscriptions import event_to_notification
-
-if TYPE_CHECKING:
-    from mcp.server import Server
-    from mcp.server.mcpserver import MCPServer
-
-    _InProcessServer: TypeAlias = Server[Any] | MCPServer
-else:
-    # The full SDK binds its server types without making them a client dependency.
-    _InProcessServer = Any
 
 logger = logging.getLogger("mcp.client.client")
 
@@ -105,28 +95,10 @@ def _connect_transport(transport: Transport) -> _Connector:
     return connect
 
 
-def _connect_inproc(server: Server[Any]) -> _Connector:
-    """Connector for an in-process ``Server``: legacy mode drives the stream loop via
-    ``InMemoryTransport``; any other mode drives the modern per-request path through a
-    ``DirectDispatcher`` peer pair (no streams, no JSON-RPC framing, no initialize handshake)."""
-
-    from mcp.server.runner import modern_on_request
-    from mcp_client.client._memory import InMemoryTransport
-
-    async def connect(exit_stack: AsyncExitStack, mode: ConnectMode, raise_exceptions: bool) -> Dispatcher[Any]:
-        if mode == "legacy":
-            transport = InMemoryTransport(server, raise_exceptions=raise_exceptions)
-            read_stream, write_stream = await exit_stack.enter_async_context(transport)
-            return JSONRPCDispatcher(read_stream, write_stream)
-        lifespan_state = await exit_stack.enter_async_context(server.lifespan(server))
-        client_disp, server_disp = create_direct_dispatcher_pair(raise_handler_exceptions=raise_exceptions)
-        tg = await exit_stack.enter_async_context(anyio.create_task_group())
-        exit_stack.callback(server_disp.close)
-        on_request = modern_on_request(server, lifespan_state)
-        await tg.start(server_disp.run, on_request, _no_inbound_client_notifications)
-        return client_disp
-
-    return connect
+class _InProcessServer(Protocol):
+    async def __mcp_client_connect__(
+        self, exit_stack: AsyncExitStack, mode: str, raise_exceptions: bool
+    ) -> Dispatcher[Any]: ...
 
 
 def _connected(value: _T | None) -> _T:
@@ -187,17 +159,6 @@ def _synthesize_discover(protocol_version: str) -> types.DiscoverResult:
         ttl_ms=0,
         cache_scope="public",
     )
-
-
-async def _no_inbound_client_notifications(_dctx: Any, _method: str, _params: Mapping[str, Any] | None) -> None:
-    """Server-side inbound ``OnNotify`` for the modern in-process path — receives nothing.
-
-    At 2026-07-28 the spec defines no client→server notifications: ``initialized`` and
-    ``roots/list_changed`` are removed, and cancellation is structural (anyio scope cancel
-    through the direct await, not a notify). Server→client notifications (progress, log
-    messages) flow the other way via the per-request ``DispatchContext`` into the client's
-    callbacks, and are not seen here.
-    """
 
 
 @dataclass(frozen=True)
@@ -278,7 +239,7 @@ class Client:
         ```python
         import asyncio
 
-        from mcp import Client
+        from mcp_client import Client
 
         async def main():
             async with Client("http://localhost:8000/mcp") as client:
@@ -401,11 +362,7 @@ class Client:
         elif isinstance(srv, AbstractAsyncContextManager):
             self._connect = _connect_transport(srv)
         else:
-            from mcp.server.mcpserver import MCPServer
-
-            if isinstance(srv, MCPServer):
-                srv = srv._lowlevel_server  # pyright: ignore[reportPrivateUsage]
-            self._connect = _connect_inproc(cast("Server[Any]", srv))
+            self._connect = cast(_InProcessServer, srv).__mcp_client_connect__
 
         if self.cache is not None:
             config = self.cache
