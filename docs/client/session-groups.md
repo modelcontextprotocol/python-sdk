@@ -32,7 +32,7 @@ Create a `ClientSessionGroup` and call **`connect_to_server`** once per server:
     Put `client.py` next to the two servers and run it. The second `connect_to_server` refuses:
 
     ```text
-    mcp_client.shared.exceptions.MCPError: {'search'} already exist in group tools.
+    mcp.shared.exceptions.MCPError: {'search'} already exist in group tools.
     ```
 
     That is an `MCPError`, raised before anything from the second server is registered. A name must

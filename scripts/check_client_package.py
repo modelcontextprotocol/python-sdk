@@ -12,11 +12,20 @@ from typing import get_type_hints
 
 import anyio
 import mcp_client
+from mcp_client.shared import exceptions
 from mcp_client.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp_client.shared.message import SessionMessage
 from mcp_types import JSONRPCRequest, JSONRPCResponse, ListToolsResult, Tool
 
 get_type_hints(mcp_client.Client.__init__)
+
+for error_type in (
+    exceptions.MCPError,
+    exceptions.MCPDeprecationWarning,
+    exceptions.NoBackChannelError,
+    exceptions.UrlElicitationRequiredError,
+):
+    assert error_type.__module__ == "mcp_client.shared.exceptions"
 
 for name in ("mcp", "starlette", "uvicorn", "sse_starlette", "multipart"):
     assert importlib.util.find_spec(name) is None, name

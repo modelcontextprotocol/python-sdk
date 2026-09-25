@@ -52,11 +52,49 @@ from mcp_client.client import (
 from mcp_client.client import (
     advertise as advertise,
 )
-from mcp_client.client import (
+
+from . import (
+    _input_required as _input_required,
+)
+from . import (
+    _memory as _memory,
+)
+from . import (
+    _probe as _probe,
+)
+from . import (
+    _transport as _transport,
+)
+from . import (
+    caching as caching,
+)
+from . import (
+    client as client,
+)
+from . import (
+    context as context,
+)
+from . import (
+    extension as extension,
+)
+from . import (
+    session as session,
+)
+from . import (
+    session_group as session_group,
+)
+from . import (
+    sse as sse,
+)
+from . import (
     stdio as stdio,
 )
-
-from . import _memory as _memory
+from . import (
+    streamable_http as streamable_http,
+)
+from . import (
+    subscriptions as subscriptions,
+)
 
 __all__ = [
     "CacheConfig",

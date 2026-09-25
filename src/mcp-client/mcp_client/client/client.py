@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any, Literal, TypeVar, cast
+from typing import Any, Literal, TypeAlias, TypeVar, cast
 
 import anyio
 import anyio.lowlevel
@@ -40,7 +40,7 @@ from mcp_types import (
     ServerCapabilities,
 )
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
-from typing_extensions import Protocol, deprecated
+from typing_extensions import Protocol, deprecated, runtime_checkable
 
 from mcp_client.client._input_required import DEFAULT_INPUT_REQUIRED_MAX_ROUNDS, run_input_required_driver
 from mcp_client.client._probe import negotiate_auto
@@ -95,10 +95,15 @@ def _connect_transport(transport: Transport) -> _Connector:
     return connect
 
 
-class _InProcessServer(Protocol):
+@runtime_checkable
+class _ServerConnector(Protocol):
     async def __mcp_client_connect__(
         self, exit_stack: AsyncExitStack, mode: str, raise_exceptions: bool
     ) -> Dispatcher[Any]: ...
+
+
+# The full SDK rebinds this annotation alias, not the runtime-checkable protocol.
+_InProcessServer: TypeAlias = _ServerConnector
 
 
 def _connected(value: _T | None) -> _T:
@@ -355,14 +360,14 @@ class Client:
         self._folded_extensions = _fold_extensions(self.extensions)
 
         srv = self.server
-        if isinstance(srv, str):
+        if isinstance(srv, _ServerConnector):
+            self._connect = srv.__mcp_client_connect__
+        elif isinstance(srv, str):
             self._connect = _connect_transport(streamable_http_client(srv))
         elif isinstance(srv, StdioServerParameters):
             self._connect = _connect_transport(stdio_client(srv))
-        elif isinstance(srv, AbstractAsyncContextManager):
-            self._connect = _connect_transport(srv)
         else:
-            self._connect = cast(_InProcessServer, srv).__mcp_client_connect__
+            self._connect = _connect_transport(srv)
 
         if self.cache is not None:
             config = self.cache

@@ -133,7 +133,7 @@ Two things about it matter more than what it does.
     The whole request fails, as a top-level protocol error:
 
     ```text
-    mcp_client.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport context has no back-channel for server-initiated requests.
+    mcp.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport context has no back-channel for server-initiated requests.
     ```
 
     `Resolve` did not save you. On a `2025-11-25` connection it *has* to send `elicitation/create`,

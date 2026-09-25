@@ -14,4 +14,7 @@ from mcp_client.shared.exceptions import (
     UrlElicitationRequiredError as UrlElicitationRequiredError,
 )
 
+for _exception in (MCPDeprecationWarning, MCPError, NoBackChannelError, UrlElicitationRequiredError):
+    _exception.__module__ = __name__
+
 sys.modules[__name__] = _implementation

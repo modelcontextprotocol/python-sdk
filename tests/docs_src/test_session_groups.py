@@ -54,7 +54,7 @@ async def test_colliding_names_are_rejected() -> None:
         assert sorted(group.tools) == ["search"]
         # The page's `!!! check` fence is the last line of the traceback, verbatim.
         assert traceback.format_exception_only(exc_info.value) == [
-            "mcp_client.shared.exceptions.MCPError: {'search'} already exist in group tools.\n"
+            "mcp.shared.exceptions.MCPError: {'search'} already exist in group tools.\n"
         ]
 
 

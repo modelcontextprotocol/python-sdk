@@ -20,6 +20,10 @@ from mcp_client.client.auth import (
     TokenStorage as TokenStorage,
 )
 
+from . import exceptions as exceptions
+from . import oauth2 as oauth2
+from . import utils as utils
+
 __all__ = [
     "AuthorizationCodeResult",
     "OAuthClientProvider",
