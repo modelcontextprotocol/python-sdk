@@ -84,6 +84,12 @@ This holds for any `httpx2.AsyncClient` you pass in: its `follow_redirects` sett
     That is fixed on the server (**[Deploy & scale](../run/deploy.md#behind-a-tls-terminating-proxy)**),
     or by using the exact `https://…/` URL the message suggests.
 
+### Network errors
+
+Once connected, a network failure on one message's POST (a connection error, or a timeout sending it or reading its JSON response) affects only that message. A request fails with `MCPError` code `CONNECTION_CLOSED`, whose message names the original `httpx2` exception; a notification is dropped. Other calls in flight and later calls on the same session carry on, so whether to retry is up to you. The original exception is also logged and delivered to your [`message_handler`](callbacks.md).
+
+While connecting, the raw `httpx2` exception still propagates out of `Client(...)`: a server you can't reach is an outage, not a failed call.
+
 ## stdio
 
 A **stdio** server is a subprocess. The client launches it, writes JSON-RPC to its stdin and reads JSON-RPC from its stdout. It is how a desktop host runs a server on your machine: a host *is* this code plus a UI, and **[Connect to a real host](../get-started/real-host.md)** is the same relationship seen from the host's side, as a config file.

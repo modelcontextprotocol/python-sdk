@@ -155,6 +155,10 @@ class StreamableHTTPTransport:
         """Check if the message is an initialization request."""
         return isinstance(message, JSONRPCRequest) and message.method == "initialize"
 
+    def _is_connect_negotiation_request(self, message: JSONRPCMessage) -> bool:
+        """Check if the message is a connect-time handshake or era probe."""
+        return isinstance(message, JSONRPCRequest) and message.method in ("initialize", "server/discover")
+
     def _is_initialized_notification(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialized notification."""
         return isinstance(message, JSONRPCNotification) and message.method == "notifications/initialized"
@@ -346,6 +350,29 @@ class StreamableHTTPTransport:
                 del self._in_flight_posts[request_id]
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
+        """POST one message, containing a transport failure to that message.
+
+        A request is resolved with CONNECTION_CLOSED and a notification is dropped, so one
+        failed POST neither tears down the transport nor ends `post_writer`. Connect-time
+        negotiation re-raises: auto mode reads a raw network error as an outage, not an era verdict.
+        """
+        message = ctx.session_message.message
+        try:
+            await self._send_post_request(ctx)
+        except httpx2.TransportError as exc:
+            if self._is_connect_negotiation_request(message):
+                raise
+            logger.exception("POST for %s failed", getattr(message, "method", "a response"))
+            try:
+                await ctx.read_stream_writer.send(exc)
+            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                logger.debug("read stream closed before the POST failure could be surfaced")
+            if isinstance(message, JSONRPCRequest):
+                await self._resolve_abandoned_request(
+                    ctx.read_stream_writer, message.id, f"HTTP request failed: {exc!r}"
+                )
+
+    async def _send_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
         message = ctx.session_message.message
         headers = self._prepare_headers()
