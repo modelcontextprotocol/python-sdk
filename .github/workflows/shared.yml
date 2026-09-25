@@ -48,6 +48,31 @@ jobs:
           uv run --isolated --no-project --with ./src/mcp-types python -c \
             "import mcp_types, mcp_types.jsonrpc, mcp_types.methods, mcp_types.version, mcp_types._v2025_11_25, mcp_types._v2026_07_28"
 
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: 0.9.5
+      - name: Build all distributions
+        run: |
+          uv build --package mcp-types
+          uv build --package mcp-client
+          uv build --package mcp
+      - name: Exercise the client wheel and sdist without the server SDK
+        run: |
+          for package in dist/mcp_client-*.whl dist/mcp_client-*.tar.gz; do
+            uv run --isolated --no-project --find-links dist --with "$package" \
+              python scripts/check_client_package.py
+          done
+      - name: Import the full SDK with the client package first
+        run: |
+          uv run --isolated --no-project --find-links dist --with dist/mcp-*.whl python -c \
+            'import mcp_client, mcp; from typing import get_type_hints; assert mcp.Client is mcp_client.Client; get_type_hints(mcp.Client)'
+
   test:
     name: test (${{ matrix.python-version }}, ${{ matrix.dep-resolution.name }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}

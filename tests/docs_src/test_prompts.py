@@ -58,7 +58,7 @@ async def test_missing_required_argument_is_a_protocol_error() -> None:
         assert exc_info.value.message == "Internal server error"
         # The line a traceback prints, exactly as the page quotes it: the code is not in the message.
         assert traceback.format_exception_only(exc_info.value) == snapshot(
-            ["mcp.shared.exceptions.MCPError: Internal server error\n"]
+            ["mcp_client.shared.exceptions.MCPError: Internal server error\n"]
         )
 
 

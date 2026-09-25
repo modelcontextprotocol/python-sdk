@@ -29,6 +29,7 @@ jobs:
       - name: Build
         run: |
           uv build --package mcp
+          uv build --package mcp-client
           uv build --package mcp-types
 
       - name: Upload artifacts

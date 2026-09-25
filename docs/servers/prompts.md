@@ -59,7 +59,7 @@ That is the entire life of a prompt: listed by name, rendered on demand, dropped
     request itself fails with a JSON-RPC error (code `-32603`):
 
     ```text
-    mcp.shared.exceptions.MCPError: Internal server error
+    mcp_client.shared.exceptions.MCPError: Internal server error
     ```
 
     There is no tool-style error result to hand back to a model, because no model is in the loop:

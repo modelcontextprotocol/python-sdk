@@ -17,6 +17,7 @@ on:
       - mkdocs.yml
       - src/mcp/**
       - src/mcp-types/**
+      - src/mcp-client/**
       - scripts/build-docs.sh
       - scripts/docs/**
       - pyproject.toml

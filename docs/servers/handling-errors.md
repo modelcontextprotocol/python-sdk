@@ -64,7 +64,7 @@ Now swap `ToolError` for `MCPError`.
     Same lookup, same miss, but now the call *raises* on the client side instead of returning:
 
     ```text
-    mcp.shared.exceptions.MCPError: No book titled 'Nothing' in the catalog.
+    mcp_client.shared.exceptions.MCPError: No book titled 'Nothing' in the catalog.
     ```
 
     The first version handed the model a sentence it could react to. This one hands it nothing.

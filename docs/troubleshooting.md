@@ -39,7 +39,7 @@ async def main() -> None:
     +-+---------------- 1 ----------------
       | Traceback (most recent call last):
       |   ...
-      | mcp.shared.exceptions.MCPError: No forecast for 'Atlantis'.
+      | mcp_client.shared.exceptions.MCPError: No forecast for 'Atlantis'.
       +------------------------------------
 ```
 
@@ -167,7 +167,7 @@ async with Client("https://mcp.example.com/mcp") as client:
 ```
 
 ```text
-mcp.shared.exceptions.MCPError: Server returned an error response
+mcp_client.shared.exceptions.MCPError: Server returned an error response
 ```
 
 The words the server actually sent, `421` and `Invalid Host header`, never reach you: the 421 body has no `Content-Type: application/json`, so the client cannot parse it. They are in the **server's log**, which is where to look next:
@@ -334,7 +334,7 @@ async def test_book_table() -> None:
 ```
 
 ```text
-mcp.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport context has no back-channel for server-initiated requests.
+mcp_client.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport context has no back-channel for server-initiated requests.
 ```
 
 **A legacy connection on a `stateless_http=True` server.** Statelessness means every request is its own world: no session, no server-to-client stream, and so nowhere to send an `elicitation/create` (or `sampling/createMessage`, or `roots/list`) even for the era that has them:
@@ -375,7 +375,7 @@ async def main() -> None:
 ```
 
 ```text
-mcp.shared.exceptions.MCPError: Invalid or expired requestState
+mcp_client.shared.exceptions.MCPError: Invalid or expired requestState
 ```
 
 The message is deliberately frozen: the wire never reveals which check failed. The reason goes to the **server log**, and reading it is the whole diagnosis:

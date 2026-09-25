@@ -4,11 +4,11 @@ What a version number of `mcp` promises: which changes can arrive in a minor rel
 
 ## The version number
 
-[Semantic Versioning](https://semver.org/) semantics in [PEP 440](https://peps.python.org/pep-0440/) syntax, taken from the git tag: in `2.X.Y`, **X** (minor) carries new functionality and every non-breaking change, **Y** (patch) carries bug fixes only, and a breaking change to the public API lands only in a new **major**. Pre-releases are cut from `main` as `aN`/`bN`/`rcN`; installers prefer final releases by default, so an unpinned `pip install mcp` stays on a stable release whenever one satisfies your requirement. `mcp` and its wire-types package `mcp-types` release in lockstep, each `mcp` requiring exactly the matching `mcp-types`.
+[Semantic Versioning](https://semver.org/) semantics in [PEP 440](https://peps.python.org/pep-0440/) syntax, taken from the git tag: in `2.X.Y`, **X** (minor) carries new functionality and every non-breaking change, **Y** (patch) carries bug fixes only, and a breaking change to the public API lands only in a new **major**. Pre-releases are cut from `main` as `aN`/`bN`/`rcN`; installers prefer final releases by default, so an unpinned `pip install mcp` stays on a stable release whenever one satisfies your requirement. `mcp`, `mcp-client`, and `mcp-types` release in lockstep. Each `mcp` requires exactly the matching `mcp-client` and `mcp-types`; `mcp-client` also requires exactly the matching `mcp-types`.
 
 ## The public API
 
-The promise covers every name exported by `mcp` and `mcp_types` (their `__all__`), the import paths, signatures, and behavior documented on the [documentation site](https://py.sdk.modelcontextprotocol.io/) and in its [API Reference](https://py.sdk.modelcontextprotocol.io/api/mcp/). It does not cover underscore-prefixed names, undocumented modules, or the wording of log lines, warnings, and exception messages (their types and documented raise conditions are covered). APIs labelled **provisional** (for example the middleware chain) may still change in a minor release; **experimental** APIs are opt-in previews.
+The promise covers every name exported by `mcp`, `mcp_client`, and `mcp_types` (their `__all__`), the import paths, signatures, and behavior documented on the [documentation site](https://py.sdk.modelcontextprotocol.io/) and in its [API Reference](https://py.sdk.modelcontextprotocol.io/api/mcp/). It does not cover underscore-prefixed names, undocumented modules, or the wording of log lines, warnings, and exception messages (their types and documented raise conditions are covered). APIs labelled **provisional** (for example the middleware chain) may still change in a minor release; **experimental** APIs are opt-in previews.
 
 ## Breaking and non-breaking changes
 
