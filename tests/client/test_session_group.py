@@ -303,7 +303,7 @@ async def test_client_session_group_disconnect_non_existent_server():
         (
             StdioServerParameters(command="test_stdio_cmd"),
             "stdio",
-            "mcp.client.session_group.mcp.stdio_client",
+            "mcp.client.session_group.stdio_client",
         ),
         (
             SseServerParameters(url="http://test.com/sse", timeout=10.0),
@@ -322,7 +322,7 @@ async def test_client_session_group_establish_session_parameterized(
     client_type_name: str,  # Just for clarity or conditional logic if needed
     patch_target_for_client_func: str,
 ):
-    with mock.patch("mcp.client.session_group.mcp.ClientSession") as mock_ClientSession_class:
+    with mock.patch("mcp.client.session_group.ClientSession") as mock_ClientSession_class:
         with mock.patch(patch_target_for_client_func) as mock_specific_client_func:
             mock_client_cm_instance = mock.AsyncMock(name=f"{client_type_name}ClientCM")
             mock_read_stream = mock.AsyncMock(name=f"{client_type_name}Read")

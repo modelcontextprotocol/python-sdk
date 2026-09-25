@@ -1,33 +1,14 @@
-"""Callable inspection utilities.
+import sys
 
-Adapted from Starlette's `is_async_callable` implementation.
-https://github.com/encode/starlette/blob/main/starlette/_utils.py
-"""
+import mcp_client.shared._callable_inspection as _implementation
+from mcp_client.shared._callable_inspection import (
+    AwaitableCallable as AwaitableCallable,
+)
+from mcp_client.shared._callable_inspection import (
+    T as T,
+)
+from mcp_client.shared._callable_inspection import (
+    is_async_callable as is_async_callable,
+)
 
-from __future__ import annotations
-
-import functools
-import inspect
-from collections.abc import Awaitable, Callable
-from typing import Any, TypeGuard, TypeVar, overload
-
-T = TypeVar("T")
-
-AwaitableCallable = Callable[..., Awaitable[T]]
-
-
-@overload
-def is_async_callable(obj: AwaitableCallable[T]) -> TypeGuard[AwaitableCallable[T]]: ...
-
-
-@overload
-def is_async_callable(obj: Any) -> TypeGuard[AwaitableCallable[Any]]: ...
-
-
-def is_async_callable(obj: Any) -> Any:
-    while isinstance(obj, functools.partial):  # pragma: lax no cover
-        obj = obj.func
-
-    return inspect.iscoroutinefunction(obj) or (
-        callable(obj) and inspect.iscoroutinefunction(getattr(obj, "__call__", None))
-    )
+sys.modules[__name__] = _implementation

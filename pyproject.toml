@@ -132,6 +132,7 @@ dependencies = [
     "anyio>=4.10; python_version >= '3.14'",
     "anyio>=4.9; python_version < '3.14'",
     "httpx2>=2.5.0",
+    "mcp-client=={{ version }}",
     "mcp-types=={{ version }}",
     "pydantic>=2.12.0",
     "starlette>=0.48.0; python_version >= '3.14'",
@@ -140,7 +141,6 @@ dependencies = [
     "sse-starlette>=3.0.0",
     "uvicorn>=0.31.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
-    "pywin32>=311; sys_platform == 'win32'",
     "pyjwt[crypto]>=2.10.1",
     "typing-extensions>=4.13.0",
     "typing-inspection>=0.4.1",
@@ -160,6 +160,7 @@ packages = ["src/mcp"]
 typeCheckingMode = "strict"
 include = [
     "src/mcp",
+    "src/mcp-client/mcp_client",
     "src/mcp-types/mcp_types",
     "tests",
     "docs_src",
@@ -167,6 +168,8 @@ include = [
     "examples/servers",
     "examples/snippets",
     "examples/clients",
+    "scripts/check_client_package.py",
+    "scripts/check_client_types.py",
     "scripts/docs/build_config.py",
     "scripts/docs/translations.py",
 ]
@@ -198,6 +201,10 @@ executionEnvironments = [
     # docs_src/ holds the complete, runnable code examples included into docs/*.md.
     # Decorated (@mcp.tool/...) module-level functions are never called by name.
     { root = "docs_src", reportUnusedFunction = false },
+    # Compatibility modules re-export the original module namespaces, including private names.
+    { root = "src/mcp/client", reportPrivateUsage = false },
+    { root = "src/mcp/shared", reportPrivateUsage = false },
+    { root = "src/mcp/os", reportPrivateUsage = false },
 ]
 
 [tool.ruff]
@@ -245,10 +252,11 @@ max-returns = 13                                           # Default is 6
 max-statements = 102                                       # Default is 50
 
 [tool.uv.workspace]
-members = ["src/mcp-types", "examples", "examples/clients/*", "examples/servers/*", "examples/snippets"]
+members = ["src/mcp-client", "src/mcp-types", "examples", "examples/clients/*", "examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
+mcp-client = { workspace = true }
 mcp-example-stories = { workspace = true }
 mcp-types = { workspace = true }
 strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
@@ -302,12 +310,13 @@ MD059 = false    # descriptive-link-text
 branch = true
 patch = ["subprocess"]
 concurrency = ["multiprocessing", "thread"]
-source = ["src", "src/mcp-types/mcp_types", "tests"]
+source = ["src", "src/mcp-client/mcp_client", "src/mcp-types/mcp_types", "tests"]
 omit = [
     "src/mcp/client/__main__.py",
+    "src/mcp-client/mcp_client/client/__main__.py",
     "src/mcp/server/__main__.py",
-    "src/mcp/os/posix/utilities.py",
-    "src/mcp/os/win32/utilities.py",
+    "src/mcp-client/mcp_client/os/posix/utilities.py",
+    "src/mcp-client/mcp_client/os/win32/utilities.py",
 ]
 
 # https://coverage.readthedocs.io/en/latest/config.html#report

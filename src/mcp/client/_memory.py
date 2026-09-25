@@ -8,11 +8,11 @@ from types import TracebackType
 from typing import Any
 
 import anyio
+from mcp_client.client._transport import TransportStreams
+from mcp_client.shared.memory import create_client_server_memory_streams
 
-from mcp.client._transport import TransportStreams
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
-from mcp.shared.memory import create_client_server_memory_streams
 
 SERVER_SHUTDOWN_GRACE = 2.0
 """Seconds to wait for the in-process server to exit on EOF before cancelling."""

@@ -1,1 +1,1 @@
-"""Windows-specific utilities for MCP."""
+__all__ = []

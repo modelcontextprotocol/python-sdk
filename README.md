@@ -46,6 +46,10 @@ uv add "mcp[cli]"      # or: pip install "mcp[cli]"
 
 The `cli` extra adds the `mcp` command-line tool (`mcp dev`, `mcp run`, `mcp install`) on top of the SDK; install plain `mcp` if you don't need it. For one-off commands, `uv run --with "mcp[cli]" mcp ...` works without a project.
 
+For a client-only project, use `uv add mcp-client` and `from mcp_client import Client`.
+It includes the client transports and OAuth support without the HTTP server dependencies.
+See [client-only installation](https://py.sdk.modelcontextprotocol.io/get-started/installation/#client-only-installation).
+
 ## A server in 15 lines
 
 Create a `server.py`:

@@ -37,6 +37,11 @@ DOCS = ROOT / "docs"
 _OPTIONAL_PAGES = [
     ("api/mcp/index.md", "mcp API reference", "Auto-generated API reference for the mcp package (rendered HTML)"),
     (
+        "api/mcp_client/index.md",
+        "mcp-client API reference",
+        "Auto-generated API reference for the mcp-client package (rendered HTML)",
+    ),
+    (
         "api/mcp_types/index.md",
         "mcp-types API reference",
         "Auto-generated API reference for the mcp-types package (rendered HTML)",
