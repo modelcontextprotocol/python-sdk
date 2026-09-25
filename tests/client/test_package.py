@@ -135,6 +135,7 @@ for name in ("MCPError", "MCPDeprecationWarning", "NoBackChannelError", "UrlElic
         text=True,
         encoding="utf-8",
         check=False,
-        timeout=5,
+        # Cold interpreter imports include coverage startup under xdist.
+        timeout=20,
     )
     assert result.returncode == 0, result.stderr
