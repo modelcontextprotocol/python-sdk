@@ -3,7 +3,8 @@
 # pyright: reportMissingParameterType=false
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownLambdaType=false
-from collections.abc import Callable
+import typing
+from collections.abc import AsyncIterator, Callable, Generator, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, TypedDict
 
@@ -1228,6 +1229,48 @@ def test_structured_output_self_referential_model_gets_an_object_root():
     result = meta.convert_result(tree())
     assert isinstance(result, CallToolResult)
     assert result.structured_content == {"name": "root", "children": [{"name": "leaf", "children": []}]}
+
+
+def test_iterator_return_annotations_register_as_unstructured():
+    """Iterator/AsyncIterator return annotations take the unstructured fallback instead of crashing.
+
+    pydantic cannot build a schema for these annotations, which used to escape func_metadata as an
+    uncaught PydanticSchemaGenerationError at registration time (both for the default and for
+    structured_output=True, which must raise InvalidSignature instead).
+    """
+
+    def gen_typing(n: int) -> typing.Iterator[str]:
+        yield from ["a"] * n
+
+    def gen_collections(n: int) -> Iterator[str]:
+        yield from ["a"] * n
+
+    def async_gen_typing(n: int) -> typing.AsyncIterator[str]:
+        yield "a"
+
+    def async_gen_collections(n: int) -> AsyncIterator[str]:
+        yield "a"
+
+    for fn in (gen_typing, gen_collections, async_gen_typing, async_gen_collections):
+        meta = func_metadata(fn)
+        assert meta.output_schema is None
+        assert meta.output_model is None
+
+        with pytest.raises(InvalidSignature) as exc_info:
+            func_metadata(fn, structured_output=True)
+        assert "is not serializable for structured output" in str(exc_info.value)
+        assert fn.__name__ in str(exc_info.value)
+
+
+def test_generator_return_annotation_keeps_structured_output():
+    """Generator return annotations are sequence-like for pydantic and must keep their structured schema."""
+
+    def gen(n: int) -> Generator[str, None, None]:
+        yield from ["a"] * n
+
+    meta = func_metadata(gen)
+    assert meta.output_schema is not None
+    assert meta.output_schema["properties"]["result"]["type"] == "array"
 
 
 def test_structured_output_unserializable_type_error():

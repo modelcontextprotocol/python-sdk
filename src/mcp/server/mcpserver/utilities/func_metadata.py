@@ -16,6 +16,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PrivateAttr,
+    PydanticSchemaGenerationError,
     PydanticUserError,
     TypeAdapter,
     WithJsonSchema,
@@ -441,7 +442,15 @@ def func_metadata(
         # structured_output=True still forces one.
         return FuncMetadata(arg_model=arguments_model)
 
-    output_model, wrap_output = _create_output_model(original_annotation, return_type_expr, func.__name__)
+    try:
+        output_model, wrap_output = _create_output_model(original_annotation, return_type_expr, func.__name__)
+    except PydanticSchemaGenerationError as e:
+        # Picking the output model builds throwaway pydantic models for unsupported shapes (e.g.
+        # Iterator[str] wrapped in a {"result": ...} model), which can fail the same way the
+        # FuncMetadata construction below can. Degrade to the unstructured fallback instead of
+        # letting the error escape registration.
+        logger.info(f"Cannot create schema for type {return_type_expr} in {func.__name__}: {type(e).__name__}: {e}")
+        output_model, wrap_output = None, False
 
     if output_model is not None:
         try:
