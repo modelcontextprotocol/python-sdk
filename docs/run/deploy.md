@@ -169,6 +169,29 @@ Nothing about the fan-out cares which server object a stream is attached to. Two
 * The bus carries four small typed events, never JSON-RPC. Acknowledgment, filtering, and stream lifecycle stay in the SDK, so your bus cannot break the protocol; it can only move events between processes.
 * Streams are **not** resumable and events are **not** replayed. Losing a replica drops its streams; the clients re-listen and re-fetch. There is no event store to share and nothing else to configure. This is the one place where scaling out is genuinely just more of the same.
 
+## Reused-process runtimes (Lambda, and similar)
+
+A different problem from having many workers: having one process that gets reused, sequentially, across calls that don't share a lifespan. AWS Lambda is the common case. A container that handled one invocation can be frozen and woken up for the next one, often minutes or hours later, with the same Python process and the same objects still in memory.
+
+Build `mcp.streamable_http_app()` once, at import time, the way you would for a normal server, and the first invocation works fine. The second invocation against that same warm container fails on every request:
+
+```text
+RuntimeError: StreamableHTTPSessionManager .run() can only be called once per instance. Create a new instance if you need to run again.
+```
+
+The manager's lifespan already ran and finished at the end of the first invocation. **[Troubleshooting](../troubleshooting.md)** covers this same error for two other causes; a reused process is the third, and it's easy to miss because a cold container only ever sees one request during local testing.
+
+The fix is to build the app inside the handler, per invocation, instead of once at import time:
+
+```python
+def handler(event, context):
+    app = mcp.streamable_http_app()  # fresh instance, every invocation
+    ...
+```
+
+!!! warning "SnapStart"
+    SnapStart's snapshot is taken before any request arrives and deliberately excludes live network connections and running event loops. An app built once at import time and cached across invocations is exactly what that model assumes you won't do. Build fresh per invocation here too.
+
 ## What the SDK does not give you
 
 An `MCPServer` is a protocol implementation, not an application server. The deployment knobs you go looking for next are missing on purpose:
@@ -186,6 +209,7 @@ An `MCPServer` is a protocol implementation, not an application server. The depl
 * The default `requestState` key is `os.urandom(32)`, minted per process. A multi-round-trip retry that reaches a different worker fails with `-32602` *"Invalid or expired requestState"*.
 * The fix is `RequestStateSecurity(keys=[...])` **and** the same server name on every instance. The name is the token's default audience claim. Same keys, same name.
 * Change notifications cross replicas through one shared `SubscriptionBus`. The SDK's only implementation is in-process; the two-method `Protocol` over your own pub/sub is yours to write.
+* A process reused across invocations (Lambda, and similar) hits the same single-use-manager error as a `Mount` swallowing a lifespan or several workers. Build the app fresh inside the handler, per invocation, not once at import time.
 * There is no `workers=`, no health route, no production settings object. Bring your own ASGI server.
 
 The other thing a real hostname needs in front of it is a token: **[Authorization](authorization.md)**.
