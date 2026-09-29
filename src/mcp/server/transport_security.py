@@ -39,6 +39,45 @@ class TransportSecuritySettings(BaseModel):
     """
 
 
+def resolve_default_transport_security(
+    host: str,
+    transport_security: TransportSecuritySettings | None,
+) -> TransportSecuritySettings | None:
+    """Resolve default transport security settings for an HTTP bind host."""
+    if transport_security is not None:
+        if not transport_security.enable_dns_rebinding_protection:
+            logger.warning("DNS rebinding protection is explicitly disabled via TransportSecuritySettings.")
+        return transport_security
+
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+            allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+        )
+
+    if host in ("0.0.0.0", "::", "[::]", ""):
+        logger.warning(
+            "DNS rebinding protection is disabled because host=%r is a wildcard bind address "
+            "and no transport_security settings were provided. Pass TransportSecuritySettings "
+            "with allowed_hosts to protect non-loopback deployments.",
+            host,
+        )
+        return None
+
+    bind_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[bind_host, f"{bind_host}:*"],
+        allowed_origins=[
+            f"http://{bind_host}",
+            f"http://{bind_host}:*",
+            f"https://{bind_host}",
+            f"https://{bind_host}:*",
+        ],
+    )
+
+
 # TODO(Marcelo): This should be a proper ASGI middleware. I'm sad to see this.
 class TransportSecurityMiddleware:
     """Middleware to enforce DNS rebinding protection for MCP transport endpoints."""

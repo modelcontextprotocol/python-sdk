@@ -71,7 +71,11 @@ from mcp.server.streamable_http_manager import (
     StreamableHTTPASGIApp,
     StreamableHTTPSessionManager,
 )
-from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
+from mcp.server.transport_security import (
+    DEFAULT_MAX_REQUEST_BODY_SIZE,
+    TransportSecuritySettings,
+    resolve_default_transport_security,
+)
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import SessionMessage
@@ -738,13 +742,7 @@ class Server(Generic[LifespanResultT]):
         debug: bool = False,
     ) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
-        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
-        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
-            transport_security = TransportSecuritySettings(
-                enable_dns_rebinding_protection=True,
-                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
-                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
-            )
+        transport_security = resolve_default_transport_security(host, transport_security)
 
         session_manager = StreamableHTTPSessionManager(
             app=self,

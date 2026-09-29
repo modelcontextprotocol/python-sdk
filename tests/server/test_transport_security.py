@@ -11,6 +11,7 @@ from mcp.server.transport_security import (
     RequestBodyLimitMiddleware,
     TransportSecurityMiddleware,
     TransportSecuritySettings,
+    resolve_default_transport_security,
 )
 
 
@@ -68,6 +69,39 @@ async def test_validate_request_defaults_to_protection_disabled() -> None:
     """Constructing the middleware without settings leaves DNS-rebinding protection off."""
     middleware = TransportSecurityMiddleware()
     assert await middleware.validate_request(_request("evil.example", "http://evil.example")) is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("bind_host", "request_host", "request_origin", "expected"),
+    [
+        pytest.param("192.168.1.10", "192.168.1.10:8000", "http://192.168.1.10:8000", None, id="lan-ip-with-port"),
+        pytest.param("192.168.1.10", "192.168.1.10", None, None, id="lan-ip-exact"),
+        pytest.param("192.168.1.10", "evil.example", None, 421, id="lan-ip-rejects-foreign-host"),
+        pytest.param("mcp.internal", "mcp.internal:9000", "https://mcp.internal:9000", None, id="hostname-https"),
+        pytest.param("fd00::1", "[fd00::1]:8000", "http://[fd00::1]:8000", None, id="ipv6-bind-host"),
+    ],
+)
+async def test_resolve_default_transport_security_protects_explicit_bind_host(
+    bind_host: str,
+    request_host: str,
+    request_origin: str | None,
+    expected: int | None,
+) -> None:
+    """Explicit non-wildcard bind hosts auto-enable DNS-rebinding protection when settings are omitted."""
+    settings = resolve_default_transport_security(bind_host, None)
+    assert settings is not None
+    assert settings.enable_dns_rebinding_protection is True
+    middleware = TransportSecurityMiddleware(settings)
+    response = await middleware.validate_request(_request(request_host, request_origin))
+    assert (None if response is None else response.status_code) == expected
+
+
+def test_resolve_default_transport_security_warns_on_wildcard_bind(caplog: pytest.LogCaptureFixture) -> None:
+    """Wildcard bind addresses cannot derive an allowlist and emit a startup warning when unconfigured."""
+    settings = resolve_default_transport_security("0.0.0.0", None)
+    assert settings is None
+    assert any("wildcard bind address" in message for message in caplog.messages)
 
 
 @pytest.mark.anyio

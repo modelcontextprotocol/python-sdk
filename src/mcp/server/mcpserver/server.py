@@ -99,7 +99,11 @@ from mcp.server.streamable_http_manager import (
     StreamableHTTPSessionManager,
 )
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
-from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
+from mcp.server.transport_security import (
+    DEFAULT_MAX_REQUEST_BODY_SIZE,
+    TransportSecuritySettings,
+    resolve_default_transport_security,
+)
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
 
@@ -1151,13 +1155,7 @@ class MCPServer(Generic[LifespanResultT]):
         host: str = "127.0.0.1",
     ) -> Starlette:
         """Return an instance of the SSE server app."""
-        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
-        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
-            transport_security = TransportSecuritySettings(
-                enable_dns_rebinding_protection=True,
-                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
-                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
-            )
+        transport_security = resolve_default_transport_security(host, transport_security)
 
         sse = SseServerTransport(
             message_path, security_settings=transport_security, max_request_body_size=max_request_body_size
