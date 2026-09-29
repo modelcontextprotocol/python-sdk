@@ -6,7 +6,8 @@
 # otherwise it is labeled `missing-issue-link`, gets one comment, and is closed,
 # and it reopens automatically once the author is assigned. Drafts are gated
 # too; bots are skipped. A triage+ user reopening the PR, removing the label,
-# or adding `bypass-issue-check` overrides.
+# or adding `bypass-issue-check` overrides. A PR that comes back open gets a
+# comment asking cubic to review it, because cubic doesn't act on `reopened`.
 #
 # Operating it:
 #   - Live by default. To pause it without a revert, set the repository
