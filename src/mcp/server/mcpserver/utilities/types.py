@@ -5,6 +5,23 @@ from pathlib import Path
 
 from mcp_types import AudioContent, ImageContent
 
+IMAGE_MIME_TYPES: dict[str, str] = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+}
+
+AUDIO_MIME_TYPES: dict[str, str] = {
+    "wav": "audio/wav",
+    "mp3": "audio/mpeg",
+    "ogg": "audio/ogg",
+    "flac": "audio/flac",
+    "aac": "audio/aac",
+    "m4a": "audio/mp4",
+}
+
 
 class Image:
     """Helper class for returning images from tools."""
@@ -28,17 +45,12 @@ class Image:
     def _get_mime_type(self) -> str:
         """Get MIME type from format or guess from file extension."""
         if self._format:
-            return f"image/{self._format.lower()}"
+            fmt = self._format.lower().lstrip(".")
+            return IMAGE_MIME_TYPES.get(fmt, f"image/{fmt}")
 
         if self.path:
-            suffix = self.path.suffix.lower()
-            return {
-                ".png": "image/png",
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".gif": "image/gif",
-                ".webp": "image/webp",
-            }.get(suffix, "application/octet-stream")
+            suffix = self.path.suffix.lower().lstrip(".")
+            return IMAGE_MIME_TYPES.get(suffix, "application/octet-stream")
         return "image/png"  # default for raw binary data
 
     def to_image_content(self) -> ImageContent:
@@ -74,18 +86,12 @@ class Audio:
     def _get_mime_type(self) -> str:
         """Get MIME type from format or guess from file extension."""
         if self._format:
-            return f"audio/{self._format.lower()}"
+            fmt = self._format.lower().lstrip(".")
+            return AUDIO_MIME_TYPES.get(fmt, f"audio/{fmt}")
 
         if self.path:
-            suffix = self.path.suffix.lower()
-            return {
-                ".wav": "audio/wav",
-                ".mp3": "audio/mpeg",
-                ".ogg": "audio/ogg",
-                ".flac": "audio/flac",
-                ".aac": "audio/aac",
-                ".m4a": "audio/mp4",
-            }.get(suffix, "application/octet-stream")
+            suffix = self.path.suffix.lower().lstrip(".")
+            return AUDIO_MIME_TYPES.get(suffix, "application/octet-stream")
         return "audio/wav"  # default for raw binary data
 
     def to_audio_content(self) -> AudioContent:
