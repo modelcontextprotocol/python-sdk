@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager, contextmanager
 from io import TextIOWrapper
 
 import anyio
+import anyio.lowlevel
 import anyio.to_thread
 import pytest
 from mcp_types import (
@@ -313,6 +314,63 @@ async def test_stdio_server_exits_cleanly_when_the_stdin_restore_fails(
         with pytest.raises(RuntimeError, match="already claimed fd 0"):
             async with stdio_server():
                 pytest.fail("unreachable")  # pragma: no cover
+
+
+@contextmanager
+def _unblock_a_hung_stdin_read_after(seconds: float, write_fd: int) -> Iterator[None]:
+    """Writes a stray line after `seconds`, so an uncancellable stdin read fails the test instead of hanging it."""
+    watchdog = threading.Timer(seconds, os.write, (write_fd, b"\n"))
+    watchdog.start()
+    try:
+        yield
+    finally:
+        watchdog.cancel()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("leaving", ["returns", "is_cancelled"])
+async def test_stdio_server_exits_while_the_peer_holds_stdin_open(
+    leaving: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Leaving the transport does not wait for a stdin line or EOF that may never come.
+
+    Regression: the stdin read was an uncancellable worker-thread call, so returning
+    from the context, a closed stdout, or SIGINT hung until the peer sent more input.
+    """
+    with _pipe_planted_on_fd0(monkeypatch) as (_, in_w):
+        monkeypatch.setattr(sys, "stdout", TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+        try:
+            with _unblock_a_hung_stdin_read_after(10, in_w), anyio.fail_after(5):
+                with anyio.CancelScope() as scope:
+                    async with stdio_server() as (read_stream, write_stream):
+                        await anyio.wait_all_tasks_blocked()  # the reader is now parked on stdin
+                        read_stream.close()
+                        await write_stream.aclose()
+                        if leaving == "is_cancelled":
+                            scope.cancel()
+                            await anyio.sleep_forever()
+                assert scope.cancelled_caught == (leaving == "is_cancelled")
+                # A hang that outlived the deadline surfaces here as TimeoutError.
+                await anyio.lowlevel.checkpoint()
+        finally:
+            os.close(in_w)
+
+
+@pytest.mark.anyio
+async def test_stdio_server_surfaces_a_failing_stdin_read() -> None:
+    """An error reading stdin propagates out of the transport rather than being swallowed."""
+
+    class _FailingStdin(io.StringIO):
+        def readline(self, size: int | None = -1, /) -> str:
+            raise OSError("stdin read failed")
+
+    stdin = anyio.AsyncFile(_FailingStdin())
+    stdout = anyio.AsyncFile(io.StringIO())
+    with anyio.fail_after(5), pytest.RaisesGroup(pytest.RaisesExc(OSError, match="stdin read failed")):
+        # Coverage mis-traces nested `async with` exit arcs on Python 3.11+.
+        async with stdio_server(stdin=stdin, stdout=stdout) as (read_stream, write_stream):  # pragma: no branch
+            async with read_stream, write_stream:  # pragma: no branch
+                await anyio.sleep_forever()
 
 
 @pytest.mark.anyio

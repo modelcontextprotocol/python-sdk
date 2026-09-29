@@ -11,17 +11,20 @@ Example:
     ```
 """
 
+import io
 import os
 import sys
 import threading
 from collections.abc import Callable
+from concurrent.futures import Future, InvalidStateError
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from io import TextIOWrapper
-from typing import BinaryIO, Literal, TextIO
+from typing import IO, BinaryIO, Literal, TextIO, cast
 
 import anyio
 import anyio.lowlevel
+import anyio.to_thread
 import mcp_types as types
 
 from mcp.os.win32.utilities import rebind_std_handle_to_fd
@@ -158,6 +161,44 @@ def _claim_fd(
     return os.fdopen(private_fd, mode, closefd=False), release
 
 
+def _lock_free_reader(buffer: BinaryIO) -> BinaryIO:
+    """The raw layer beneath a buffered stdin, when it has one.
+
+    A reader thread can still be parked in a read at interpreter exit. Through a
+    BufferedReader that read holds the buffer's lock, and finalization aborts with
+    `_enter_buffered_busy` when it closes sys.stdin; the raw layer takes no lock.
+    """
+    raw = getattr(buffer, "raw", None)
+    # TextIOWrapper reads a raw stream through read(), which RawIOBase provides.
+    return cast(BinaryIO, raw) if isinstance(raw, io.RawIOBase) else buffer
+
+
+def _readline_into(file: IO[str], future: "Future[str]") -> None:
+    try:
+        line = file.readline()
+    except Exception as exc:  # thread entry point: every failure is handed to the awaiting task
+        with suppress(InvalidStateError):
+            future.set_exception(exc)
+    else:
+        with suppress(InvalidStateError):
+            future.set_result(line)
+
+
+async def _readline(file: IO[str]) -> str:
+    """Read one line without letting a blocked read outlive cancellation or hold up exit.
+
+    The read runs in a daemon thread, so neither cancellation nor interpreter exit
+    waits for input that may never arrive (a peer that keeps stdin open, SIGINT, or a
+    closed stdout). Cancelling the future releases the AnyIO worker waiting on it.
+    """
+    future: Future[str] = Future()
+    threading.Thread(target=_readline_into, args=(file, future), name="mcp-stdio-reader", daemon=True).start()
+    try:
+        return await anyio.to_thread.run_sync(future.result, abandon_on_cancel=True)
+    finally:
+        future.cancel()
+
+
 @asynccontextmanager
 async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
     """Serve MCP over the process's stdin and stdout.
@@ -173,7 +214,9 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     try:
         if not stdin:
             stdin_buffer, restore_stdin = _claim_fd(0, sys.stdin, "rb", _open_stdin_diversion)
-            stdin = anyio.wrap_file(_UnownedTextWrapper(stdin_buffer, encoding="utf-8", errors="replace"))
+            stdin = anyio.wrap_file(
+                _UnownedTextWrapper(_lock_free_reader(stdin_buffer), encoding="utf-8", errors="replace")
+            )
         if not stdout:
             stdout_buffer, restore_stdout = _claim_fd(1, sys.stdout, "wb", _open_stdout_diversion)
             stdout = anyio.wrap_file(_UnownedTextWrapper(stdout_buffer, encoding="utf-8"))
@@ -181,19 +224,22 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
         write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
+        stdin_reader_scope = anyio.CancelScope()
+
         async def stdin_reader():
             try:
                 async with read_stream_writer:
-                    async for line in stdin:
-                        try:
-                            message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
-                        except Exception as exc:
-                            await read_stream_writer.send(exc)
-                            continue
+                    with stdin_reader_scope:
+                        while line := await _readline(stdin.wrapped):
+                            try:
+                                message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
+                            except Exception as exc:
+                                await read_stream_writer.send(exc)
+                                continue
 
-                        session_message = SessionMessage(message)
-                        await read_stream_writer.send(session_message)
-            except anyio.ClosedResourceError:  # pragma: no cover
+                            session_message = SessionMessage(message)
+                            await read_stream_writer.send(session_message)
+            except anyio.ClosedResourceError:  # pragma: lax no cover
                 await anyio.lowlevel.checkpoint()
 
         async def stdout_writer():
@@ -203,13 +249,17 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                         json = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                         await stdout.write(json + "\n")
                         await stdout.flush()
-            except anyio.ClosedResourceError:  # pragma: no cover
+            except anyio.ClosedResourceError:  # pragma: lax no cover
                 await anyio.lowlevel.checkpoint()
 
         async with anyio.create_task_group() as tg:
             tg.start_soon(stdin_reader)
             tg.start_soon(stdout_writer)
-            yield read_stream, write_stream
+            try:
+                yield read_stream, write_stream
+            finally:
+                # The caller is done; a peer holding stdin open must not keep the transport alive.
+                stdin_reader_scope.cancel()
     finally:
         if restore_stdout is not None:
             restore_stdout()

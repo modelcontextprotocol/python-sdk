@@ -11,12 +11,13 @@ from textwrap import dedent
 import anyio
 import anyio.abc
 import pytest
-from mcp_types import TextContent
+from mcp_types import JSONRPCRequest, TextContent
 
 from mcp.client import stdio
 from mcp.client.client import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.os.win32.utilities import FallbackProcess
+from mcp.shared.message import SessionMessage
 from tests.transports.stdio._liveness import (
     accept_alive,
     assert_stream_closed,
@@ -258,3 +259,58 @@ async def test_a_tool_spawned_childs_stdout_writes_never_reach_the_wire(tmp_path
     assert isinstance(content, TextContent)
     assert content.text == "0"
     assert "this is not json" in server_stderr
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stdin_claim", ["isolated", "in_place"])
+async def test_a_server_that_stops_serving_while_stdin_stays_open_exits_cleanly(
+    stdin_claim: str,
+    tmp_path: Path,
+    spawned_processes: list[anyio.abc.Process | FallbackProcess],
+    terminate_calls: list[anyio.abc.Process | FallbackProcess],
+) -> None:
+    """Leaving stdio_server() while the client holds stdin open lets the interpreter exit.
+
+    The stdin read still parked at exit must neither block shutdown (a hang until the
+    client closes stdin) nor hold sys.stdin's buffer lock (a `_enter_buffered_busy`
+    abort during finalization). `in_place` forces the degraded path that reads sys.stdin.
+    """
+    degrade = dedent(
+        """
+        import mcp.server.stdio
+
+        def failing_dup_above_std(fd):
+            raise OSError("forced degrade")
+
+        mcp.server.stdio._dup_above_std = failing_dup_above_std
+        """
+    )
+    server = (degrade if stdin_claim == "in_place" else "") + dedent(
+        """
+        import anyio
+        from mcp.server.stdio import stdio_server
+
+        async def main():
+            async with stdio_server() as (read_stream, write_stream):
+                await read_stream.receive()
+                await write_stream.aclose()
+
+        anyio.run(main)
+        """
+    )
+    params = StdioServerParameters(command=sys.executable, args=["-c", server])
+
+    with (tmp_path / "server-stderr.txt").open("w+", encoding="utf-8") as errlog:
+        # Allow one cold interpreter start on loaded CI.
+        with anyio.fail_after(10.0):
+            async with stdio_client(params, errlog=errlog) as (read_stream, write_stream):
+                await write_stream.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
+                # Ends at the server's stdout EOF, i.e. once its process has exited.
+                async for _ in read_stream:
+                    pass  # pragma: no cover
+        errlog.seek(0)
+        server_stderr = errlog.read()
+
+    assert "Fatal Python error" not in server_stderr
+    assert spawned_processes[0].returncode == 0
+    assert terminate_calls == []
