@@ -46,16 +46,31 @@ environment variables or pass an explicit `verify=ssl_context` to your `httpx2.A
 (background in
 [`httpx` and `httpx-sse` replaced by `httpx2`](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)).
 
+### Larger SSE events
+
+Pass `max_sse_event_size` when a server sends a large tool result or notification in one SSE event:
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+The default is 16 MiB per event, measured in bytes before the event is parsed. The limit applies to
+POST responses, the GET stream, and resumed streams. If an event exceeds it, the request fails with
+an error naming the limit. Set `max_sse_event_size=None` to disable the cap when you trust the server
+and need larger events. JSON responses are unaffected. If you use `ClientSessionGroup`, set the same
+option on `StreamableHttpParameters`.
+
 !!! warning
     `streamable_http_client` used to take `headers=` and `timeout=` directly. It does not any more:
-    its only parameters are `url`, `http_client` and `terminate_on_close`. Reach for `headers=` out
+    its parameters are `url`, `http_client`, `terminate_on_close`, and `max_sse_event_size`. Reach for `headers=` out
     of habit and you get:
 
     ```text
     TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
     ```
 
-    Everything HTTP-shaped now lives on the one `httpx2.AsyncClient` you pass in.
+    Headers, authentication, proxies, and timeouts live on the one `httpx2.AsyncClient` you pass in.
+    `max_sse_event_size` applies to the MCP transport's SSE readers instead.
 
 !!! info
     `httpx2` keeps the familiar `httpx` API, so if you know `httpx` you already know how to do auth,
@@ -132,6 +147,7 @@ A **transport** is any async context manager that yields a `(read, write)` pair 
 
 * `Client("http://.../mcp")` (a URL) connects over Streamable HTTP, the production transport.
 * Headers, auth, proxies and timeouts belong on an `httpx2.AsyncClient` you pass to `streamable_http_client(url, http_client=...)`. There is no `headers=` keyword.
+* Use `streamable_http_client(url, max_sse_event_size=...)` to change the byte limit for each SSE event.
 * Redirects are followed only within the URL's own origin (a trailing-slash `307`/`308`), plus `http`→`https` on the same host. Anything else fails with `Redirect to … not followed`; configure the final URL.
 * stdio is `Client(StdioServerParameters(...))`. Wrap it in `stdio_client(...)` yourself only to redirect the child's stderr.
 * The subprocess gets an allow-listed environment, not yours; `env=` adds to it.

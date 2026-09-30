@@ -1,13 +1,13 @@
-"""Unit tests for the streamable-HTTP client transport.
+"""Tests for the streamable-HTTP client transport.
 
-The full client<->server round trip is pinned by the interaction suite under
-tests/interaction/transports/; these tests cover the transport's header encoding and the
-per-message metadata-headers merge directly because the headers are an HTTP-seam observation
-the public client never exposes.
+The full client<->server round trip is also pinned by the interaction suite under
+tests/interaction/transports/. Tests here cover SSE event sizes and HTTP-seam details
+that the public client never exposes.
 """
 
 import base64
 import json
+import logging
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
@@ -22,12 +22,16 @@ from mcp_types import (
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
+    CallToolRequestParams,
+    CallToolResult,
     JSONRPCError,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     ListToolsResult,
     PaginatedRequestParams,
+    TextContent,
+    Tool,
 )
 from mcp_types.version import LATEST_MODERN_VERSION
 from starlette.applications import Starlette
@@ -53,6 +57,276 @@ from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, Ses
 from mcp.shared.transport_context import TransportContext
 from tests.interaction.transports import StreamingASGITransport
 from tests.shared.test_dispatcher import Recorder, echo_handlers
+
+
+@pytest.mark.anyio
+async def test_default_sse_limit_accepts_a_tool_result_larger_than_one_mebibyte() -> None:
+    """SDK-defined: the Streamable HTTP default accepts a large tool result sent as one POST SSE event."""
+    payload = "x" * (2 * 1024 * 1024)
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="large", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        assert params.name == "large"
+        return CallToolResult(content=[TextContent(text=payload)])
+
+    manager = StreamableHTTPSessionManager(app=Server("large-result", on_list_tools=list_tools, on_call_tool=call_tool))
+    app = Starlette(routes=[Mount("/mcp", app=manager.handle_request)])
+
+    with anyio.fail_after(5):
+        async with (
+            manager.run(),
+            httpx2.AsyncClient(transport=StreamingASGITransport(app)) as http,
+            Client(streamable_http_client("http://localhost/mcp", http_client=http), mode="legacy") as client,
+        ):
+            result = await client.call_tool("large", {})
+
+    assert result.content == [TextContent(text=payload)]
+
+
+@pytest.mark.anyio
+async def test_configured_sse_limit_fails_one_tool_call_and_keeps_the_session_usable() -> None:
+    """SDK-defined: an oversized POST SSE event fails its request once and does not poison the session."""
+    calls: list[str] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name=name, input_schema={"type": "object"}) for name in ("large", "small")])
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        calls.append(params.name)
+        return CallToolResult(content=[TextContent(text="x" * 2048 if params.name == "large" else "ok")])
+
+    manager = StreamableHTTPSessionManager(
+        app=Server("bounded-result", on_list_tools=list_tools, on_call_tool=call_tool)
+    )
+    app = Starlette(routes=[Mount("/mcp", app=manager.handle_request)])
+
+    with anyio.fail_after(5):
+        async with (
+            manager.run(),
+            httpx2.AsyncClient(transport=StreamingASGITransport(app)) as http,
+            Client(
+                streamable_http_client("http://localhost/mcp", http_client=http, max_sse_event_size=1024),
+                mode="legacy",
+            ) as client,
+        ):
+            with pytest.raises(MCPError) as exc_info:
+                await client.call_tool("large", {})
+            result = await client.call_tool("small", {})
+
+    assert exc_info.value.error.code == CONNECTION_CLOSED
+    assert exc_info.value.error.message == snapshot(
+        "SSE stream failed: Server-sent event exceeded the 1024 byte limit."
+    )
+    assert result.content == [TextContent(text="ok")]
+    assert calls == ["large", "small"]
+
+
+@pytest.mark.anyio
+async def test_configured_sse_limit_accepts_a_large_get_notification() -> None:
+    """SDK-defined: the transport applies its configured SSE byte limit to the standalone GET stream."""
+    payload = "x" * (2 * 1024 * 1024)
+    notification = json.dumps({"jsonrpc": "2.0", "method": "notifications/message", "params": {"data": payload}})
+    gets: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.method == "GET":
+            gets.append(request)
+            return httpx2.Response(
+                200, content=f"data: {notification}\n\n".encode(), headers={"content-type": "text/event-stream"}
+            )
+        body = json.loads(request.content)
+        if body.get("method") == "initialize":
+            return httpx2.Response(
+                200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}}, headers={"mcp-session-id": "s1"}
+            )
+        return httpx2.Response(202)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client(
+                "http://test/mcp", http_client=http, terminate_on_close=False, max_sse_event_size=4 * 1024 * 1024
+            ) as (
+                read,
+                write,
+            ),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="initialize", params={})))
+            await read.receive()
+            await write.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")))
+            received = await read.receive()
+
+    assert isinstance(received, SessionMessage)
+    assert isinstance(received.message, JSONRPCNotification)
+    assert received.message.method == "notifications/message"
+    assert received.message.params == {"data": payload}
+    assert len(gets) == 1
+
+
+@pytest.mark.anyio
+async def test_oversized_get_event_stops_reconnection_and_does_not_block_posts() -> None:
+    """SDK-defined: a deterministic GET size error stops that stream while later POSTs still work."""
+    failed = anyio.Event()
+    gets: list[httpx2.Request] = []
+    errors: list[str] = []
+
+    class ErrorSignal(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            errors.append(record.getMessage())
+            failed.set()
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.method == "GET":
+            gets.append(request)
+            return httpx2.Response(
+                200,
+                content=b'data: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"'
+                + b"x" * 2048
+                + b'"}}\n\n',
+                headers={"content-type": "text/event-stream"},
+            )
+        body = json.loads(request.content)
+        if body.get("method") == "initialize":
+            return httpx2.Response(
+                200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}}, headers={"mcp-session-id": "s1"}
+            )
+        if "id" in body:
+            return httpx2.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+        return httpx2.Response(202)
+
+    error_signal = ErrorSignal()
+    error_signal.setLevel(logging.ERROR)
+    transport_logger = logging.getLogger("mcp.client.streamable_http")
+    transport_logger.addHandler(error_signal)
+    try:
+        with anyio.fail_after(5):
+            async with (
+                httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+                streamable_http_client(
+                    "http://test/mcp", http_client=http, terminate_on_close=False, max_sse_event_size=1024
+                ) as (read, write),
+            ):
+                await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="initialize", params={})))
+                await read.receive()
+                await write.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")))
+                await failed.wait()
+                await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})))
+                reply = await read.receive()
+    finally:
+        transport_logger.removeHandler(error_signal)
+
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCResponse)
+    assert reply.message.id == 2
+    assert len(gets) == 1
+    assert errors == ["GET SSE stream failed"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("limit", [0, -1])
+async def test_streamable_http_rejects_nonpositive_sse_event_limits(limit: int) -> None:
+    """SDK-defined: a nonpositive per-event byte limit is rejected before any HTTP request is sent."""
+    with pytest.raises(ValueError) as exc_info:
+        async with streamable_http_client("http://test/mcp", max_sse_event_size=limit):
+            raise NotImplementedError
+    assert str(exc_info.value) == snapshot("max_sse_event_size must be positive or None")
+
+
+@pytest.mark.anyio
+async def test_none_disables_the_sse_event_limit() -> None:
+    """SDK-defined: opting out accepts an SSE response larger than the transport's 16 MiB default."""
+    payload = "x" * (16 * 1024 * 1024 + 1)
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        body = json.loads(request.content)
+        return httpx2.Response(
+            200,
+            content=f'data: {{"jsonrpc":"2.0","id":{body["id"]},"result":{{"text":"{payload}"}}}}\n\n'.encode(),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http, max_sse_event_size=None) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})))
+            reply = await read.receive()
+
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCResponse)
+    assert reply.message.result == {"text": payload}
+
+
+@pytest.mark.anyio
+async def test_configured_sse_limit_fails_an_oversized_resumption_event() -> None:
+    """SDK-defined: a resumed request gets a size error rather than waiting for an unusable event."""
+    seen: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request.method)
+        return httpx2.Response(
+            200,
+            content=b'data: {"jsonrpc":"2.0","id":1,"result":{"text":"' + b"x" * 2048 + b'"}}\n\n',
+            headers={"content-type": "text/event-stream"},
+        )
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http, max_sse_event_size=1024) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={}),
+                    metadata=ClientMessageMetadata(resumption_token="evt-1"),
+                )
+            )
+            reply = await read.receive()
+
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.error.code == CONNECTION_CLOSED
+    assert reply.message.error.message == snapshot("SSE stream failed: Server-sent event exceeded the 1024 byte limit.")
+    assert seen == ["GET"]
+
+
+@pytest.mark.anyio
+async def test_configured_sse_limit_does_not_replay_an_oversized_reconnected_event() -> None:
+    """SDK-defined: a reconnect that receives an oversized event fails once; replay cannot make it smaller.
+
+    The raw peer forces a priming event followed by an oversized replay, which a typed server cannot schedule exactly.
+    """
+    seen: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request.method)
+        if request.method == "POST":
+            return httpx2.Response(
+                200, content=b"id: evt-1\nretry: 0\n\n", headers={"content-type": "text/event-stream"}
+            )
+        assert request.headers["last-event-id"] == "evt-1"
+        return httpx2.Response(
+            200,
+            content=b'data: {"jsonrpc":"2.0","id":1,"result":{"text":"' + b"x" * 2048 + b'"}}\n\n',
+            headers={"content-type": "text/event-stream"},
+        )
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http, max_sse_event_size=1024) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={})))
+            reply = await read.receive()
+
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.error.code == CONNECTION_CLOSED
+    assert reply.message.error.message == snapshot("SSE stream failed: Server-sent event exceeded the 1024 byte limit.")
+    assert seen == ["POST", "GET"]
 
 
 @pytest.mark.parametrize(
