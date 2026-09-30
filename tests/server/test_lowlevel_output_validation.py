@@ -213,8 +213,15 @@ async def test_both_content_and_dict_without_output_schema():
 
 
 @pytest.mark.anyio
-async def test_content_only_with_output_schema_error():
-    """Test error when outputSchema is defined but only content is returned."""
+async def test_content_only_with_output_schema_surfaces_error():
+    """When an outputSchema-bound tool returns only unstructured content,
+    the result is treated as a tool-error (isError=True) and the original
+    unstructured payload is preserved so the caller sees the tool's own
+    error message instead of a generic validation message.
+
+    Mirrors the TypeScript SDK fix in modelcontextprotocol/typescript-sdk#655.
+    See #2429 for the original report.
+    """
     tools = [
         Tool(
             name="structured_tool",
@@ -234,7 +241,10 @@ async def test_content_only_with_output_schema_error():
     ]
 
     async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        # This returns only content, but outputSchema expects structured data
+        # This returns only content, but outputSchema expects structured data.
+        # Real-world callers use this path to surface tool-execution errors
+        # like "Resource not found" or "API rate limit hit"; that text must
+        # not be replaced by a generic validation message.
         return [TextContent(type="text", text="This is not structured")]
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -242,13 +252,16 @@ async def test_content_only_with_output_schema_error():
 
     result = await run_tool_test(tools, call_tool_handler, test_callback)
 
-    # Verify error
+    # Result is flagged as an error (isError=True) so callers can detect it,
+    # but the tool's original unstructured payload is preserved verbatim.
     assert result is not None
     assert result.isError
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
-    assert "Output validation error: outputSchema defined but no structured output returned" in result.content[0].text
+    assert result.content[0].text == "This is not structured"
+    # No structured content was produced; that field stays None.
+    assert result.structuredContent is None
 
 
 @pytest.mark.anyio
