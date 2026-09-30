@@ -162,9 +162,12 @@ def build_metadata(
     # SEP-990 / ext-auth §6: support for the ID-JAG flow is advertised as a grant PROFILE, not as
     # the jwt-bearer grant type (which an AS might support for other purposes).
     authorization_grant_profiles_supported: list[str] | None = None
+    token_endpoint_auth_methods_supported = ["client_secret_post", "client_secret_basic"]
     if supports_identity_assertion:
         grant_types_supported.append(JWT_BEARER_GRANT_TYPE)
         authorization_grant_profiles_supported = [ID_JAG_GRANT_PROFILE]
+        # ext-auth §5: a Client ID Metadata Document client may present an ID-JAG unauthenticated.
+        token_endpoint_auth_methods_supported.append("none")
 
     # Create metadata
     metadata = OAuthMetadata(
@@ -175,7 +178,7 @@ def build_metadata(
         response_types_supported=["code"],
         response_modes_supported=None,
         grant_types_supported=grant_types_supported,
-        token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
+        token_endpoint_auth_methods_supported=token_endpoint_auth_methods_supported,
         token_endpoint_auth_signing_alg_values_supported=None,
         service_documentation=service_documentation_url,
         ui_locales_supported=None,

@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
+import jwt
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, TypeAdapter, ValidationError
 from starlette.requests import Request
 
@@ -72,6 +73,13 @@ class TokenErrorResponse(BaseModel):
     error: TokenErrorCode
     error_description: str | None = None
     error_uri: AnyHttpUrl | None = None
+
+
+def _unverified_client_id(assertion: str) -> object:
+    try:
+        return jwt.decode(assertion, options={"verify_signature": False}).get("client_id")
+    except jwt.PyJWTError:
+        return None
 
 
 # this is just an alias over OAuthToken; the only reason we do this
@@ -251,16 +259,28 @@ class TokenHandler:
                 # SEP-990 §5.1: only confidential clients may present an ID-JAG. ClientAuthenticator
                 # already rejects a secret-based method with no stored secret; this additionally
                 # rejects the public `none` method so an unauthenticated client never reaches the
-                # provider hook.
+                # provider hook. ext-auth §5 exempts a client identified by its Client ID Metadata
+                # Document, which cannot hold a secret.
                 if not client_info.client_secret:
-                    # RFC 6749 §5.2: the client authenticated but is not permitted this grant, so
-                    # unauthorized_client (not invalid_client, which is for failed authentication).
-                    return self.response(
-                        TokenErrorResponse(
-                            error="unauthorized_client",
-                            error_description="The JWT bearer grant requires a confidential client",
+                    if not await self.provider.is_metadata_document_client(client_info):
+                        # RFC 6749 §5.2: the client authenticated but is not permitted this grant, so
+                        # unauthorized_client (not invalid_client, which is for failed authentication).
+                        return self.response(
+                            TokenErrorResponse(
+                                error="unauthorized_client",
+                                error_description="The JWT bearer grant requires a confidential client",
+                            )
                         )
-                    )
+                    # With no client authentication, the ID-JAG must at least name the requesting
+                    # client. Reading the claim unverified is safe: a mismatch only rejects, and the
+                    # provider verifies the signature before issuing anything.
+                    if _unverified_client_id(token_request.assertion) != client_info.client_id:
+                        return self.response(
+                            TokenErrorResponse(
+                                error="invalid_grant",
+                                error_description="The assertion was not issued to this client",
+                            )
+                        )
 
                 params = IdentityAssertionParams(
                     assertion=token_request.assertion,

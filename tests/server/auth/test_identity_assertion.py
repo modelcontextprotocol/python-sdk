@@ -4,6 +4,7 @@ import secrets
 import time
 
 import httpx2
+import jwt
 import pytest
 from httpx2 import ASGITransport
 from pydantic import AnyHttpUrl
@@ -26,6 +27,12 @@ ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
 VALID_ASSERTION = "valid-id-jag"
 CONFIDENTIAL_CLIENT_ID = "enterprise-client"
 CONFIDENTIAL_CLIENT_SECRET = "enterprise-secret"
+CIMD_CLIENT_ID = "https://client.example.com/client.json"
+IDP_KEY = "idp-signing-key-for-tests-only-0123456789"
+
+
+def id_jag(client_id: str) -> str:
+    return jwt.encode({"client_id": client_id, "sub": "assertion-user"}, IDP_KEY, algorithm="HS256")
 
 
 class IdentityAssertionProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]):
@@ -35,6 +42,9 @@ class IdentityAssertionProvider(OAuthAuthorizationServerProvider[AuthorizationCo
         self.clients: dict[str, OAuthClientInformationFull] = {}
         self.tokens: dict[str, AccessToken] = {}
         self.last_params: IdentityAssertionParams | None = None
+        self.last_client: OAuthClientInformationFull | None = None
+        self.metadata_document_client_ids: set[str] = set()
+        self.valid_assertions = {VALID_ASSERTION}
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         return self.clients.get(client_id)
@@ -70,12 +80,16 @@ class IdentityAssertionProvider(OAuthAuthorizationServerProvider[AuthorizationCo
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         raise NotImplementedError
 
+    async def is_metadata_document_client(self, client: OAuthClientInformationFull) -> bool:
+        return client.client_id in self.metadata_document_client_ids
+
     async def exchange_identity_assertion(
         self, client: OAuthClientInformationFull, params: IdentityAssertionParams
     ) -> OAuthToken:
         self.last_params = params
+        self.last_client = client
         # Stand-in for RFC 7523 §3 / SEP-990 §5.1 assertion validation.
-        if params.assertion != VALID_ASSERTION:
+        if params.assertion not in self.valid_assertions:
             raise TokenError(error="invalid_grant", error_description="assertion is not valid")
         assert client.client_id is not None
         scopes = params.scopes or ["mcp"]
@@ -146,8 +160,8 @@ def test_build_metadata_advertises_id_jag_profile_when_enabled():
     )
     assert JWT_BEARER_GRANT_TYPE in (enabled.grant_types_supported or [])
     assert enabled.authorization_grant_profiles_supported == [ID_JAG_GRANT_PROFILE]
-    # The grant is confidential-only, so the `none` auth method is NOT advertised.
-    assert "none" not in (enabled.token_endpoint_auth_methods_supported or [])
+    # A Client ID Metadata Document client may present an ID-JAG with the `none` auth method.
+    assert enabled.token_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic", "none"]
 
     disabled = build_metadata(
         AnyHttpUrl("https://auth.example.com"),
@@ -157,6 +171,7 @@ def test_build_metadata_advertises_id_jag_profile_when_enabled():
     )
     assert JWT_BEARER_GRANT_TYPE not in (disabled.grant_types_supported or [])
     assert disabled.authorization_grant_profiles_supported is None
+    assert disabled.token_endpoint_auth_methods_supported == ["client_secret_post", "client_secret_basic"]
 
 
 @pytest.mark.anyio
@@ -219,7 +234,9 @@ async def test_identity_assertion_rejected_when_disabled(provider: IdentityAsser
 async def test_identity_assertion_rejects_public_client(
     client: httpx2.AsyncClient, provider: IdentityAssertionProvider
 ):
-    """A public (auth method 'none') client cannot use the grant, even if it presents a valid assertion."""
+    """A public client not resolved from a metadata document cannot use the grant, even with an ID-JAG naming it."""
+    assertion = id_jag("public-client")
+    provider.valid_assertions.add(assertion)
     provider.clients["public-client"] = OAuthClientInformationFull(
         client_id="public-client",
         redirect_uris=None,
@@ -230,7 +247,7 @@ async def test_identity_assertion_rejects_public_client(
 
     response = await client.post(
         "/token",
-        data={"grant_type": JWT_BEARER_GRANT_TYPE, "client_id": "public-client", "assertion": VALID_ASSERTION},
+        data={"grant_type": JWT_BEARER_GRANT_TYPE, "client_id": "public-client", "assertion": assertion},
     )
 
     assert response.status_code == 400
@@ -397,3 +414,134 @@ async def test_default_provider_rejects_identity_assertion():
     with pytest.raises(TokenError) as excinfo:
         await bare.exchange_identity_assertion(client_info, params)
     assert excinfo.value.error == "unsupported_grant_type"
+    assert await bare.is_metadata_document_client(client_info) is False
+
+
+def register_cimd_client(provider: IdentityAssertionProvider, grant_types: list[str]) -> OAuthClientInformationFull:
+    client_info = OAuthClientInformationFull(
+        client_id=CIMD_CLIENT_ID,
+        redirect_uris=None,
+        grant_types=grant_types,
+        token_endpoint_auth_method="none",
+        scope="mcp",
+    )
+    provider.clients[CIMD_CLIENT_ID] = client_info
+    provider.metadata_document_client_ids.add(CIMD_CLIENT_ID)
+    return client_info
+
+
+@pytest.mark.anyio
+async def test_metadata_document_client_exchanges_id_jag_without_client_authentication(
+    client: httpx2.AsyncClient, provider: IdentityAssertionProvider
+):
+    """A public CIMD client may present an ID-JAG naming it with no client authentication (ext-auth §5)."""
+    cimd_client = register_cimd_client(provider, [JWT_BEARER_GRANT_TYPE])
+    assertion = id_jag(CIMD_CLIENT_ID)
+    provider.valid_assertions.add(assertion)
+
+    response = await client.post(
+        "/token",
+        data={
+            "grant_type": JWT_BEARER_GRANT_TYPE,
+            "client_id": CIMD_CLIENT_ID,
+            "assertion": assertion,
+            "resource": "https://mcp.example.com/mcp",
+        },
+    )
+
+    assert response.status_code == 200, response.content
+    assert provider.last_client is cimd_client
+    assert provider.last_params is not None
+    assert provider.last_params.assertion == assertion
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "assertion",
+    [
+        pytest.param(id_jag("https://other.example.com/client.json"), id="names-another-client"),
+        pytest.param(jwt.encode({"sub": "assertion-user"}, IDP_KEY, algorithm="HS256"), id="no-client-id-claim"),
+        pytest.param("not-a-jwt", id="malformed"),
+    ],
+)
+async def test_metadata_document_client_rejects_id_jag_not_issued_to_it(
+    client: httpx2.AsyncClient, provider: IdentityAssertionProvider, assertion: str
+):
+    """Without client authentication, an ID-JAG whose `client_id` claim is not the requester is invalid_grant."""
+    register_cimd_client(provider, [JWT_BEARER_GRANT_TYPE])
+    provider.valid_assertions.add(assertion)
+
+    response = await client.post(
+        "/token",
+        data={"grant_type": JWT_BEARER_GRANT_TYPE, "client_id": CIMD_CLIENT_ID, "assertion": assertion},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": "invalid_grant",
+        "error_description": "The assertion was not issued to this client",
+    }
+    assert provider.last_params is None
+
+
+@pytest.mark.anyio
+async def test_metadata_document_client_without_the_grant_is_rejected(
+    client: httpx2.AsyncClient, provider: IdentityAssertionProvider
+):
+    """A CIMD client whose metadata does not list the jwt-bearer grant is refused it."""
+    register_cimd_client(provider, ["authorization_code"])
+
+    response = await client.post(
+        "/token",
+        data={"grant_type": JWT_BEARER_GRANT_TYPE, "client_id": CIMD_CLIENT_ID, "assertion": id_jag(CIMD_CLIENT_ID)},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "unsupported_grant_type"
+    assert provider.last_params is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("secret", [pytest.param("wrong-secret", id="wrong"), pytest.param(None, id="missing")])
+async def test_confidential_client_with_bad_secret_is_invalid_client(
+    client: httpx2.AsyncClient, provider: IdentityAssertionProvider, secret: str | None
+):
+    """A confidential client still has to authenticate; the metadata-document path does not apply to it."""
+    form = assertion_form()
+    if secret is None:
+        del form["client_secret"]
+    else:
+        form["client_secret"] = secret
+
+    response = await client.post("/token", data=form)
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "invalid_client"
+    assert provider.last_params is None
+
+
+@pytest.mark.anyio
+async def test_metadata_document_client_rejected_when_identity_assertion_disabled(provider: IdentityAssertionProvider):
+    """With the grant disabled, a CIMD client is refused like every other client."""
+    register_cimd_client(provider, [JWT_BEARER_GRANT_TYPE])
+    routes = create_auth_routes(
+        provider,
+        issuer_url=AnyHttpUrl("https://auth.example.com"),
+        client_registration_options=ClientRegistrationOptions(enabled=True, valid_scopes=["mcp"]),
+        revocation_options=RevocationOptions(enabled=False),
+        identity_assertion_enabled=False,
+    )
+    transport = ASGITransport(app=Starlette(routes=routes))
+    async with httpx2.AsyncClient(transport=transport, base_url="https://auth.example.com") as http:
+        response = await http.post(
+            "/token",
+            data={
+                "grant_type": JWT_BEARER_GRANT_TYPE,
+                "client_id": CIMD_CLIENT_ID,
+                "assertion": id_jag(CIMD_CLIENT_ID),
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "unsupported_grant_type"
+    assert provider.last_params is None

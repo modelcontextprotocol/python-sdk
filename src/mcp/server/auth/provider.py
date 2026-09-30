@@ -305,6 +305,22 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
             token: The token to revoke.
         """
 
+    async def is_metadata_document_client(self, client: OAuthClientInformationFull) -> bool:
+        """Reports whether ``client`` was resolved from a Client ID Metadata Document (CIMD).
+
+        The enterprise-managed authorization extension lets a client that is not pre-registered
+        use its CIMD URL as ``client_id`` and present an ID-JAG without client authentication.
+        Return True for such clients to let them use the jwt-bearer grant with the ``none`` auth
+        method. The default returns False, keeping the grant limited to confidential clients.
+
+        Args:
+            client: The client presenting the assertion.
+
+        Returns:
+            True if ``client`` was resolved from a Client ID Metadata Document.
+        """
+        return False
+
     async def exchange_identity_assertion(
         self,
         client: OAuthClientInformationFull,
@@ -324,19 +340,21 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         - require ``aud`` to identify this authorization server (its own issuer);
         - require a ``sub`` (RFC 7523 §3 makes it mandatory) identifying the end user;
         - reject replays - enforce ``exp``, and track ``jti`` for the assertion's lifetime;
-        - require the ID-JAG's ``client_id`` claim to match the authenticated ``client`` - do
-          NOT derive authorization from ``client.client_id`` alone, which for a confidential
-          client is authenticated but for any client is ultimately self-asserted in the request;
+        - require the ID-JAG's ``client_id`` claim to match ``client`` - do NOT derive
+          authorization from ``client.client_id`` alone, which for a confidential client is
+          authenticated but for any client is ultimately self-asserted in the request;
         - audience-restrict the issued access token to the resource named in the ID-JAG's
           ``resource`` claim, not merely ``params.resource`` (which the client controls);
         - derive the granted scopes from the ID-JAG and policy rather than granting
           ``params.scopes`` verbatim.
 
-        The handler guarantees ``client`` is confidential (it rejects clients without a stored
-        secret before calling this hook), but the ID-JAG remains the authoritative grant.
+        ``client`` is either an authenticated confidential client or, when
+        ``is_metadata_document_client`` returns True, a public client identified by its Client ID
+        Metadata Document. For the latter the handler has only checked the unverified ``client_id``
+        claim against ``client.client_id``; either way the ID-JAG remains the authoritative grant.
 
         Args:
-            client: The authenticated client presenting the assertion.
+            client: The client presenting the assertion.
             params: The validated jwt-bearer request parameters (the ID-JAG and indicators).
 
         Returns:
