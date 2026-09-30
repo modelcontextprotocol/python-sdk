@@ -259,9 +259,6 @@ class StreamableHTTPTransport:
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
-            except httpx2.SSEError:
-                logger.exception("GET SSE stream failed")
-                return
             except Exception:
                 logger.debug("GET stream error", exc_info=True)
                 attempt += 1
@@ -564,11 +561,14 @@ class StreamableHTTPTransport:
         headers = self._prepare_headers()
         headers[LAST_EVENT_ID] = last_event_id
 
+        is_sse_response = False
         try:
             async with sse_within_origin(
                 ctx.client, self.url, headers=headers, max_event_size=self.max_sse_event_size
             ) as event_source:
                 event_source.response.raise_for_status()
+                content_type = event_source.response.headers.get("content-type", "").partition(";")[0]
+                is_sse_response = content_type.strip().lower() == "text/event-stream"
                 logger.info("Reconnected to SSE stream")
 
                 # Track for potential further reconnection
@@ -595,9 +595,12 @@ class StreamableHTTPTransport:
                 logger.info("SSE stream disconnected, reconnecting...")
                 await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
         except httpx2.SSEError as exc:
-            await self._resolve_abandoned_request(
-                ctx.read_stream_writer, original_request_id, f"SSE stream failed: {exc}"
-            )
+            if is_sse_response:
+                await self._resolve_abandoned_request(
+                    ctx.read_stream_writer, original_request_id, f"SSE stream failed: {exc}"
+                )
+            else:
+                await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
         except Exception as e:  # pragma: no cover
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID

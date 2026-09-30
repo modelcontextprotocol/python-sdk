@@ -7,7 +7,6 @@ that the public client never exposes.
 
 import base64
 import json
-import logging
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
@@ -116,23 +115,23 @@ async def test_configured_sse_limit_fails_one_tool_call_and_keeps_the_session_us
             result = await client.call_tool("small", {})
 
     assert exc_info.value.error.code == CONNECTION_CLOSED
-    assert exc_info.value.error.message == snapshot(
-        "SSE stream failed: Server-sent event exceeded the 1024 byte limit."
-    )
+    # httpx2 owns the error detail after this prefix.
+    assert exc_info.value.error.message.startswith("SSE stream failed: ")
     assert result.content == [TextContent(text="ok")]
     assert calls == ["large", "small"]
 
 
 @pytest.mark.anyio
 async def test_configured_sse_limit_accepts_a_large_get_notification() -> None:
-    """SDK-defined: the transport applies its configured SSE byte limit to the standalone GET stream."""
+    """SDK-defined: a configured limit accepts a large standalone GET event.
+
+    The raw peer forces the notification onto GET, a transport detail hidden by the typed client.
+    """
     payload = "x" * (2 * 1024 * 1024)
     notification = json.dumps({"jsonrpc": "2.0", "method": "notifications/message", "params": {"data": payload}})
-    gets: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         if request.method == "GET":
-            gets.append(request)
             return httpx2.Response(
                 200, content=f"data: {notification}\n\n".encode(), headers={"content-type": "text/event-stream"}
             )
@@ -162,31 +161,25 @@ async def test_configured_sse_limit_accepts_a_large_get_notification() -> None:
     assert isinstance(received.message, JSONRPCNotification)
     assert received.message.method == "notifications/message"
     assert received.message.params == {"data": payload}
-    assert len(gets) == 1
 
 
 @pytest.mark.anyio
-async def test_oversized_get_event_stops_reconnection_and_does_not_block_posts() -> None:
-    """SDK-defined: a deterministic GET size error stops that stream while later POSTs still work."""
-    failed = anyio.Event()
-    gets: list[httpx2.Request] = []
-    errors: list[str] = []
+async def test_oversized_get_event_reconnects_and_delivers_later_messages() -> None:
+    """SDK-defined: a bad GET event does not prevent later server messages or POSTs.
 
-    class ErrorSignal(logging.Handler):
-        def emit(self, record: logging.LogRecord) -> None:
-            errors.append(record.getMessage())
-            failed.set()
+    The raw peer forces a bad GET followed by a fresh GET stream, which the typed client cannot schedule.
+    """
+    gets: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         if request.method == "GET":
             gets.append(request)
-            return httpx2.Response(
-                200,
-                content=b'data: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"'
-                + b"x" * 2048
-                + b'"}}\n\n',
-                headers={"content-type": "text/event-stream"},
-            )
+            if len(gets) == 1:
+                content = b'data: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"'
+                content += b"x" * 2048 + b'"}}\n\n'
+            else:
+                content = b'data: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"ok"}}\n\n'
+            return httpx2.Response(200, content=content, headers={"content-type": "text/event-stream"})
         body = json.loads(request.content)
         if body.get("method") == "initialize":
             return httpx2.Response(
@@ -196,32 +189,27 @@ async def test_oversized_get_event_stops_reconnection_and_does_not_block_posts()
             return httpx2.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
         return httpx2.Response(202)
 
-    error_signal = ErrorSignal()
-    error_signal.setLevel(logging.ERROR)
-    transport_logger = logging.getLogger("mcp.client.streamable_http")
-    transport_logger.addHandler(error_signal)
-    try:
-        with anyio.fail_after(5):
-            async with (
-                httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
-                streamable_http_client(
-                    "http://test/mcp", http_client=http, terminate_on_close=False, max_sse_event_size=1024
-                ) as (read, write),
-            ):
-                await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="initialize", params={})))
-                await read.receive()
-                await write.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")))
-                await failed.wait()
-                await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})))
-                reply = await read.receive()
-    finally:
-        transport_logger.removeHandler(error_signal)
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client(
+                "http://test/mcp", http_client=http, terminate_on_close=False, max_sse_event_size=1024
+            ) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="initialize", params={})))
+            await read.receive()
+            await write.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")))
+            notification = await read.receive()
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})))
+            reply = await read.receive()
 
+    assert isinstance(notification, SessionMessage)
+    assert isinstance(notification.message, JSONRPCNotification)
+    assert notification.message.params == {"data": "ok"}
     assert isinstance(reply, SessionMessage)
     assert isinstance(reply.message, JSONRPCResponse)
     assert reply.message.id == 2
-    assert len(gets) == 1
-    assert errors == ["GET SSE stream failed"]
+    assert len(gets) >= 2
 
 
 @pytest.mark.anyio
@@ -236,7 +224,10 @@ async def test_streamable_http_rejects_nonpositive_sse_event_limits(limit: int) 
 
 @pytest.mark.anyio
 async def test_none_disables_the_sse_event_limit() -> None:
-    """SDK-defined: opting out accepts an SSE response larger than the transport's 16 MiB default."""
+    """SDK-defined: opting out accepts a POST SSE response larger than 16 MiB.
+
+    The raw peer forces SSE for the request; the typed server can choose a JSON response instead.
+    """
     payload = "x" * (16 * 1024 * 1024 + 1)
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -262,7 +253,10 @@ async def test_none_disables_the_sse_event_limit() -> None:
 
 @pytest.mark.anyio
 async def test_configured_sse_limit_fails_an_oversized_resumption_event() -> None:
-    """SDK-defined: a resumed request gets a size error rather than waiting for an unusable event."""
+    """SDK-defined: an oversized resumption event fails its request.
+
+    The raw peer sends an oversized replay regardless of token state, which a typed server cannot force.
+    """
     seen: list[str] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -289,7 +283,8 @@ async def test_configured_sse_limit_fails_an_oversized_resumption_event() -> Non
     assert isinstance(reply, SessionMessage)
     assert isinstance(reply.message, JSONRPCError)
     assert reply.message.error.code == CONNECTION_CLOSED
-    assert reply.message.error.message == snapshot("SSE stream failed: Server-sent event exceeded the 1024 byte limit.")
+    # httpx2 owns the error detail after this prefix.
+    assert reply.message.error.message.startswith("SSE stream failed: ")
     assert seen == ["GET"]
 
 
@@ -325,8 +320,46 @@ async def test_configured_sse_limit_does_not_replay_an_oversized_reconnected_eve
     assert isinstance(reply, SessionMessage)
     assert isinstance(reply.message, JSONRPCError)
     assert reply.message.error.code == CONNECTION_CLOSED
-    assert reply.message.error.message == snapshot("SSE stream failed: Server-sent event exceeded the 1024 byte limit.")
+    # httpx2 owns the error detail after this prefix.
+    assert reply.message.error.message.startswith("SSE stream failed: ")
     assert seen == ["POST", "GET"]
+
+
+@pytest.mark.anyio
+async def test_non_sse_reconnection_response_retries_before_failing_the_request() -> None:
+    """SDK-defined: a temporary non-SSE reconnect response does not discard the request.
+
+    The raw peer forces a non-SSE GET followed by a valid replay, which the typed server cannot produce.
+    """
+    seen: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request.method)
+        if request.method == "POST":
+            return httpx2.Response(
+                200, content=b"id: evt-1\nretry: 0\n\n", headers={"content-type": "text/event-stream"}
+            )
+        assert request.headers["last-event-id"] == "evt-1"
+        if len(seen) == 2:
+            return httpx2.Response(200, content=b"temporary proxy response", headers={"content-type": "text/plain"})
+        return httpx2.Response(
+            200,
+            content=b'data: {"jsonrpc":"2.0","id":1,"result":{}}\n\n',
+            headers={"content-type": "text/event-stream"},
+        )
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http, max_sse_event_size=1024) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={})))
+            reply = await read.receive()
+
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCResponse)
+    assert reply.message.id == 1
+    assert seen == ["POST", "GET", "GET"]
 
 
 @pytest.mark.parametrize(

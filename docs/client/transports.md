@@ -55,10 +55,11 @@ Pass `max_sse_event_size` when a server sends a large tool result or notificatio
 ```
 
 The default is 16 MiB per event, measured in bytes before the event is parsed. The limit applies to
-POST responses, the GET stream, and resumed streams. If an event exceeds it, the request fails with
-an error naming the limit. Set `max_sse_event_size=None` to disable the cap when you trust the server
-and need larger events. JSON responses are unaffected. If you use `ClientSessionGroup`, set the same
-option on `StreamableHttpParameters`.
+POST responses, the GET stream, and resumed streams. An oversized event in a POST response or resumed
+stream fails that request with an error naming the limit. On the background GET stream, the client logs
+the error and retries the stream. Set `max_sse_event_size=None` to disable the cap when you trust the
+server and need larger events. JSON responses are unaffected. If you use `ClientSessionGroup`, set the
+same option on `StreamableHttpParameters`.
 
 !!! warning
     `streamable_http_client` used to take `headers=` and `timeout=` directly. It does not any more:
