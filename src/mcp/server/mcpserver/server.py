@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, cast, overload
 
 import anyio
@@ -100,6 +100,7 @@ from mcp.server.streamable_http_manager import (
 )
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
+from mcp.shared.dispatcher import Dispatcher
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
 
@@ -266,6 +267,12 @@ class MCPServer(Generic[LifespanResultT]):
         for extension in extensions or ():
             self._apply_extension(extension)
         self._install_extension_interceptor()
+
+    async def __mcp_client_connect__(
+        self, exit_stack: AsyncExitStack, mode: str, raise_exceptions: bool
+    ) -> Dispatcher[Any]:
+        """Connect a client to this server without a network transport."""
+        return await self._lowlevel_server.__mcp_client_connect__(exit_stack, mode, raise_exceptions)
 
     @property
     def name(self) -> str:

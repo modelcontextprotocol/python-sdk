@@ -10,6 +10,7 @@ resolution-markers = [
 [manifest]
 members = [
     "mcp",
+    "mcp-client",
     "mcp-everything-server",
     "mcp-example-stories",
     "mcp-simple-auth",
@@ -1025,12 +1026,12 @@ dependencies = [
     { name = "anyio" },
     { name = "httpx2" },
     { name = "jsonschema" },
+    { name = "mcp-client" },
     { name = "mcp-types" },
     { name = "opentelemetry-api" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "python-multipart" },
-    { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "sse-starlette" },
     { name = "starlette" },
     { name = "typing-extensions" },
@@ -1090,13 +1091,13 @@ requires-dist = [
     { name = "anyio", marker = "python_full_version >= '3.14'", specifier = ">=4.10" },
     { name = "httpx2", specifier = ">=2.5.0" },
     { name = "jsonschema", specifier = ">=4.20.0" },
+    { name = "mcp-client", editable = "src/mcp-client" },
     { name = "mcp-types", editable = "src/mcp-types" },
     { name = "opentelemetry-api", specifier = ">=1.28.0" },
     { name = "pydantic", specifier = ">=2.12.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1" },
     { name = "python-dotenv", marker = "extra == 'cli'", specifier = ">=1.0.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
-    { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=311" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.9.4" },
     { name = "sse-starlette", specifier = ">=3.0.0" },
     { name = "starlette", marker = "python_full_version < '3.14'", specifier = ">=0.27" },
@@ -1140,6 +1141,35 @@ docs = [
     { name = "zensical", specifier = "==0.0.50" },
 ]
 translate = [{ name = "anthropic", specifier = ">=0.121.0" }]
+
+[[package]]
+name = "mcp-client"
+source = { editable = "src/mcp-client" }
+dependencies = [
+    { name = "anyio" },
+    { name = "httpx2" },
+    { name = "jsonschema" },
+    { name = "mcp-types" },
+    { name = "opentelemetry-api" },
+    { name = "pydantic" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
+    { name = "typing-extensions" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", marker = "python_full_version < '3.14'", specifier = ">=4.9" },
+    { name = "anyio", marker = "python_full_version >= '3.14'", specifier = ">=4.10" },
+    { name = "httpx2", specifier = ">=2.5.0" },
+    { name = "jsonschema", specifier = ">=4.20.0" },
+    { name = "mcp-types", editable = "src/mcp-types" },
+    { name = "opentelemetry-api", specifier = ">=1.28.0" },
+    { name = "pydantic", specifier = ">=2.12.0" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1" },
+    { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=311" },
+    { name = "typing-extensions", specifier = ">=4.13.0" },
+]
 
 [[package]]
 name = "mcp-everything-server"

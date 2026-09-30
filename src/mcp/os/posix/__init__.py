@@ -1,1 +1,5 @@
-"""POSIX-specific utilities for MCP."""
+from mcp_client.os.posix import (
+    utilities as utilities,
+)
+
+__all__ = []

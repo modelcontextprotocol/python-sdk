@@ -1,5 +1,8 @@
-"""Request context for MCP client handlers."""
+import sys
 
-from mcp.client.session import ClientRequestContext
+import mcp_client.client.context as _implementation
+from mcp_client.client.context import (
+    ClientRequestContext as ClientRequestContext,
+)
 
-__all__ = ["ClientRequestContext"]
+sys.modules[__name__] = _implementation

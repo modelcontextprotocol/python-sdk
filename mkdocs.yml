@@ -192,7 +192,7 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [src, src/mcp-types]
+          paths: [src, src/mcp-client, src/mcp-types]
           # Zensical renders pages in undefined (filesystem-dependent) order
           # against one shared griffe collection, so a cross-package re-export
           # (`mcp` -> `mcp_types`) resolves only if its target package happens

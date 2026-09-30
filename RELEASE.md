@@ -7,7 +7,8 @@ move; this is the mechanics.
 
 1. Change the dependency version in `pyproject.toml`. The root `mcp` project's
    runtime dependencies are dynamic and live under
-   `[tool.hatch.metadata.hooks.uv-dynamic-versioning].dependencies`.
+   `[tool.hatch.metadata.hooks.uv-dynamic-versioning].dependencies`, as do
+   `mcp-client`'s dependencies in `src/mcp-client/pyproject.toml`.
 2. Regenerate the lock with `uv lock` (or `uv lock --upgrade-package <package>`
    to move just that package's locked version). The committed `uv.lock` is a
    normal (default-strategy) resolution; the `lowest-direct` resolution that
@@ -19,8 +20,8 @@ move; this is the mechanics.
 Two branches ship, and the package version comes from the git tag
 (`uv-dynamic-versioning`). Publishing a GitHub release runs `publish-pypi.yml`
 **from the tagged commit**, so the workflow that fires is the tagged branch's
-own: a `main` tag builds and publishes two distributions (`mcp` and
-`mcp-types`, lock-stepped via `Requires-Dist: mcp-types=={{ version }}`), and a
+own: a `main` tag builds and publishes three distributions (`mcp`,
+`mcp-client`, and `mcp-types`, with exact matching-version dependencies), and a
 `v1.x` tag builds and publishes `mcp` only.
 
 | Line                         | Branch | Tag                       | GitHub release flags                  |
@@ -29,11 +30,13 @@ own: a `main` tag builds and publishes two distributions (`mcp` and
 | Maintenance (previous major) | `v1.x` | `v1.X.Y`                  | not a pre-release; **not** Latest     |
 | Pre-releases                 | `main` | `v2.X.YaN` / `bN` / `rcN` | **Pre-release** ticked, never Latest  |
 
-The `Development Status` classifier in both `pyproject.toml` files is
+The `Development Status` classifier in all three `pyproject.toml` files is
 permanently `5 - Production/Stable`; it is not bumped as part of any release.
 The `mcp-types` PyPI project carries the same trusted publisher as `mcp` (this
-repository, workflow `publish-pypi.yml`, environment `release`). For a release
-cut from `main`, if only some of the four files upload, fix the cause and
+repository, workflow `publish-pypi.yml`, environment `release`). Before the
+first `mcp-client` release, verify ownership of the existing PyPI project and
+configure that same trusted publisher for it too. For a release cut from `main`, if only some of the six files upload,
+correct the cause and
 re-run the publish job — its `skip-existing` setting makes it skip whatever
 already landed (the `v1.x` workflow publishes a single distribution and has no
 such setting).
@@ -77,7 +80,7 @@ before the tag.
    URLs (relative links don't resolve in GitHub release bodies).
 5. If a stable release turns out to be broken, yank it on PyPI and release the
    fix as the next patch version. Never delete a release from PyPI — version
-   numbers cannot be reused. Yank `mcp` and `mcp-types` together (they are one
+   numbers cannot be reused. Yank `mcp`, `mcp-client`, and `mcp-types` together (they are one
    release), and set the yank reason and the GitHub release notes to point at
    the replacement version, since yanking doesn't stop `==` pins from installing
    the broken version.
@@ -134,6 +137,6 @@ specifier that names a pre-release version, or `--pre`.
 4. Curate the release notes: what changed since the previous pre-release, what
    is known-incomplete, the install line (`pip install mcp==2.X.YbN`), and a
    link to the migration guide, with absolute URLs.
-5. If a pre-release turns out to be broken, yank both `mcp` and `mcp-types` on PyPI
+5. If a pre-release turns out to be broken, yank `mcp`, `mcp-client`, and `mcp-types` on PyPI
    and cut the next one, pointing the yank reason and the GitHub release notes
    at the replacement version.

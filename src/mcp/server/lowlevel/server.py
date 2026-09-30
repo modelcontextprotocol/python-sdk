@@ -40,11 +40,12 @@ import copy
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Generic, overload
 
+import anyio
 import mcp_types as types
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
@@ -63,7 +64,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.caching import CacheableMethod, CacheHint, validate_cache_hints
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
-from mcp.server.runner import serve_dual_era_loop
+from mcp.server.runner import modern_on_request, serve_dual_era_loop
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import (
     DEFAULT_MAX_SESSIONS,
@@ -73,7 +74,10 @@ from mcp.server.streamable_http_manager import (
 )
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
+from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
+from mcp.shared.dispatcher import Dispatcher
 from mcp.shared.exceptions import MCPDeprecationWarning
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -124,6 +128,10 @@ async def lifespan(_: Server[Any]) -> AsyncIterator[dict[str, Any]]:
 
 async def _ping_handler(ctx: ServerRequestContext[Any], params: types.RequestParams | None) -> types.EmptyResult:
     return types.EmptyResult()
+
+
+async def _no_inbound_client_notifications(_dctx: Any, _method: str, _params: Mapping[str, Any] | None) -> None:
+    """Modern in-process clients send no notifications; cancellation uses the caller's cancel scope."""
 
 
 class Server(Generic[LifespanResultT]):
@@ -688,6 +696,24 @@ class Server(Generic[LifespanResultT]):
                 "The session manager is created lazily to avoid unnecessary initialization."
             )
         return self._session_manager
+
+    async def __mcp_client_connect__(
+        self, exit_stack: AsyncExitStack, mode: str, raise_exceptions: bool
+    ) -> Dispatcher[Any]:
+        """Connect a client to this server without a network transport."""
+        if mode == "legacy":
+            from mcp.client._memory import InMemoryTransport
+
+            transport = InMemoryTransport(self, raise_exceptions=raise_exceptions)
+            read_stream, write_stream = await exit_stack.enter_async_context(transport)
+            return JSONRPCDispatcher(read_stream, write_stream)
+        lifespan_state = await exit_stack.enter_async_context(self.lifespan(self))
+        client_disp, server_disp = create_direct_dispatcher_pair(raise_handler_exceptions=raise_exceptions)
+        tg = await exit_stack.enter_async_context(anyio.create_task_group())
+        exit_stack.callback(server_disp.close)
+        on_request = modern_on_request(self, lifespan_state)
+        await tg.start(server_disp.run, on_request, _no_inbound_client_notifications)
+        return client_disp
 
     async def run(
         self,

@@ -4,7 +4,7 @@
 
 ## How requirements are declared
 
-Every runtime dependency is a `>=` floor set to the oldest version that provides what the SDK uses, with no upper bound unless a dependency's next major is known to break the SDK. The one exception is `mcp-types`, the wire-types package released in lockstep with `mcp`: each `mcp` release requires exactly its own version of it, so it is the other half of the SDK rather than an independent constraint.
+Every runtime dependency is a `>=` floor set to the oldest version that provides what the SDK uses, with no upper bound unless a dependency's next major is known to break the SDK. The exceptions are `mcp-client` and `mcp-types`, which release in lockstep with `mcp`: each `mcp` release requires exactly its own version of both, and `mcp-client` requires the matching `mcp-types`. They are parts of the SDK rather than independent constraints.
 
 ## When a floor moves
 

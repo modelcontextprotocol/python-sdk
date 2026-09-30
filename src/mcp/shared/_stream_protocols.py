@@ -1,49 +1,17 @@
-"""Stream protocols for MCP transports.
+import sys
 
-These are general-purpose protocols satisfied by both ``MemoryObjectSendStream``/
-``MemoryObjectReceiveStream`` and the context-aware wrappers in ``_context_streams``.
-"""
+import mcp_client.shared._stream_protocols as _implementation
+from mcp_client.shared._stream_protocols import (
+    ReadStream as ReadStream,
+)
+from mcp_client.shared._stream_protocols import (
+    T_co as T_co,
+)
+from mcp_client.shared._stream_protocols import (
+    T_contra as T_contra,
+)
+from mcp_client.shared._stream_protocols import (
+    WriteStream as WriteStream,
+)
 
-from __future__ import annotations
-
-from types import TracebackType
-from typing import Protocol, TypeVar
-
-from typing_extensions import Self
-
-T_co = TypeVar("T_co", covariant=True)
-T_contra = TypeVar("T_contra", contravariant=True)
-
-
-class ReadStream(Protocol[T_co]):
-    """Protocol for reading items from a stream.
-
-    Consumers that need the sender's context should use
-    ``getattr(stream, 'last_context', None)``.
-    """
-
-    async def receive(self) -> T_co: ...
-    async def aclose(self) -> None: ...
-    def __aiter__(self) -> ReadStream[T_co]: ...
-    async def __anext__(self) -> T_co: ...
-    async def __aenter__(self) -> Self: ...
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> bool | None: ...
-
-
-class WriteStream(Protocol[T_contra]):
-    """Protocol for writing items to a stream."""
-
-    async def send(self, item: T_contra, /) -> None: ...
-    async def aclose(self) -> None: ...
-    async def __aenter__(self) -> Self: ...
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> bool | None: ...
+sys.modules[__name__] = _implementation

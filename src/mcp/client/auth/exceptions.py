@@ -1,10 +1,14 @@
-class OAuthFlowError(Exception):
-    """Base exception for OAuth flow errors."""
+import sys
 
+import mcp_client.client.auth.exceptions as _implementation
+from mcp_client.client.auth.exceptions import (
+    OAuthFlowError as OAuthFlowError,
+)
+from mcp_client.client.auth.exceptions import (
+    OAuthRegistrationError as OAuthRegistrationError,
+)
+from mcp_client.client.auth.exceptions import (
+    OAuthTokenError as OAuthTokenError,
+)
 
-class OAuthTokenError(OAuthFlowError):
-    """Raised when token operations fail."""
-
-
-class OAuthRegistrationError(OAuthFlowError):
-    """Raised when client registration fails."""
+sys.modules[__name__] = _implementation
