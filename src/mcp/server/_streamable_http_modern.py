@@ -342,7 +342,12 @@ async def _mcp_param_rejection(
     plain `application/json` 400 (the spec's MUST). With no `tools/list` handler
     the catalog is undiscoverable and there is no recognized header to validate.
     """
-    if req.method != "tools/call" or app.get_request_handler("tools/list") is None:
+    if (
+        not app.mcp_param_validation
+        or req.method != "tools/call"
+        or app.get_request_handler("tools/list") is None
+    ):
+        # Opted out (#3565): skip the schema-resolving tools/list walk entirely.
         return None
     params = req.params or {}
     name = params.get("name")

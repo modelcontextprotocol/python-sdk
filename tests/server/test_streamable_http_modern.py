@@ -1222,3 +1222,42 @@ async def test_json_response_mode_still_streams_subscriptions_listen() -> None:
         "io.modelcontextprotocol/subscriptionId": 9,
         SERVER_INFO_META_KEY: {"name": "test", "version": "1.2.3"},
     }
+
+
+async def test_modern_tools_call_skips_tools_list_when_mcp_param_validation_opted_out() -> None:
+    """#3565: with `mcp_param_validation=False` an argument-bearing `tools/call` no
+    longer runs the schema-resolving `tools/list` handler before dispatch; the
+    call dispatches normally, so aggregating servers never advertise
+    `x-mcp-header` can drop the per-call listing cost without wire changes."""
+
+    list_calls = 0
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        nonlocal list_calls
+        list_calls += 1
+        return ListToolsResult(tools=[_REGION_TOOL], ttl_ms=0, cache_scope="public")
+
+    server: Server[Any] = Server(
+        "test",
+        mcp_param_validation=False,
+        on_list_tools=list_tools,
+        on_call_tool=_ok_call_tool,
+    )
+    async with _asgi_client(server) as http:
+        response = await http.post("/mcp", json=_tool_call_body({"region": "east"}), headers=_TOOL_CALL_HEADERS)
+    assert response.status_code == 200
+    assert list_calls == 0
+
+
+async def test_modern_tools_call_runs_tools_list_by_default_for_validation() -> None:
+    """The default keeps validating: an argument-bearing `tools/call` against an
+    `x-mcp-header`-advertising server still resolves the schema (and rejects a
+    missing header), so opting out is strictly opt-in."""
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post(
+            "/mcp", json=_tool_call_body({"region": "east"}), headers=_TOOL_CALL_HEADERS
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == HEADER_MISMATCH

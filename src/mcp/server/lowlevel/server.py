@@ -143,6 +143,12 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        # Set to False to skip Mcp-Param-* header validation. Validation resolves
+        # the called tool's input schema by running the full tools/list handler
+        # on every argument-bearing tools/call; servers that never advertise
+        # x-mcp-header (e.g. aggregating gateways) can opt out of that per-call
+        # cost without changing any wire behavior.
+        mcp_param_validation: bool = True,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -226,6 +232,12 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        # Set to False to skip Mcp-Param-* header validation. Validation resolves
+        # the called tool's input schema by running the full tools/list handler
+        # on every argument-bearing tools/call; servers that never advertise
+        # x-mcp-header (e.g. aggregating gateways) can opt out of that per-call
+        # cost without changing any wire behavior.
+        mcp_param_validation: bool = True,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -318,6 +330,12 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        # Set to False to skip Mcp-Param-* header validation. Validation resolves
+        # the called tool's input schema by running the full tools/list handler
+        # on every argument-bearing tools/call; servers that never advertise
+        # x-mcp-header (e.g. aggregating gateways) can opt out of that per-call
+        # cost without changing any wire behavior.
+        mcp_param_validation: bool = True,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -416,6 +434,7 @@ class Server(Generic[LifespanResultT]):
 
         self.name = name
         self.version = version
+        self.mcp_param_validation = mcp_param_validation
         self.title = title
         self.description = description
         self.instructions = instructions
