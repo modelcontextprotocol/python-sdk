@@ -13,7 +13,7 @@ from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
-from mcp.types import CallToolResult
+from mcp.types import CallToolResult, TextContent
 
 
 class SomeInputModelA(BaseModel):
@@ -876,6 +876,31 @@ def test_tool_call_result_annotated_is_structured_and_invalid():
 
     with pytest.raises(ValueError):
         meta.convert_result(func_returning_annotated_tool_call_result())
+
+
+def test_tool_call_result_annotated_is_error_skips_validation():
+    """Test that isError=True skips output schema validation.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/2429
+    """
+
+    class DivideOutput(BaseModel):
+        result: float
+
+    def func_returning_error() -> Annotated[CallToolResult, DivideOutput]:
+        return CallToolResult(
+            content=[TextContent(type="text", text="Division by zero")],
+            isError=True,
+        )
+
+    meta = func_metadata(func_returning_error)
+    assert meta.output_schema is not None
+
+    result = meta.convert_result(func_returning_error())
+    assert isinstance(result, CallToolResult)
+    assert result.isError is True
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "Division by zero"
 
 
 def test_tool_call_result_in_optional_is_rejected():
