@@ -111,3 +111,24 @@ async def test_normal_exceptions_still_return_error_result():
         assert len(result.content) == 1
         assert isinstance(result.content[0], types.TextContent)
         assert "Something went wrong" in result.content[0].text
+
+
+@pytest.mark.anyio
+async def test_mcp_error_in_tool_handler_propagates_as_jsonrpc_error():
+    """Test that McpError raised from a tool is received as a JSON-RPC error, not isError:true."""
+    mcp = FastMCP(name="McpErrorServer")
+
+    @mcp.tool(description="A tool that raises McpError")
+    async def server_fault_tool(ctx: Context[ServerSession, None]) -> str:
+        raise McpError(types.ErrorData(code=-32000, message="server fault"))
+
+    async with create_connected_server_and_client_session(mcp._mcp_server) as client_session:
+        await client_session.initialize()
+
+        # McpError should propagate as a JSON-RPC error, not CallToolResult(isError=True)
+        with pytest.raises(McpError) as exc_info:
+            await client_session.call_tool("server_fault_tool", {})
+
+        error = exc_info.value.error
+        assert error.code == -32000
+        assert error.message == "server fault"
