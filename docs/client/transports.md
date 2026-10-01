@@ -54,7 +54,7 @@ Pass `max_sse_event_size` when a server sends a large tool result or notificatio
 --8<-- "docs_src/client_transports/tutorial005.py"
 ```
 
-The default is 16 MiB per event, measured in bytes before the event is parsed. The limit applies to
+The default is 1 MiB per event, measured in bytes before the event is parsed. The limit applies to
 POST responses, the GET stream, and resumed streams. An oversized event in a POST response or resumed
 stream fails that request with an error naming the limit. On the background GET stream, the client logs
 the error and retries the stream. Set `max_sse_event_size=None` to disable the cap when you trust the

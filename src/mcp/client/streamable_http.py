@@ -58,7 +58,7 @@ LAST_EVENT_ID = "last-event-id"
 # Reconnection defaults
 DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
 MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
-DEFAULT_MAX_SSE_EVENT_SIZE = 16 * 1024 * 1024
+DEFAULT_MAX_SSE_EVENT_SIZE = 1024 * 1024
 
 
 class StreamableHTTPError(Exception):

@@ -59,8 +59,8 @@ from tests.shared.test_dispatcher import Recorder, echo_handlers
 
 
 @pytest.mark.anyio
-async def test_default_sse_limit_accepts_a_tool_result_larger_than_one_mebibyte() -> None:
-    """SDK-defined: the Streamable HTTP default accepts a large tool result sent as one POST SSE event."""
+async def test_configured_sse_limit_accepts_a_tool_result_larger_than_one_mebibyte() -> None:
+    """SDK-defined: a larger SSE limit accepts a large tool result sent as one POST SSE event."""
     payload = "x" * (2 * 1024 * 1024)
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -77,7 +77,10 @@ async def test_default_sse_limit_accepts_a_tool_result_larger_than_one_mebibyte(
         async with (
             manager.run(),
             httpx2.AsyncClient(transport=StreamingASGITransport(app)) as http,
-            Client(streamable_http_client("http://localhost/mcp", http_client=http), mode="legacy") as client,
+            Client(
+                streamable_http_client("http://localhost/mcp", http_client=http, max_sse_event_size=4 * 1024 * 1024),
+                mode="legacy",
+            ) as client,
         ):
             result = await client.call_tool("large", {})
 
@@ -85,8 +88,8 @@ async def test_default_sse_limit_accepts_a_tool_result_larger_than_one_mebibyte(
 
 
 @pytest.mark.anyio
-async def test_configured_sse_limit_fails_one_tool_call_and_keeps_the_session_usable() -> None:
-    """SDK-defined: an oversized POST SSE event fails its request once and does not poison the session."""
+async def test_default_sse_limit_fails_one_large_tool_call_and_keeps_the_session_usable() -> None:
+    """SDK-defined: the 1 MiB default rejects one oversized tool result without poisoning the session."""
     calls: list[str] = []
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -94,7 +97,7 @@ async def test_configured_sse_limit_fails_one_tool_call_and_keeps_the_session_us
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         calls.append(params.name)
-        return CallToolResult(content=[TextContent(text="x" * 2048 if params.name == "large" else "ok")])
+        return CallToolResult(content=[TextContent(text="x" * (2 * 1024 * 1024) if params.name == "large" else "ok")])
 
     manager = StreamableHTTPSessionManager(
         app=Server("bounded-result", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -105,10 +108,7 @@ async def test_configured_sse_limit_fails_one_tool_call_and_keeps_the_session_us
         async with (
             manager.run(),
             httpx2.AsyncClient(transport=StreamingASGITransport(app)) as http,
-            Client(
-                streamable_http_client("http://localhost/mcp", http_client=http, max_sse_event_size=1024),
-                mode="legacy",
-            ) as client,
+            Client(streamable_http_client("http://localhost/mcp", http_client=http), mode="legacy") as client,
         ):
             with pytest.raises(MCPError) as exc_info:
                 await client.call_tool("large", {})
@@ -224,11 +224,11 @@ async def test_streamable_http_rejects_nonpositive_sse_event_limits(limit: int) 
 
 @pytest.mark.anyio
 async def test_none_disables_the_sse_event_limit() -> None:
-    """SDK-defined: opting out accepts a POST SSE response larger than 16 MiB.
+    """SDK-defined: opting out accepts a POST SSE response larger than the 1 MiB default.
 
     The raw peer forces SSE for the request; the typed server can choose a JSON response instead.
     """
-    payload = "x" * (16 * 1024 * 1024 + 1)
+    payload = "x" * (2 * 1024 * 1024)
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         body = json.loads(request.content)
