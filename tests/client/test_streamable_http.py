@@ -175,10 +175,12 @@ async def test_oversized_get_event_reconnects_and_delivers_later_messages() -> N
         if request.method == "GET":
             gets.append(request)
             if len(gets) == 1:
-                content = b'data: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"'
+                content = b'retry: 0\n\ndata: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"'
                 content += b"x" * 2048 + b'"}}\n\n'
-            else:
+            elif len(gets) == 2:
                 content = b'data: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"ok"}}\n\n'
+            else:
+                return httpx2.Response(500)
             return httpx2.Response(200, content=content, headers={"content-type": "text/event-stream"})
         body = json.loads(request.content)
         if body.get("method") == "initialize":
