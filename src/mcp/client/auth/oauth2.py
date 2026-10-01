@@ -155,7 +155,7 @@ class OAuthContext:
 
         # If PRM provides a resource that's a valid parent, use it
         if self.protected_resource_metadata and self.protected_resource_metadata.resource:
-            prm_resource = str(self.protected_resource_metadata.resource)
+            prm_resource = self.protected_resource_metadata.resource_str
             if check_resource_allowed(requested_resource=resource, configured_resource=prm_resource):
                 resource = prm_resource
 
@@ -280,7 +280,7 @@ class OAuthClientProvider(RedirectAwareAuth):
 
     async def _validate_resource_match(self, prm: ProtectedResourceMetadata) -> None:
         """Validate that PRM resource matches the server URL per RFC 8707."""
-        prm_resource = str(prm.resource) if prm.resource else None
+        prm_resource = prm.resource_str if prm.resource else None
         if not prm_resource:
             return  # pragma: no cover
         default_resource = resource_url_from_server_url(self.context.server_url)
