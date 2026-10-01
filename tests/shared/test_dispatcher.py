@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 import anyio
+import anyio.abc
 import pytest
 from mcp_types import (
     CONNECTION_CLOSED,
@@ -571,6 +572,154 @@ async def test_a_raising_notify_intercept_is_contained_and_passes_the_frame_thro
             await server.notify("notifications/survives", None)
             await crec.notified.wait()
     assert [method for method, _ in crec.notifications] == ["notifications/survives"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("closing_side", ["client", "server"])
+@pytest.mark.parametrize("operation", ["request", "notification"])
+@pytest.mark.parametrize("swallow_cancel", [False, True])
+async def test_direct_close_joins_in_flight_handler_cleanup(
+    closing_side: str,
+    operation: str,
+    swallow_cancel: bool,
+) -> None:
+    """Closing either peer interrupts its conversation and keeps run alive until shielded handler cleanup finishes."""
+    entered = anyio.Event()
+    cleaning = anyio.Event()
+    release = anyio.Event()
+    cleaned = anyio.Event()
+    finished = anyio.Event()
+    stopped = {"client": anyio.Event(), "server": anyio.Event()}
+
+    async def handle() -> None:
+        entered.set()
+        try:
+            await anyio.sleep_forever()
+        except anyio.get_cancelled_exc_class():
+            if not swallow_cancel:
+                raise
+        finally:
+            with anyio.CancelScope(shield=True):
+                cleaning.set()
+                await release.wait()
+                cleaned.set()
+
+    async def request(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        assert method == "work"
+        await handle()
+        return {}
+
+    async def notify(ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None) -> None:
+        assert method == "work"
+        await handle()
+
+    client, server = create_direct_dispatcher_pair()
+
+    async def run(dispatcher: DirectDispatcher, side: str, *, task_status: anyio.abc.TaskStatus[None]) -> None:
+        await dispatcher.run(request, notify, task_status=task_status)
+        assert cleaned.is_set()
+        stopped[side].set()
+
+    async def call() -> None:
+        if operation == "request":
+            with pytest.raises(MCPError) as exc:
+                await client.send_raw_request("work", None)
+            assert exc.value.code == CONNECTION_CLOSED
+        else:
+            await client.notify("work", None)
+        finished.set()
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            await tg.start(run, client, "client")
+            await tg.start(run, server, "server")
+            tg.start_soon(call)
+            try:
+                await entered.wait()
+                (client if closing_side == "client" else server).close()
+                await cleaning.wait()
+                await anyio.wait_all_tasks_blocked()
+                assert not stopped[closing_side].is_set()
+                release.set()
+                await stopped[closing_side].wait()
+                await finished.wait()
+            finally:
+                release.set()
+                client.close()
+                server.close()
+    assert cleaned.is_set()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("closing_side", ["client", "server"])
+async def test_direct_close_cancels_nested_backchannel_requests(closing_side: str) -> None:
+    """Nested calls share the conversation lifetime even though both handlers execute in the originating task."""
+    entered = anyio.Event()
+    cleaned: list[str] = []
+    finished = anyio.Event()
+
+    async def outer(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        assert method == "outer"
+        try:
+            return await ctx.send_raw_request("inner", None)
+        finally:
+            cleaned.append("outer")
+
+    async def inner(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        assert method == "inner"
+        entered.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            cleaned.append("inner")
+        raise NotImplementedError
+
+    async def unused_notify(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> None:
+        raise NotImplementedError
+
+    client, server = create_direct_dispatcher_pair()
+
+    async def call() -> None:
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("outer", None)
+        assert exc.value.code == CONNECTION_CLOSED
+        finished.set()
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, inner, unused_notify)
+            await tg.start(server.run, outer, unused_notify)
+            tg.start_soon(call)
+            await entered.wait()
+            (client if closing_side == "client" else server).close()
+            await finished.wait()
+            client.close()
+            server.close()
+        assert cleaned == ["inner", "outer"]
+
+
+@pytest.mark.anyio
+async def test_direct_notification_handler_errors_are_not_mistaken_for_connection_shutdown() -> None:
+    """Shutdown drops interrupted notifications without swallowing an MCPError raised by a live handler."""
+    failure = MCPError(code=CONNECTION_CLOSED, message="handler refusal")
+
+    async def notify(ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None) -> None:
+        assert method == "example/event"
+        raise failure
+
+    with anyio.fail_after(5):
+        async with running_pair(direct_pair, server_on_notify=notify) as (client, *_):
+            with pytest.raises(MCPError) as exc:
+                await client.notify("example/event", None)
+            assert exc.value is failure
 
 
 if TYPE_CHECKING:

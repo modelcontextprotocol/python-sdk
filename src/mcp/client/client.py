@@ -71,6 +71,7 @@ from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.extension import validate_extension_identifier
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.subscriptions import event_to_notification
+from mcp.shared.transport import DispatcherTransport
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +91,12 @@ are needed onto the exit stack and hand back the ``Dispatcher`` ``ClientSession`
 ``__aenter__`` reads them for the handshake step."""
 
 
-def _connect_transport(transport: Transport) -> _Connector:
-    """Connector for the stream-backed paths (URL, user-supplied ``Transport``)."""
+def _connect_transport(transport: Transport | DispatcherTransport) -> _Connector:
+    """Enter a message transport or an explicitly dispatcher-backed connection."""
 
     async def connect(exit_stack: AsyncExitStack, _mode: ConnectMode, _raise_exceptions: bool) -> Dispatcher[Any]:
+        if isinstance(transport, DispatcherTransport):
+            return await exit_stack.enter_async_context(transport.connection)
         read_stream, write_stream = await exit_stack.enter_async_context(transport)
         return JSONRPCDispatcher(read_stream, write_stream)
 
@@ -280,12 +283,13 @@ class Client:
         ```
     """
 
-    server: Server[Any] | MCPServer | Transport | StdioServerParameters | str
+    server: Server[Any] | MCPServer | Transport | DispatcherTransport | StdioServerParameters | str
     """The MCP server to connect to.
 
     If the server is a URL string, it will be used as the URL for a `streamable_http_client` transport.
     If the server is a `StdioServerParameters`, the command is launched with `stdio_client`.
     If the server is a `Transport` instance, it will be used directly.
+    A `DispatcherTransport` explicitly supplies a dispatcher instead of streams.
     If the server is a `Server` or `MCPServer` instance, it will be connected in-process.
     """
 

@@ -6,9 +6,11 @@ import contextvars
 import sys
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
+from typing import Any
 from unittest.mock import patch
 
 import anyio
+import anyio.abc
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
@@ -40,15 +42,38 @@ from mcp import MCPDeprecationWarning, MCPError, StdioServerParameters
 from mcp.client._memory import InMemoryTransport
 from mcp.client._transport import TransportStreams
 from mcp.client.client import Client
-from mcp.client.session import ClientRequestContext
+from mcp.client.session import ClientRequestContext, ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.runtime import ServerRuntime
+from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
+from mcp.shared.dispatcher import Dispatcher
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
+from mcp.shared.transport import DispatcherTransport, TransportContext
 from tests.interaction._connect import BASE_URL, mounted_app
 
 pytestmark = pytest.mark.anyio
+
+
+@asynccontextmanager
+async def dispatcher_connection(runtime: ServerRuntime[Any]) -> AsyncIterator[Dispatcher[TransportContext]]:
+    client_dispatcher, server_dispatcher = create_direct_dispatcher_pair()
+
+    @asynccontextmanager
+    async def server_connection() -> AsyncIterator[Dispatcher[TransportContext]]:
+        try:
+            yield server_dispatcher
+        finally:
+            server_dispatcher.close()
+
+    try:
+        await runtime.connect(DispatcherTransport(server_connection()))
+        yield client_dispatcher
+    finally:
+        client_dispatcher.close()
+        server_dispatcher.close()
 
 
 @pytest.fixture
@@ -1002,3 +1027,179 @@ async def test_read_resource_auto_loop_resolves_input_required_via_callbacks() -
             contents=[TextResourceContents(uri="memory://gated", text="unlocked")],
         )
     )
+
+
+@pytest.mark.parametrize("mode", ["auto", "2026-07-28"])
+async def test_dispatcher_transport_preserves_custom_methods_payloads_and_progress(mode: str) -> None:
+    """The native entry keeps arbitrary method payloads and routes progress through the usual client API."""
+
+    class EchoParams(types.RequestParams):
+        value: dict[str, Any]
+
+    class EchoResult(types.Result):
+        value: dict[str, Any]
+
+    async def echo(ctx: ServerRequestContext, params: EchoParams) -> EchoResult:
+        assert ctx.method == "example/echo"
+        assert ctx.transport is not None
+        assert not ctx.transport.can_send_request
+        await ctx.session.report_progress(1, 2, "halfway")
+        return EchoResult(value=params.value)
+
+    server = Server("native")
+    server.add_request_handler("example/echo", EchoParams, echo)
+    payload = {"large": 2**63 + 1, "vendor/field": [None, {"label": "café"}]}
+    progress_updates: list[tuple[float, float | None, str | None]] = []
+
+    async def progress(progress: float, total: float | None, message: str | None) -> None:
+        progress_updates.append((progress, total, message))
+
+    with anyio.fail_after(5):
+        async with server.serve() as runtime:
+            async with Client(DispatcherTransport(dispatcher_connection(runtime)), mode=mode) as client:
+                result = await client.session.send_request(
+                    types.Request(method="example/echo", params=EchoParams(value=payload)),
+                    EchoResult,
+                    progress_callback=progress,
+                )
+        assert result.value == payload
+    assert progress_updates == snapshot([(1, 2, "halfway")])
+
+
+async def test_dispatcher_transport_runs_multi_round_trip_callbacks() -> None:
+    """A native connection uses the existing client callback/retry driver rather than a separate session API."""
+
+    async def handler(
+        ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+    ) -> ReadResourceResult | types.InputRequiredResult:
+        assert params.uri == "memory://native"
+        if params.input_responses:
+            answer = params.input_responses["ask"]
+            assert isinstance(answer, types.ElicitResult)
+            assert answer.content is not None
+            return ReadResourceResult(contents=[TextResourceContents(uri=params.uri, text=str(answer.content["name"]))])
+        return types.InputRequiredResult(input_requests={"ask": _name_elicitation()})
+
+    server = Server("native", on_read_resource=handler)
+
+    async def elicitation_callback(
+        context: ClientRequestContext, params: types.ElicitRequestParams
+    ) -> types.ElicitResult:
+        return types.ElicitResult(action="accept", content={"name": "Alice"})
+
+    with anyio.fail_after(5):
+        async with server.serve() as runtime:
+            async with Client(
+                DispatcherTransport(dispatcher_connection(runtime)), elicitation_callback=elicitation_callback
+            ) as client:
+                result = await client.read_resource("memory://native")
+        assert result.model_dump(by_alias=True, mode="json") == snapshot(
+            {
+                "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "native", "version": ""}},
+                "ttlMs": 0,
+                "cacheScope": "private",
+                "contents": [{"uri": "memory://native", "mimeType": None, "_meta": None, "text": "Alice"}],
+                "resultType": "complete",
+            }
+        )
+
+
+async def test_dispatcher_transport_rejects_legacy_handshake_without_stopping_runtime() -> None:
+    """The server entry is modern-only. ClientSession exposes initialize without Client's exception-group wrapping."""
+    with anyio.fail_after(5):
+        async with Server("native").serve() as runtime:
+            async with dispatcher_connection(runtime) as dispatcher, ClientSession(dispatcher=dispatcher) as session:
+                with pytest.raises(MCPError) as exc:
+                    await session.initialize()
+                assert exc.value.code == types.UNSUPPORTED_PROTOCOL_VERSION
+                assert exc.value.message == snapshot(
+                    "connection is serving the 2026-07-28 protocol; the initialize handshake is not accepted"
+                )
+            async with Client(DispatcherTransport(dispatcher_connection(runtime))) as client:
+                version = client.protocol_version
+            assert version == "2026-07-28"
+
+
+async def test_inprocess_client_exit_joins_handler_before_closing_lifespan() -> None:
+    """An in-process handler runs in its caller's task, but its resources must remain alive through cleanup."""
+    entered = anyio.Event()
+    cleaning = anyio.Event()
+    release = anyio.Event()
+    cleaned = anyio.Event()
+    stop = anyio.Event()
+    client_closed = anyio.Event()
+    lifespan_closed = anyio.Event()
+    call_finished = anyio.Event()
+
+    @asynccontextmanager
+    async def lifespan(server: MCPServer[None]) -> AsyncIterator[None]:
+        try:
+            yield None
+        finally:
+            assert cleaned.is_set()
+            lifespan_closed.set()
+
+    server = MCPServer("in-process shutdown", lifespan=lifespan)
+
+    @server.tool()
+    async def wait() -> str:
+        entered.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            with anyio.CancelScope(shield=True):
+                cleaning.set()
+                await release.wait()
+                assert not lifespan_closed.is_set()
+                cleaned.set()
+        raise NotImplementedError
+
+    async def own_client(*, task_status: anyio.abc.TaskStatus[Client]) -> None:
+        async with Client(server) as client:
+            task_status.started(client)
+            await stop.wait()
+        client_closed.set()
+
+    async def call(client: Client) -> None:
+        with pytest.raises(MCPError) as exc:
+            await client.call_tool("wait")
+        assert exc.value.code == types.CONNECTION_CLOSED
+        call_finished.set()
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            client = await tg.start(own_client)
+            tg.start_soon(call, client)
+            try:
+                await entered.wait()
+                stop.set()
+                await cleaning.wait()
+                await anyio.wait_all_tasks_blocked()
+                assert not client_closed.is_set()
+                assert not lifespan_closed.is_set()
+            finally:
+                release.set()
+            await client_closed.wait()
+            await call_finished.wait()
+        assert lifespan_closed.is_set()
+
+
+async def test_dispatcher_transport_propagates_connection_opening_failure() -> None:
+    """Client construction is lazy and a native connection opening failure reaches the caller unchanged."""
+    failure = OSError("connection unavailable")
+    opened = False
+
+    @asynccontextmanager
+    async def connection() -> AsyncIterator[Dispatcher[TransportContext]]:
+        nonlocal opened
+        opened = True
+        raise failure
+        yield
+
+    client = Client(DispatcherTransport(connection()))
+    assert not opened
+    with pytest.raises(OSError) as exc:
+        async with client:
+            raise NotImplementedError
+    assert exc.value is failure
+    assert opened

@@ -241,7 +241,11 @@ async def test_sse_client_basic_connection_mounted_app() -> None:
 async def _handle_context_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
     assert params.name in ("echo_headers", "echo_context")
     assert ctx.request is not None
-    headers_info = dict(ctx.request.headers)
+    assert ctx.transport is not None
+    assert ctx.transport.kind == "sse"
+    assert ctx.transport.headers == ctx.request.headers
+    assert ctx.transport.headers is not None
+    headers_info = dict(ctx.transport.headers)
 
     if params.name == "echo_headers":
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(headers_info))])

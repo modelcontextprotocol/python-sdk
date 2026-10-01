@@ -59,6 +59,7 @@ from mcp.server.transport_security import (
 )
 from mcp.shared._context_streams import ContextSendStream, create_context_streams
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.transport_context import TransportContext
 
 logger = logging.getLogger(__name__)
 
@@ -279,7 +280,10 @@ class SseServerTransport:
             return
 
         # Pass the ASGI scope for framework-agnostic access to request data
-        metadata = ServerMessageMetadata(request_context=request)
+        metadata = ServerMessageMetadata(
+            request_context=request,
+            transport_context=TransportContext(kind="sse", can_send_request=True, headers=request.headers),
+        )
         session_message = SessionMessage(message, metadata=metadata)
         logger.debug(f"Sending session message to writer: {session_message}")
         response = Response("Accepted", status_code=202)

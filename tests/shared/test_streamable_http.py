@@ -1410,14 +1410,18 @@ async def _handle_context_call_tool(
 ) -> CallToolResult:
     assert params.name in ("echo_headers", "echo_context")
     assert isinstance(ctx.request, Request)
+    assert ctx.transport is not None
+    assert ctx.transport.kind == "streamable-http"
+    assert ctx.transport.headers == ctx.request.headers
+    assert ctx.transport.headers is not None
 
     if params.name == "echo_headers":
-        return CallToolResult(content=[TextContent(type="text", text=json.dumps(dict(ctx.request.headers)))])
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(dict(ctx.transport.headers)))])
 
     assert params.arguments is not None
     context_data: dict[str, Any] = {
         "request_id": params.arguments.get("request_id"),
-        "headers": dict(ctx.request.headers),
+        "headers": dict(ctx.transport.headers),
         "method": ctx.request.method,
         "path": ctx.request.url.path,
         "protocol_version": ctx.protocol_version,

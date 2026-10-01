@@ -90,6 +90,7 @@ from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
 from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
+from mcp.server.runtime import ServerRuntime
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
@@ -1061,6 +1062,15 @@ class MCPServer(Generic[LifespanResultT]):
             return func
 
         return decorator
+
+    def serve(self, *, max_connections: int = 100) -> AbstractAsyncContextManager[ServerRuntime[LifespanResultT]]:
+        """Share one application lifespan across custom transport connections.
+
+        Use `await runtime.connect(transport)` inside the context for each logical
+        peer. Admission waits at `max_connections`; exiting cancels active
+        connections and closes their transports before application cleanup.
+        """
+        return self._lowlevel_server.serve(max_connections=max_connections)
 
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""

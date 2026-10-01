@@ -5,10 +5,12 @@ to support transport-specific features like resumability.
 """
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from mcp_types import JSONRPCMessage, RequestId
+
+from mcp.shared.transport_context import TransportContext
 
 ResumptionToken = str
 
@@ -50,6 +52,8 @@ class ServerMessageMetadata:
     # `TransportContext.can_send_request`); a transport that says nothing leaves
     # it True.
     can_send_request: bool = True
+    transport_context: TransportContext | None = field(default=None, kw_only=True, repr=False)
+    """Context supplied by the framing transport; omitted from repr to avoid logging request headers."""
 
 
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None

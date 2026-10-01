@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from functools import partial
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import anyio
 import anyio.abc
@@ -32,6 +32,7 @@ from mcp_types import (
     SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
     CallToolRequestParams,
+    CallToolResult,
     ClientCapabilities,
     EmptyResult,
     ErrorData,
@@ -57,6 +58,7 @@ from mcp_types.version import (
 )
 
 import mcp.server.runner
+from mcp import Client
 from mcp.server.caching import CacheHint
 from mcp.server.connection import Connection, NotifyOnlyOutbound
 from mcp.server.context import ServerRequestContext
@@ -79,8 +81,10 @@ from mcp.shared._context_streams import create_context_streams
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import MessageMetadata, SessionMessage
 from mcp.shared.peer import dump_params
+from mcp.shared.transport import TransportStreams
 from mcp.shared.transport_context import TransportContext
 
 from ..shared.conftest import jsonrpc_pair
@@ -2109,3 +2113,57 @@ async def test_dual_era_client_propagates_body_exception_unwrapped(server: SrvT)
     with pytest.raises(RuntimeError, match="boom"):
         async with dual_era_client(server):
             raise RuntimeError("boom")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["legacy", "auto", "2026-07-28"])
+async def test_run_delivers_custom_transport_context_without_overriding_protocol_rules(
+    mode: Literal["legacy", "auto", "2026-07-28"],
+) -> None:
+    """The SDK carries adapter metadata to handlers; modern protocol rules still deny server requests."""
+
+    @dataclass(kw_only=True, frozen=True)
+    class BrokerContext(TransportContext):
+        peer: str
+
+    transport_context = BrokerContext(kind="broker", can_send_request=True, peer="alice")
+
+    def build_context(metadata: MessageMetadata) -> BrokerContext:
+        return transport_context
+
+    async def inspect_context(ctx: Ctx, params: CallToolRequestParams) -> CallToolResult:
+        assert params.name == "inspect"
+        assert isinstance(ctx.transport, BrokerContext)
+        return CallToolResult(
+            content=[],
+            structured_content={"peer": ctx.transport.peer, "can_send_request": ctx.transport.can_send_request},
+        )
+
+    async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="inspect", input_schema={"type": "object"})])
+
+    app = Server("custom-transport", on_call_tool=inspect_context, on_list_tools=list_tools)
+
+    @asynccontextmanager
+    async def transport() -> AsyncIterator[TransportStreams]:
+        async with create_client_server_memory_streams() as (client_streams, server_streams):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(
+                    partial(
+                        app.run,
+                        *server_streams,
+                        app.create_initialization_options(),
+                        transport_builder=build_context,
+                    )
+                )
+                yield client_streams
+                tg.cancel_scope.cancel()
+
+    with anyio.fail_after(5):
+        async with Client(transport(), mode=mode) as client:
+            result = await client.call_tool("inspect")
+            assert result.structured_content == {
+                "peer": transport_context.peer,
+                "can_send_request": mode == "legacy",
+            }
+    assert transport_context.can_send_request is True

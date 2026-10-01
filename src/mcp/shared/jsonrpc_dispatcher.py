@@ -10,7 +10,7 @@ from __future__ import annotations
 import contextvars
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from typing import Any, Generic, Literal, cast
 
@@ -194,6 +194,8 @@ def _default_transport_builder(metadata: MessageMetadata) -> TransportContext:
     its streams.
     """
     can_send_request = metadata.can_send_request if isinstance(metadata, ServerMessageMetadata) else True
+    if isinstance(metadata, ServerMessageMetadata) and metadata.transport_context is not None:
+        return replace(metadata.transport_context, can_send_request=can_send_request)
     return TransportContext(kind="jsonrpc", can_send_request=can_send_request)
 
 
