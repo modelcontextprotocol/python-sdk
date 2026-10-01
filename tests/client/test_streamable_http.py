@@ -163,6 +163,28 @@ async def test_configured_sse_limit_accepts_a_large_get_notification() -> None:
     assert received.message.params == {"data": payload}
 
 
+class _ParkedSSEStream(httpx2.AsyncByteStream):
+    """An SSE response body that emits one frame, then parks until closed.
+
+    `opened` fires when the body is consumed; `closed` fires when httpx2 releases it.
+    """
+
+    def __init__(self, content: bytes = b": parked\n\n") -> None:
+        self.opened = anyio.Event()
+        self.closed = anyio.Event()
+        self._release = anyio.Event()
+        self._content = content
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        self.opened.set()
+        yield self._content
+        await self._release.wait()
+
+    async def aclose(self) -> None:
+        self.closed.set()
+        self._release.set()
+
+
 @pytest.mark.anyio
 async def test_oversized_get_event_reconnects_and_delivers_later_messages() -> None:
     """SDK-defined: a bad GET event does not prevent later server messages or POSTs.
@@ -177,11 +199,14 @@ async def test_oversized_get_event_reconnects_and_delivers_later_messages() -> N
             if len(gets) == 1:
                 content = b'retry: 0\n\ndata: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"'
                 content += b"x" * 2048 + b'"}}\n\n'
-            elif len(gets) == 2:
-                content = b'data: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"ok"}}\n\n'
-            else:
-                return httpx2.Response(500)
-            return httpx2.Response(200, content=content, headers={"content-type": "text/event-stream"})
+                return httpx2.Response(200, content=content, headers={"content-type": "text/event-stream"})
+            return httpx2.Response(
+                200,
+                stream=_ParkedSSEStream(
+                    b'data: {"jsonrpc":"2.0","method":"notifications/message","params":{"data":"ok"}}\n\n'
+                ),
+                headers={"content-type": "text/event-stream"},
+            )
         body = json.loads(request.content)
         if body.get("method") == "initialize":
             return httpx2.Response(
@@ -211,7 +236,7 @@ async def test_oversized_get_event_reconnects_and_delivers_later_messages() -> N
     assert isinstance(reply, SessionMessage)
     assert isinstance(reply.message, JSONRPCResponse)
     assert reply.message.id == 2
-    assert len(gets) >= 2
+    assert len(gets) == 2
 
 
 @pytest.mark.anyio
@@ -498,29 +523,6 @@ async def test_initialize_post_clears_cached_pv_header_and_unstamped_posts_read_
     assert MCP_PROTOCOL_VERSION_HEADER not in recorded[1].headers
     assert recorded[2].headers[MCP_PROTOCOL_VERSION_HEADER] == "2025-11-25"
     assert recorded[3].headers[MCP_PROTOCOL_VERSION_HEADER] == "2025-11-25"
-
-
-class _ParkedSSEStream(httpx2.AsyncByteStream):
-    """An SSE response body that emits one comment line, then parks until closed.
-
-    `opened` fires once the transport is iterating the body (the POST is truly in
-    flight); `closed` fires when httpx2 tears the body down — the observable proof
-    that an abort, not a response, ended the stream.
-    """
-
-    def __init__(self) -> None:
-        self.opened = anyio.Event()
-        self.closed = anyio.Event()
-        self._release = anyio.Event()
-
-    async def __aiter__(self) -> AsyncIterator[bytes]:
-        self.opened.set()
-        yield b": parked\n\n"
-        await self._release.wait()
-
-    async def aclose(self) -> None:
-        self.closed.set()
-        self._release.set()
 
 
 def _sse_or_ack_handler(
