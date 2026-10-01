@@ -70,6 +70,41 @@ If you already hold a connected `ClientSession` (`Client.session` is one), hand 
 
 `ClientSessionGroup` is built on `ClientSession`, not on `Client`. Each `connect_to_server` runs the classic `initialize` handshake. It never sends the `server/discover` probe described in **[Protocol versions](../protocol-versions.md)**. Every MCP server understands that handshake, so this costs you compatibility with nothing; it only means a group takes the older, slower path to a server that could do better.
 
+## Authentication
+
+When connecting to HTTP servers using `StreamableHttpParameters` or `SseServerParameters`, you can configure an authentication provider (such as an OAuth 2.0 `OAuthClientProvider` or custom `httpx2.Auth` handler) via the `auth=` parameter:
+
+```python
+import asyncio
+
+from mcp.client.auth import OAuthClientProvider
+from mcp.client.session_group import ClientSessionGroup, StreamableHttpParameters
+
+
+async def main() -> None:
+    server_auth = OAuthClientProvider(
+        server_url="https://api.example.com",
+        client_metadata=client_metadata,
+        storage=token_storage,
+        redirect_handler=redirect_handler,
+        callback_handler=callback_handler,
+    )
+
+    server_params = StreamableHttpParameters(
+        url="https://api.example.com/mcp",
+        auth=server_auth,
+    )
+
+    async with ClientSessionGroup() as group:
+        await group.connect_to_server(server_params)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Because `auth` is configured per `ServerParameters` instance, each server in the session group maintains independent authentication context, scopes, and token-refresh lifecycle. Custom headers can still be supplied alongside `auth` via `headers=`.
+
 ## Recap
 
 * `ClientSessionGroup` holds many server connections and merges their tools, resources, and prompts into one `dict` each.
