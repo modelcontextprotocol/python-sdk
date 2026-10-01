@@ -680,10 +680,14 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         message; `Context.run` makes the spawned handler inherit that context.
         """
         assert self._tg is not None
+
+        async def run() -> None:
+            await fn(*args)
+
         if sender_ctx is not None:
-            sender_ctx.run(self._tg.start_soon, fn, *args)
+            sender_ctx.run(self._tg.start_soon, run)
         else:
-            self._tg.start_soon(fn, *args)
+            self._tg.start_soon(run)
 
     def _fan_out_closed(self) -> None:
         """Wake every pending `send_raw_request` waiter with `CONNECTION_CLOSED`.
