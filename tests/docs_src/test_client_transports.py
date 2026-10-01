@@ -37,8 +37,13 @@ async def test_constructing_a_client_does_not_connect_it() -> None:
 
 
 async def test_streamable_http_configuration_lives_on_the_httpx_client() -> None:
-    """tutorial003: `streamable_http_client` takes `http_client=`; there is no `headers=` or any other HTTP knob."""
-    assert list(inspect.signature(streamable_http_client).parameters) == ["url", "http_client", "terminate_on_close"]
+    """tutorial003: HTTP settings use `http_client=`, while SSE event size is a transport setting."""
+    assert list(inspect.signature(streamable_http_client).parameters) == [
+        "url",
+        "http_client",
+        "terminate_on_close",
+        "max_sse_event_size",
+    ]
 
 
 async def test_stdio_parameters_go_straight_to_client() -> None:
