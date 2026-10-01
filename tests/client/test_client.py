@@ -157,6 +157,13 @@ def test_client_rejects_modern_protocol_version_override(app: MCPServer):
         Client(app, mode="auto", protocol_version_override=LATEST_MODERN_VERSION)
 
 
+def test_client_rejects_unknown_protocol_version_override(app: MCPServer):
+    """A `protocol_version_override` that is neither a handshake-era nor a modern version
+    is rejected with no extra hint, unlike the modern-version case above."""
+    with pytest.raises(ValueError, match=r"protocol_version_override must be one of .*got '1999-01-01'$"):
+        Client(app, mode="auto", protocol_version_override="1999-01-01")
+
+
 def test_client_rejects_protocol_version_override_with_a_version_pin_mode(app: MCPServer):
     """`protocol_version_override` has no effect once `mode` already pins a version, so it's
     rejected at construction instead of being silently ignored."""
