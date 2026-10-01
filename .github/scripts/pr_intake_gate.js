@@ -8,7 +8,8 @@
 // re-evaluates — and reopens — the PR when the description is edited or the
 // author is assigned to the issue. A triage+ user reopening the PR, removing
 // the label, or adding `bypass-issue-check` overrides it, and the override
-// sticks.
+// sticks. A PR that comes back this way also gets a comment asking the review
+// bot for a review, since it doesn't act on `reopened` by itself.
 //
 // Everything that writes goes through mutate(); when the workflow passes
 // ENFORCE=false (its kill switch) the run only logs what it would have done.
@@ -20,6 +21,10 @@ const OPEN_LABEL = 'help wanted'; // issue label that waives assignment
 const MARKER = '<!-- require-linked-issue -->';
 const BOT_LOGIN = 'github-actions[bot]';
 const MAX_ISSUES = 5;
+// cubic starts on `opened` and abandons the run when the gate closes the PR
+// seconds later; it ignores `reopened`, so a PR the gate lets back in would
+// otherwise wait for its next push to be reviewed.
+const REVIEW_REQUEST = '@cubic-dev-ai review this PR';
 
 module.exports = async function run({ github, context, core }) {
   const { owner, repo } = context.repo;
@@ -115,6 +120,8 @@ module.exports = async function run({ github, context, core }) {
       if (gated) {
         await removeLabel(prNumber, LABEL);
         await deleteGateComment(prNumber);
+        // Not for drafts: cubic picks those up itself on ready_for_review.
+        if (!pr.draft) await requestReview(prNumber);
       }
     }
 
@@ -296,6 +303,12 @@ module.exports = async function run({ github, context, core }) {
     } else if (existing.body !== body) {
       await mutate(`update the gate comment on PR #${prNumber}`, () => github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body }));
     }
+  }
+
+  // Runs once per return: the caller only gets here while the PR still counts
+  // as gate-closed, and it has just removed the label that says so.
+  async function requestReview(prNumber) {
+    await mutate(`request a review on PR #${prNumber}`, () => github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: REVIEW_REQUEST }));
   }
 
   async function deleteGateComment(prNumber) {
