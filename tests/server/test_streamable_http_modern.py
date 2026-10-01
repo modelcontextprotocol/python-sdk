@@ -1139,8 +1139,9 @@ async def test_modern_tools_call_logs_a_handler_raised_validation_error_loudly(
 
 
 async def test_modern_post_with_deeply_nested_body_is_parse_error_not_a_crash() -> None:
-    """Deep nesting makes json.loads raise RecursionError; still an unparseable body: 400 + PARSE_ERROR."""
-    body = b"[" * 100_000 + b"]" * 100_000
+    """Unterminated deep nesting makes json.loads raise RecursionError or, where the stack is deep enough
+    to reach the end of input, JSONDecodeError; an unparseable body either way: 400 + PARSE_ERROR."""
+    body = b"[" * 100_000
     async with _asgi_client(_x_mcp_server()) as http:
         response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
     assert response.status_code == 400
