@@ -4,8 +4,8 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, cast
 
 from mcp_types import ClientCapabilities, InputRequiredResult, InputResponseRequestParams, InputResponses, LoggingLevel
-from pydantic import AnyUrl, BaseModel
-from typing_extensions import deprecated
+from pydantic import AnyUrl, BaseModel, ModelWrapValidatorHandler, model_validator
+from typing_extensions import Self, deprecated
 
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import (
@@ -83,6 +83,13 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         self._mcp_server = mcp_server
         self._input_params = input_params
         self._subscriptions = subscriptions
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _keep_instance(cls, value: Any, handler: ModelWrapValidatorHandler[Self]) -> Self:
+        """Validate an existing `Context` to itself. `Context[T]` is a separate class at runtime, so
+        pydantic would otherwise rebuild an instance of plain `Context` without its request state."""
+        return cast(Self, value) if isinstance(value, Context) else handler(value)
 
     @property
     def mcp_server(self) -> MCPServer:
