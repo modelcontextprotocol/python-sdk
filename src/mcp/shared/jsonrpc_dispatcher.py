@@ -38,6 +38,7 @@ from typing_extensions import TypeVar
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared._otel import inject_trace_context, otel_span
+from mcp.shared._request_clock import request_clock
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import (
     CallOptions,
@@ -404,12 +405,13 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 # never started; past this point a cancelled write counts as issued.
                 await anyio.lowlevel.checkpoint_if_cancelled()
                 request_write_started = True
-                try:
-                    await self._write(msg, plan.metadata)
-                except (anyio.BrokenResourceError, anyio.ClosedResourceError):
-                    # Transport tore down before run() noticed EOF; surface the documented contract.
-                    raise MCPError(code=CONNECTION_CLOSED, message="Connection closed") from None
-                with anyio.fail_after(opts.get("timeout")):
+                with request_clock(opts.get("timeout")) as clock:
+                    try:
+                        await self._write(msg, plan.metadata)
+                    except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                        # Transport tore down before run() noticed EOF; surface the documented contract.
+                        raise MCPError(code=CONNECTION_CLOSED, message="Connection closed") from None
+                    clock.start()
                     timeout_armed = True
                     outcome = await receive.receive()
                 if isinstance(outcome, ErrorData) and outcome is not _CLOSED_OUTCOME:
@@ -418,7 +420,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     span.set_status(StatusCode.ERROR, outcome.message)
         except TimeoutError:
             if not timeout_armed:
-                # `fail_after` arms only after the write, so this TimeoutError is the
+                # The clock starts only after the write, so this TimeoutError is the
                 # transport's own bounded send() failing - a transport error, not
                 # `opts["timeout"]` elapsing. Propagate it raw (v1 kept the write
                 # outside the timeout-catching try and did the same).
