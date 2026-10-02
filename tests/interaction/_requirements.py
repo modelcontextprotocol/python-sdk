@@ -465,6 +465,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
     ),
+    "lifecycle:mode:auto-override-skips-discover": Requirement(
+        source="sdk",
+        behavior=(
+            "A Client constructed with mode='auto' and protocol_version_override=<version> sends "
+            "initialize at that version as its first request and never sends server/discover, even "
+            "when the server would answer discover successfully."
+        ),
+        added_in="2026-07-28",
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Protocol primitives: cancellation, timeout, progress, errors, _meta
     # ═══════════════════════════════════════════════════════════════════════════
