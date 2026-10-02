@@ -231,6 +231,28 @@ async def test_ctx_progress_is_noop_when_caller_supplied_no_callback(pair_factor
 
 
 @pytest.mark.anyio
+async def test_raising_on_progress_callback_is_logged_and_request_still_succeeds(
+    pair_factory: PairFactory, caplog: pytest.LogCaptureFixture
+):
+    """A caller's `on_progress` callback that raises is logged and does not fail the request (SDK-defined)."""
+
+    async def server_on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        await ctx.progress(0.5)
+        return {"ok": True}
+
+    async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+        raise RuntimeError("progress callback boom")
+
+    async with running_pair(pair_factory, server_on_request=server_on_request) as (client, *_):
+        with anyio.fail_after(5):
+            result = await client.send_raw_request("tools/call", None, {"on_progress": on_progress})
+    assert result == {"ok": True}
+    assert "progress callback raised" in caplog.text
+
+
+@pytest.mark.anyio
 async def test_ctx_message_metadata_is_none_when_transport_attaches_nothing(pair_factory: PairFactory):
     """Plain requests carry no transport metadata, so handlers see `None`."""
     async with running_pair(pair_factory) as (client, _server, _crec, srec):

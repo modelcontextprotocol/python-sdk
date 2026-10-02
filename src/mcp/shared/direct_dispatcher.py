@@ -90,7 +90,10 @@ class _DirectDispatchContext:
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
         if self._on_progress is not None:
-            await self._on_progress(progress, total, message)
+            try:
+                await self._on_progress(progress, total, message)
+            except Exception:
+                logger.exception("progress callback raised")
 
 
 class DirectDispatcher:
