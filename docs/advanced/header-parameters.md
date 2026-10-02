@@ -12,8 +12,8 @@ The mark is one extra key in the argument's JSON Schema. On `MCPServer`, `Field`
 --8<-- "docs_src/header_parameters/tutorial001.py"
 ```
 
-* Over Streamable HTTP on `2026-07-28`, a client that has listed the tool sends `Mcp-Param-Region` alongside the body, and the server rejects a call where the two disagree.
-* A client that hasn't listed the tool yet sends no header, and the call is rejected. This SDK's `Client` then lists the tools and resends the call once, so listing first only saves a round trip.
+* Over Streamable HTTP on `2026-07-28`, a client sends `Mcp-Param-Region` alongside the body, and the server rejects a call where the two disagree.
+* A client that hasn't listed the tool has never seen the mark: it sends no header, and the call is rejected. This SDK's `Client` then lists the tools and resends the call once, so listing first only saves a round trip.
 * Every other connection ignores the annotation.
 
 Your function doesn't change: `region` still arrives as an argument.
