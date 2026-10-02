@@ -218,6 +218,7 @@ class MCPServer(Generic[LifespanResultT]):
             icons=icons,
             version=version,
             cache_hints=cache_hints,
+            get_tool_input_schema=self._tool_input_schema,
             on_list_tools=self._handle_list_tools,
             on_call_tool=self._handle_call_tool,
             on_list_resources=self._handle_list_resources,
@@ -427,6 +428,11 @@ class MCPServer(Generic[LifespanResultT]):
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
     ) -> ListToolsResult:
         return ListToolsResult(tools=await self.list_tools())
+
+    def _tool_input_schema(self, name: str) -> dict[str, Any] | None:
+        """Called before middleware runs, so it also finds a tool that middleware hides from the caller."""
+        tool = self._tool_manager.get_tool(name)
+        return None if tool is None else tool.parameters
 
     async def _handle_call_tool(
         self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams

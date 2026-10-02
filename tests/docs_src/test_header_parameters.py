@@ -2,7 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import httpx2
 import pytest
@@ -10,10 +10,11 @@ from mcp_types import HEADER_MISMATCH, ListToolsResult, PaginatedRequestParams
 from pydantic import Field, WithJsonSchema
 from starlette.applications import Starlette
 
-from docs_src.header_parameters import tutorial001, tutorial002
+from docs_src.header_parameters import tutorial001, tutorial002, tutorial003
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import MCPServer, Server, ServerRequestContext
+from mcp.server.context import CallNext, HandlerResult
 from mcp.server.mcpserver.exceptions import InvalidSignature
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
@@ -165,3 +166,35 @@ async def test_the_low_level_server_serves_an_invalid_annotation_and_a_2026_clie
     async with Client(server) as modern:
         assert modern.protocol_version == "2026-07-28"
         assert (await modern.list_tools()).tools == []
+
+
+@pytest.mark.parametrize(
+    ("server", "expected"),
+    [(tutorial002.server, ["tools/list", "tools/call"]), (tutorial003.server, ["tools/call"])],
+    ids=["tutorial002", "tutorial003"],
+)
+async def test_a_call_runs_the_list_handler_unless_the_server_looks_schemas_up_by_name(
+    server: Server, expected: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """tutorial002 and tutorial003: the client's own `tools/call`, replayed, dispatches a `tools/list` first
+    on the server without `get_tool_input_schema` and only itself on the server with it."""
+    dispatched: list[str] = []
+
+    async def record(ctx: ServerRequestContext[Any, Any], call_next: CallNext) -> HandlerResult:
+        dispatched.append(ctx.method)
+        return await call_next(ctx)
+
+    monkeypatch.setattr(server, "middleware", [*server.middleware, record])
+    async with check_stock_over_http(server.streamable_http_app()) as (http, call):
+        dispatched.clear()
+        replayed = await http.post(URL, content=call.content, headers=call.headers)
+    assert replayed.status_code == 200
+    assert dispatched == expected
+
+
+async def test_the_schema_the_lookup_returns_is_the_one_the_header_is_checked_against() -> None:
+    """tutorial003: the client's own request, replayed with a different `Mcp-Param-Region`, is a 400."""
+    async with check_stock_over_http(tutorial003.app) as (http, call):
+        tampered = await http.post(URL, content=call.content, headers={**call.headers, "mcp-param-region": "us"})
+    assert tampered.status_code == 400
+    assert tampered.json()["error"]["code"] == HEADER_MISMATCH
