@@ -136,7 +136,7 @@ You can mix and match: plain parameters next to model parameters, nested models,
 
 If a tool does I/O (calls an API, reads a file, queries a database), declare it `async def` and `await` inside it. The SDK awaits it.
 
-A plain `def` tool works too: the SDK runs it in a thread so it never blocks the server.
+A plain `def` tool works too: the SDK runs it in a thread so it never blocks the server. A long one can check whether the client is still waiting; see **[Cancellation](../handlers/cancellation.md)**.
 
 There is nothing else to configure.
 
