@@ -32,7 +32,7 @@ from mcp_types import (
     ProgressToken,
     RequestId,
 )
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import SpanKind, StatusCode
 from pydantic import ValidationError
 from typing_extensions import TypeVar
 
@@ -75,6 +75,9 @@ arm shields its write, so a wedged transport would otherwise hang it uncancellab
 
 _SHUTDOWN_WRITE_TIMEOUT: float = 1
 """Tighter bound for the shutdown-arm error write so a wedged transport can't hold session close."""
+
+_CLOSED_OUTCOME = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
+"""What a waiter receives when the connection closes; matched by identity, since a peer can send the same code."""
 
 TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext)
 
@@ -384,7 +387,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 span_name,
                 kind=SpanKind.CLIENT,
                 attributes={"mcp.method.name": method, "jsonrpc.request.id": str(request_id)},
-            ):
+            ) as span:
                 # SEP-414: inject W3C trace context.
                 inject_trace_context(out_meta)
                 if out_meta:
@@ -409,6 +412,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 with anyio.fail_after(opts.get("timeout")):
                     timeout_armed = True
                     outcome = await receive.receive()
+                if isinstance(outcome, ErrorData) and outcome is not _CLOSED_OUTCOME:
+                    code = str(outcome.code)
+                    span.set_attributes({"error.type": code, "rpc.response.status_code": code})
+                    span.set_status(StatusCode.ERROR, outcome.message)
         except TimeoutError:
             if not timeout_armed:
                 # `fail_after` arms only after the write, so this TimeoutError is the
@@ -702,10 +709,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
 
         Synchronous: callers may be inside a cancelled scope. Idempotent.
         """
-        closed = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
         for pending in self._pending.values():
             try:
-                pending.send.send_nowait(closed)
+                pending.send.send_nowait(_CLOSED_OUTCOME)
             except (anyio.WouldBlock, anyio.BrokenResourceError, anyio.ClosedResourceError):
                 pass
         self._pending.clear()
