@@ -114,7 +114,6 @@ async def test_client_is_initialized(app: MCPServer):
     async with Client(app, mode="legacy") as client:
         assert client.server_capabilities == snapshot(
             ServerCapabilities(
-                experimental={},
                 prompts=PromptsCapability(list_changed=False),
                 resources=ResourcesCapability(subscribe=False, list_changed=False),
                 tools=ToolsCapability(list_changed=False),

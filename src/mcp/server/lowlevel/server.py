@@ -545,7 +545,7 @@ class Server(Generic[LifespanResultT]):
             description=self.description,
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
-                experimental_capabilities or {},
+                experimental_capabilities,
                 extensions if extensions is not None else self.extensions,
             ),
             instructions=self.instructions,
