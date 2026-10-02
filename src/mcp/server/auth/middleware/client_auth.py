@@ -90,6 +90,8 @@ class ClientAuthenticator:
                 request_client_secret = str(raw_form_data)
 
         elif client.token_endpoint_auth_method == "none":
+            if client.client_secret:
+                raise AuthenticationError("Require valid auth method, with client secret")
             request_client_secret = None
         else:
             raise AuthenticationError(  # pragma: no cover
