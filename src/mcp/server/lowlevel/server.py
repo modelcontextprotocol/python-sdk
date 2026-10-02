@@ -432,7 +432,8 @@ class Server(Generic[LifespanResultT]):
         """Returns a tool's input schema by name, or `None` when there is nothing to validate.
 
         When set, `Mcp-Param-*` header validation on the 2026-07-28 Streamable HTTP
-        path calls this instead of running the `tools/list` handler. If it raises,
+        path calls this instead of running the `tools/list` handler. It is called
+        before middleware runs, so it is not scoped to the caller. If it raises,
         the error is logged and the call is served unvalidated.
         """
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}

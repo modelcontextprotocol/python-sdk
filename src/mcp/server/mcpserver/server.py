@@ -430,6 +430,7 @@ class MCPServer(Generic[LifespanResultT]):
         return ListToolsResult(tools=await self.list_tools())
 
     def _tool_input_schema(self, name: str) -> dict[str, Any] | None:
+        """Called before middleware runs, so it also finds a tool that middleware hides from the caller."""
         tool = self._tool_manager.get_tool(name)
         return None if tool is None else tool.parameters
 
