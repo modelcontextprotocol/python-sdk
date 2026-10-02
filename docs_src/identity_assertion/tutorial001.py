@@ -62,7 +62,7 @@ oauth = IdentityAssertionOAuthProvider(
 
 
 async def main() -> None:
-    async with httpx2.AsyncClient(auth=oauth) as http_client:
+    async with httpx2.AsyncClient(auth=oauth, timeout=httpx2.Timeout(30.0, read=300.0)) as http_client:
         transport = streamable_http_client("http://localhost:8001/mcp", http_client=http_client)
         async with Client(transport) as client:
             result = await client.list_tools()

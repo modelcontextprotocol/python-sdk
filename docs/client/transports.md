@@ -39,6 +39,8 @@ Two things to notice:
 * You own the `httpx2.AsyncClient`, so **you** enter and exit it. The SDK never closes a client it didn't create.
 * `streamable_http_client(url, http_client=...)` returns a transport, and `Client(transport)` accepts it like anything else.
 
+Keep the `timeout=`. It is the one the SDK's own client uses (30 seconds, 300 for reads); an `httpx2.AsyncClient` built without one gets `httpx2`'s 5-second default, and a tool call that runs longer than that fails with a read timeout.
+
 One TLS note: `httpx2` verifies certificates against the operating system trust store (via
 [`truststore`](https://pypi.org/project/truststore/)), not a bundled CA list. In an environment with
 no usable system CA store (some minimal containers), set the standard `SSL_CERT_FILE`/`SSL_CERT_DIR`

@@ -182,7 +182,9 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
                 # server origin and relative paths like "/mcp" resolve.
                 parts = urlsplit(url)
                 base = f"{parts.scheme}://{parts.netloc}"
-                http = await stack.enter_async_context(httpx2.AsyncClient(base_url=base))
+                http = await stack.enter_async_context(
+                    httpx2.AsyncClient(base_url=base, timeout=httpx2.Timeout(30.0, read=300.0))
+                )
                 make = targets
                 if build_auth is not None:
                     http.auth = build_auth(http)
