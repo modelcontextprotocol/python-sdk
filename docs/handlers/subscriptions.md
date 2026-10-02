@@ -74,26 +74,27 @@ Entering `client.listen(...)` sends the request and waits for your acknowledgmen
 
 Publishes travel from your handler to the open streams over a `SubscriptionBus`. The default is in-memory: one process, every stream in it. That is the right answer until you run replicas behind a load balancer, because then a client's stream is pinned to one replica, and a publish on another replica has to reach it.
 
-With the default bus, it doesn't:
+With the default bus it can't, because every replica has its own:
 
 ```mermaid
-sequenceDiagram
-    participant C as Client
-    participant LB as Load balancer
-    participant A as Replica A
-    participant B as Replica B
-    Note over LB: any request,<br/>any replica
-    C->>A: subscriptions/listen
-    activate A
-    A-->>C: acknowledged, stream stays open
-    C->>B: tools/call
-    Note over B: ctx.notify_* publishes<br/>to B's own bus
-    B-->>C: result
-    Note over A: hears nothing,<br/>so neither does the client
-    deactivate A
+flowchart LR
+    client[Client] --> lb[Load balancer]
+    lb --> stream
+    lb ~~~~ gap
+    lb --> tool
+    subgraph B [Replica B]
+        tool[tools/call] -- publishes --> busB[(bus B)]
+    end
+    gap[(no shared bus)]
+    subgraph A [Replica A]
+        stream[listen stream] -- subscribed --> busA[(bus A)]
+    end
+    style A fill:none
+    style B fill:none
+    style gap fill:none,stroke-dasharray:4 4
 ```
 
-Nothing fails. The tool call succeeds and the stream stays silent. So behind a load balancer, pick one:
+Nothing fails: the call succeeds, and the stream stays silent. So behind a load balancer, pick one:
 
 * **You need change notifications.** Give every replica the same bus, below.
 * **You don't.** [Turn them off](#turning-it-off), so no client is promised events it will miss or holds a stream open for them.
