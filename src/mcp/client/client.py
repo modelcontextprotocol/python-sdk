@@ -41,6 +41,7 @@ from mcp_types import (
     ServerCapabilities,
 )
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+from pydantic import ValidationError
 from typing_extensions import deprecated
 
 from mcp.client._input_required import DEFAULT_INPUT_REQUIRED_MAX_ROUNDS, run_input_required_driver
@@ -787,7 +788,8 @@ class Client:
         Args:
             name: The name of the tool to call.
             arguments: Arguments to pass to the tool.
-            read_timeout_seconds: Timeout for each underlying `tools/call` round.
+            read_timeout_seconds: Timeout for each underlying `tools/call` round, and
+                for the whole re-list after a `HEADER_MISMATCH`.
             progress_callback: Callback for progress updates.
             input_responses: Responses to seed the first call with (e.g. when
                 resuming from a persisted `InputRequiredResult`).
@@ -826,8 +828,9 @@ class Client:
                     raise
                 # The spec's recovery: the tool's listed schema is missing or stale, so re-list and resend once.
                 try:
-                    await self._relist_tool(name)
-                except MCPError as relist_error:
+                    with anyio.fail_after(read_timeout_seconds):
+                        await self._relist_tool(name)
+                except (MCPError, TimeoutError, ValidationError) as relist_error:
                     raise mismatch from relist_error
                 return await send(r, s)
 

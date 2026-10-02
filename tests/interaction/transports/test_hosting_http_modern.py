@@ -42,16 +42,24 @@ from mcp_types import (
     Tool,
 )
 from mcp_types.version import LATEST_MODERN_VERSION
+from pydantic import ValidationError
+from trio.testing import MockClock
 
 from mcp import MCPError
 from mcp.client.client import Client
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
+from mcp.server.context import CallNext, HandlerResult
 from tests.interaction._connect import BASE_URL, base_headers, initialize_via_http, mounted_app
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`."""
 
 
 def _modern_headers(*, method: str, name: str | None = None) -> dict[str, str]:
@@ -775,6 +783,106 @@ async def test_modern_client_raises_the_header_mismatch_when_the_re_list_fails()
     cause = excinfo.value.__cause__
     assert isinstance(cause, MCPError)
     assert cause.error.code == METHOD_NOT_FOUND
+    assert methods == ["tools/call", "tools/list"]
+
+
+@requirement("client-transport:http:header-mismatch-recovery")
+async def test_modern_client_raises_the_header_mismatch_when_the_re_list_returns_a_malformed_page() -> None:
+    """A `tools/list` page that fails validation leaves the caller with the server's `HeaderMismatch`.
+
+    SDK-defined: a caller's `except MCPError` still sees the rejection, with the `ValidationError` as its
+    cause, and the call is not resent. The page comes from a middleware that answers without `call_next`,
+    the one place the SDK server does not validate an outgoing result.
+    """
+
+    async def malformed_listing(ctx: ServerRequestContext, call_next: CallNext) -> HandlerResult:
+        assert ctx.method == "tools/list"
+        return {"tools": "not a list"}
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        raise NotImplementedError
+
+    server = Server("malformed", on_call_tool=call_tool)
+    server.middleware.append(malformed_listing)
+
+    methods: list[str] = []
+
+    async def rewrite_mcp_name(request: httpx2.Request) -> None:
+        method = json.loads(request.content)["method"]
+        methods.append(method)
+        if method == "tools/call":
+            request.headers["mcp-name"] = "another-tool"
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    async with (
+        mounted_app(server, on_request=rewrite_mcp_name) as (http, _),
+        Client(
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+            mode=LATEST_MODERN_VERSION,
+            prior_discover=discover,
+        ) as client,
+    ):
+        with anyio.fail_after(5), pytest.raises(MCPError) as excinfo:
+            await client.call_tool("run", {"region": "us-west1"})
+
+    assert excinfo.value.error.code == HEADER_MISMATCH
+    assert isinstance(excinfo.value.__cause__, ValidationError)
+    assert methods == ["tools/call", "tools/list"]
+
+
+# The timeout also governs the rejected `tools/call`, which must be answered before the re-list can
+# wait it out, so any real-clock value is a bet against CI scheduler stalls. On trio's autojumping
+# clock time advances only when every task is blocked: the answered call cannot time out however slow
+# the runner, and once the re-list blocks the clock jumps straight to the deadline, with no real wait.
+@requirement("client-transport:http:header-mismatch-recovery")
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
+)
+async def test_modern_client_raises_the_header_mismatch_when_the_re_list_outlasts_the_read_timeout() -> None:
+    """The caller's `read_timeout_seconds` bounds the re-list, which otherwise has no timeout of its own.
+
+    SDK-defined: the server rejects the call and then never answers `tools/list`. When the timeout elapses
+    the rejection is raised with the `TimeoutError` as its cause, and the call is not resent.
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        await anyio.Event().wait()  # blocks until the abandoned request's disconnect interrupts it
+        raise NotImplementedError  # unreachable
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        raise NotImplementedError
+
+    server = Server("stalled", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    methods: list[str] = []
+
+    async def rewrite_mcp_name(request: httpx2.Request) -> None:
+        method = json.loads(request.content)["method"]
+        methods.append(method)
+        if method == "tools/call":
+            request.headers["mcp-name"] = "another-tool"
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    async with (
+        mounted_app(server, on_request=rewrite_mcp_name) as (http, _),
+        Client(
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+            mode=LATEST_MODERN_VERSION,
+            prior_discover=discover,
+        ) as client,
+    ):
+        with anyio.fail_after(5), pytest.raises(MCPError) as excinfo:
+            await client.call_tool("run", {"region": "us-west1"}, read_timeout_seconds=0.05)
+
+    assert excinfo.value.error.code == HEADER_MISMATCH
+    assert isinstance(excinfo.value.__cause__, TimeoutError)
     assert methods == ["tools/call", "tools/list"]
 
 
