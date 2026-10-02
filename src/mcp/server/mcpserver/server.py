@@ -181,7 +181,7 @@ class MCPServer(Generic[LifespanResultT]):
         resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
         request_state_security: RequestStateSecurity | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
-        subscriptions: SubscriptionBus | None = None,
+        subscriptions: SubscriptionBus | Literal[False] | None = None,
         middleware: Sequence[ServerMiddleware[Any]] | None = None,
     ):
         self._resource_security = resource_security
@@ -204,8 +204,11 @@ class MCPServer(Generic[LifespanResultT]):
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         # The subscriptions/listen fan-out seam (2026-07-28). The default bus is
         # in-process; pass an `SubscriptionBus` implementation over an external pub/sub
-        # backend to fan events out across replicas.
-        self._subscriptions: SubscriptionBus = subscriptions if subscriptions is not None else InMemorySubscriptionBus()
+        # backend to fan events out across replicas. `False` leaves `subscriptions/listen`
+        # unserved; the bus stays so `ctx.notify_*` keeps working, with nobody listening.
+        self._subscriptions: SubscriptionBus = (
+            InMemorySubscriptionBus() if subscriptions is None or subscriptions is False else subscriptions
+        )
         self._lowlevel_server = Server(
             name=name or "mcp-server",
             title=title,
@@ -222,7 +225,7 @@ class MCPServer(Generic[LifespanResultT]):
             on_list_resource_templates=self._handle_list_resource_templates,
             on_list_prompts=self._handle_list_prompts,
             on_get_prompt=self._handle_get_prompt,
-            on_subscriptions_listen=ListenHandler(self._subscriptions),
+            on_subscriptions_listen=None if subscriptions is False else ListenHandler(self._subscriptions),
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
