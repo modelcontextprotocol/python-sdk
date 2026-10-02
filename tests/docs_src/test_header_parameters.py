@@ -63,6 +63,31 @@ async def test_a_call_whose_header_and_body_disagree_is_rejected() -> None:
     assert tampered.json()["error"]["code"] == HEADER_MISMATCH
 
 
+async def test_a_client_that_has_not_listed_the_tool_is_rejected_then_lists_and_resends_once() -> None:
+    """tutorial001: the first call has no header and is a 400; after one `tools/list` it is resent with the header."""
+    app = tutorial001.mcp.streamable_http_app()
+    exchanges: list[tuple[str, str | None, int]] = []
+
+    async def record(response: httpx2.Response) -> None:
+        sent = response.request.headers
+        exchanges.append((sent["mcp-method"], sent.get("mcp-param-region"), response.status_code))
+
+    async with (
+        app.router.lifespan_context(app),
+        httpx2.ASGITransport(app) as transport,
+        httpx2.AsyncClient(transport=transport, event_hooks={"response": [record]}) as http,
+        Client(streamable_http_client(URL, http_client=http)) as client,
+    ):
+        result = await client.call_tool("check_stock", ARGUMENTS)
+    assert result.structured_content == {"result": "Dune: 3 copies in eu."}
+    assert exchanges == [
+        ("server/discover", None, 200),
+        ("tools/call", None, 400),
+        ("tools/list", None, 200),
+        ("tools/call", "eu", 200),
+    ]
+
+
 async def test_a_legacy_http_connection_ignores_the_annotation() -> None:
     """tutorial001: before 2026-07-28 the same call succeeds and carries no `Mcp-Param-*` header."""
     async with check_stock_over_http(tutorial001.mcp.streamable_http_app(), mode="legacy") as (_, call):
