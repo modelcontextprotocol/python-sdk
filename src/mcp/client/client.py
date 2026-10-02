@@ -789,7 +789,8 @@ class Client:
             name: The name of the tool to call.
             arguments: Arguments to pass to the tool.
             read_timeout_seconds: Timeout for each underlying `tools/call` round, and
-                for the whole re-list after a `HEADER_MISMATCH`.
+                for the whole re-list after a `HEADER_MISMATCH`. Defaults to this
+                client's `read_timeout_seconds`.
             progress_callback: Callback for progress updates.
             input_responses: Responses to seed the first call with (e.g. when
                 resuming from a persisted `InputRequiredResult`).
@@ -827,8 +828,9 @@ class Client:
                 if mismatch.code != HEADER_MISMATCH or self.protocol_version not in MODERN_PROTOCOL_VERSIONS:
                     raise
                 # The spec's recovery: the tool's listed schema is missing or stale, so re-list and resend once.
+                timeout = read_timeout_seconds if read_timeout_seconds is not None else self.read_timeout_seconds
                 try:
-                    with anyio.fail_after(read_timeout_seconds):
+                    with anyio.fail_after(timeout):
                         await self._relist_tool(name)
                 except (MCPError, TimeoutError, ValidationError) as relist_error:
                     raise mismatch from relist_error

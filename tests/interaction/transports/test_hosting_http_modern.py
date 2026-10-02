@@ -887,6 +887,57 @@ async def test_modern_client_raises_the_header_mismatch_when_the_re_list_outlast
 
 
 @requirement("client-transport:http:header-mismatch-recovery")
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
+)
+async def test_modern_client_bounds_the_whole_re_list_by_the_client_default_read_timeout() -> None:
+    """With no per-call timeout, `Client(read_timeout_seconds=...)` bounds the re-list as a whole, not page by page.
+
+    SDK-defined: every page of a listing whose cursors never end arrives well inside the one-second default,
+    so no single request times out. The third page is still pending when the second elapses: the rejection
+    is raised with the `TimeoutError` as its cause, and the call is not resent.
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        await anyio.sleep(0.4)  # virtual time: the clock jumps, so the pages cost no real wait
+        return ListToolsResult(tools=[], next_cursor="more", ttl_ms=0, cache_scope="public")
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        raise NotImplementedError
+
+    server = Server("endless", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    methods: list[str] = []
+
+    async def rewrite_mcp_name(request: httpx2.Request) -> None:
+        method = json.loads(request.content)["method"]
+        methods.append(method)
+        if method == "tools/call":
+            request.headers["mcp-name"] = "another-tool"
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    async with (
+        mounted_app(server, on_request=rewrite_mcp_name) as (http, _),
+        Client(
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+            mode=LATEST_MODERN_VERSION,
+            prior_discover=discover,
+            read_timeout_seconds=1,
+        ) as client,
+    ):
+        with anyio.fail_after(5), pytest.raises(MCPError) as excinfo:
+            await client.call_tool("run", {"region": "us-west1"})
+
+    assert excinfo.value.error.code == HEADER_MISMATCH
+    assert isinstance(excinfo.value.__cause__, TimeoutError)
+    assert methods == ["tools/call", "tools/list", "tools/list", "tools/list"]
+
+
+@requirement("client-transport:http:header-mismatch-recovery")
 async def test_legacy_client_raises_a_header_mismatch_error_without_re_listing_or_retrying() -> None:
     """On a pre-2026 connection a `-32020` error from a tool call is raised as it arrives.
 
