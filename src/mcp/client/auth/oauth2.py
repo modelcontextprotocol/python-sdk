@@ -43,6 +43,7 @@ from mcp.client.auth.utils import (
     validate_metadata_issuer,
 )
 from mcp.shared._httpx_utils import RedirectAwareAuth, redirect_note
+from mcp.shared._request_clock import waiting_on_a_person
 from mcp.shared.auth import (
     AuthorizationCodeResult,
     OAuthClientInformationFull,
@@ -425,10 +426,9 @@ class OAuthClientProvider(RedirectAwareAuth):
                 auth_params["prompt"] = "consent"
 
         authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
-        await self.context.redirect_handler(authorization_url)
-
-        # Wait for callback
-        result = await self.context.callback_handler()
+        with waiting_on_a_person():
+            await self.context.redirect_handler(authorization_url)
+            result = await self.context.callback_handler()
 
         if result.state is None or not secrets.compare_digest(result.state, state):
             raise OAuthFlowError(f"State parameter mismatch: {result.state} != {state}")

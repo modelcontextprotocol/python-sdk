@@ -430,6 +430,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
     ),
+    "lifecycle:discover:fallback-silence": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/stdio#backward-compatibility",
+        behavior=(
+            "When server/discover goes unanswered for the probe deadline, an auto-negotiating client falls "
+            "back to the legacy initialize handshake."
+        ),
+        added_in="2026-07-28",
+        note="The spec states the timeout rule for stdio only; the SDK applies it on every transport.",
+    ),
     "lifecycle:discover:network-error-raises": Requirement(
         source="sdk",
         behavior=(
@@ -3823,6 +3832,25 @@ REQUIREMENTS: dict[str, Requirement] = {
     "client-auth:invalid-grant-clears-tokens": Requirement(
         source="sdk",
         behavior="An invalid-grant error during authorization invalidates only the stored tokens.",
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:login-time:not-counted": Requirement(
+        source="issue:#3601",
+        behavior=(
+            "The time OAuthClientProvider spends awaiting redirect_handler and callback_handler does not count "
+            "against the timeout of the request that was challenged; afterwards the timeout resumes with the "
+            "budget that was left. The provider's own HTTP calls do count."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:login-time:other-requests-keep-counting": Requirement(
+        source="sdk",
+        behavior=(
+            "A login suspends the timeout of the challenged request only: a request queued behind it in the "
+            "provider still times out on its own clock."
+        ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
