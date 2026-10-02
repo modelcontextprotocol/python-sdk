@@ -143,6 +143,7 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        get_tool_input_schema: Callable[[str], Mapping[str, Any] | None] | None = None,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -226,6 +227,7 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        get_tool_input_schema: Callable[[str], Mapping[str, Any] | None] | None = None,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -318,6 +320,7 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        get_tool_input_schema: Callable[[str], Mapping[str, Any] | None] | None = None,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -425,6 +428,13 @@ class Server(Generic[LifespanResultT]):
         # after the handler returns; fields the handler set explicitly win.
         self.cache_hints: dict[str, CacheHint] = validate_cache_hints(cache_hints)
         self.lifespan = lifespan
+        self.get_tool_input_schema = get_tool_input_schema
+        """Returns a tool's input schema by name, or `None` when there is nothing to validate.
+
+        When set, `Mcp-Param-*` header validation on the 2026-07-28 Streamable HTTP
+        path calls this instead of running the `tools/list` handler. If it raises,
+        the error is logged and the call is served unvalidated.
+        """
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._session_manager: StreamableHTTPSessionManager | None = None

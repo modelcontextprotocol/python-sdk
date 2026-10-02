@@ -37,11 +37,23 @@ There you write `input_schema` by hand, so the key goes straight in:
 
 * Nothing checks the annotation for you: an invalid one is served, and `2026-07-28` clients leave the tool out of their listing.
 
+### Schemas by name
+
+To check the header, the SDK needs the tool's input schema before it dispatches the call. Without `get_tool_input_schema` it gets it by running your `on_list_tools` handler on every call that carries arguments, whether or not any tool is marked.
+
+```python title="server.py" hl_lines="26 39-41 48"
+--8<-- "docs_src/header_parameters/tutorial003.py"
+```
+
+* Pass the function to answer from what you already have.
+* Return `None` for a tool with nothing to check.
+
 ## Recap
 
 * `x-mcp-header` on a tool argument makes `2026-07-28` clients repeat it as an `Mcp-Param-*` HTTP header.
 * The server rejects a call whose header and body disagree.
 * Only `str`, `int` and `bool` arguments can be marked. `MCPServer` raises `InvalidSignature` for anything else.
 * The low-level `Server` checks nothing, and clients drop a tool whose annotation is invalid.
+* `get_tool_input_schema` keeps the low-level `Server` from running `on_list_tools` on every call.
 
 The rest of the hand-written `Server` API is **[The low-level Server](low-level-server.md)**.
