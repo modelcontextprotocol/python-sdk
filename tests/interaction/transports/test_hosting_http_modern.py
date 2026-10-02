@@ -520,20 +520,26 @@ async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() 
     )
 
 
-@requirement("client-transport:http:custom-param-headers")
-async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> None:
-    """A `tools/call` for a tool the client never listed carries no `Mcp-Param-*` headers.
+def _method_and_param_headers(request: httpx2.Request) -> tuple[str, dict[str, str]]:
+    """A POST's JSON-RPC method and the `Mcp-Param-*` headers it carries."""
+    param_headers = {k: v for k, v in request.headers.items() if k.startswith("mcp-param-")}
+    return json.loads(request.content)["method"], param_headers
 
-    The spec lets a client that lacks the tool's `inputSchema` send the request without custom headers.
-    The call is made with no prior `list_tools`, so the first `tools/call` POST -- captured before the
-    implicit output-schema `list_tools` runs -- has no cached annotations and emits no `Mcp-Param-*` header.
-    The server validates `Mcp-Param-*` against its own catalog and rejects as the spec's scenario table
-    requires for an omitted header (the relist-and-retry recovery is a SHOULD the client does not implement yet).
+
+@requirement("client-transport:http:custom-param-headers")
+@requirement("client-transport:http:header-mismatch-recovery")
+async def test_modern_client_re_lists_and_retries_a_call_rejected_for_an_unlisted_tool() -> None:
+    """A `tools/call` for a tool the client never listed succeeds after one re-list and one retry.
+
+    Spec-mandated (a SHOULD). With no cached annotations the first `tools/call` carries no `Mcp-Param-*`
+    header, and the server rejects it as the spec's scenario table requires for an omitted header. The
+    client then calls `tools/list` and resends the call with the header the schema asks for. Asserted at
+    the wire because the client surfaces neither the rejection nor the outgoing headers.
     """
-    requests: list[httpx2.Request] = []
+    wire: list[tuple[str, dict[str, str]]] = []
 
     async def on_request(request: httpx2.Request) -> None:
-        requests.append(request)
+        wire.append(_method_and_param_headers(request))
 
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
@@ -548,13 +554,258 @@ async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> No
                 prior_discover=discover,
             ) as client,
         ):
-            with pytest.raises(MCPError) as excinfo:  # pragma: no branch
-                await client.call_tool("run", {"region": "us-west1"})
+            result = await client.call_tool("run", {"region": "us-west1"})
+
+    assert result.content == [TextContent(text="ok")]
+    assert wire == snapshot([("tools/call", {}), ("tools/list", {}), ("tools/call", {"mcp-param-region": "us-west1"})])
+
+
+@requirement("client-transport:http:header-mismatch-recovery")
+async def test_modern_client_re_lists_and_retries_when_a_listed_tool_gains_a_header_annotation() -> None:
+    """A tool whose schema gains an `x-mcp-header` annotation after it was listed is still called successfully.
+
+    Spec-mandated (a SHOULD). The stale listing mirrors nothing, so the server rejects the call; the re-list
+    replaces the listing the client had cached, and the retry carries the header. The final `list_tools` is
+    served from that cache, within the server's TTL, and returns the new schema without a request.
+    """
+    plain = {"type": "object", "properties": {"a": {"type": "string"}}}
+    annotated = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "Region"}}}
+    schemas = [plain]
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        tool = Tool(name="run", input_schema=schemas[-1])
+        return ListToolsResult(tools=[tool], ttl_ms=60_000, cache_scope="public")
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    server = Server("drift", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    wire: list[tuple[str, dict[str, str]]] = []
+
+    async def on_request(request: httpx2.Request) -> None:
+        wire.append(_method_and_param_headers(request))
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(server, on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=discover,
+            ) as client,
+        ):
+            await client.list_tools()
+            schemas.append(annotated)
+            result = await client.call_tool("run", {"a": "x"})
+            relisted = await client.list_tools()
+
+    assert result.content == [TextContent(text="ok")]
+    assert [tool.input_schema for tool in relisted.tools] == [annotated]
+    assert wire == snapshot(
+        [("tools/list", {}), ("tools/call", {}), ("tools/list", {}), ("tools/call", {"mcp-param-region": "x"})]
+    )
+
+
+@requirement("client-transport:http:header-mismatch-recovery")
+async def test_modern_client_raises_a_header_mismatch_that_survives_the_retry() -> None:
+    """A `HeaderMismatch` that a re-list does not cure is raised after exactly one retry.
+
+    Spec-mandated for the single retry. An intermediary that strips `Mcp-Param-*` headers makes every
+    `tools/call` a mismatch, so the client re-lists, resends once with the header, and then raises the
+    server's rejection instead of trying again.
+    """
+    wire: list[tuple[str, dict[str, str]]] = []
+
+    async def strip_param_headers(request: httpx2.Request) -> None:
+        wire.append(_method_and_param_headers(request))
+        request.headers.pop("mcp-param-region", None)
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    async with (
+        mounted_app(_custom_header_server(), on_request=strip_param_headers) as (http, _),
+        Client(
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+            mode=LATEST_MODERN_VERSION,
+            prior_discover=discover,
+        ) as client,
+    ):
+        with anyio.fail_after(5), pytest.raises(MCPError) as excinfo:
+            await client.call_tool("run", {"region": "us-west1"})
 
     assert excinfo.value.error.code == HEADER_MISMATCH
-    assert len(requests) == 1
-    assert json.loads(requests[0].content)["method"] == "tools/call"
-    assert not any(k.startswith("mcp-param-") for k in requests[0].headers)
+    assert wire == snapshot([("tools/call", {}), ("tools/list", {}), ("tools/call", {"mcp-param-region": "us-west1"})])
+
+
+@requirement("client-transport:http:header-mismatch-recovery")
+async def test_modern_client_re_list_follows_cursors_only_as_far_as_the_page_listing_the_tool() -> None:
+    """The re-list walks a paginated listing up to the page that lists the tool, and no further.
+
+    SDK-defined: the spec says to call `tools/list` for the tool's schema, and the schema of a tool on a
+    later page is only reached by following cursors. The server's handler fails on any cursor past page two.
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        if params is None or params.cursor is None:
+            other = Tool(name="other", input_schema={"type": "object"})
+            return ListToolsResult(tools=[other], next_cursor="2", ttl_ms=0, cache_scope="public")
+        assert params.cursor == "2"
+        return ListToolsResult(tools=[_CUSTOM_HEADER_TOOL], next_cursor="3", ttl_ms=0, cache_scope="public")
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    server = Server("paginated", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    requests: list[httpx2.Request] = []
+
+    async def on_request(request: httpx2.Request) -> None:
+        requests.append(request)
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(server, on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=discover,
+            ) as client,
+        ):
+            result = await client.call_tool("run", {"region": "us-west1"})
+
+    assert result.content == [TextContent(text="ok")]
+    bodies = [json.loads(request.content) for request in requests]
+    assert [(body["method"], body["params"].get("cursor")) for body in bodies] == snapshot(
+        [("tools/call", None), ("tools/list", None), ("tools/list", "2"), ("tools/call", None)]
+    )
+    assert requests[-1].headers["mcp-param-region"] == "us-west1"
+
+
+@requirement("client-transport:http:header-mismatch-recovery")
+async def test_modern_client_re_list_gives_up_after_100_pages_of_a_listing_that_never_ends() -> None:
+    """A listing whose cursors never end does not hang the recovery: the re-list stops at 100 pages.
+
+    SDK-defined cap. An intermediary that rewrites `Mcp-Name` keeps every `tools/call` a mismatch whatever
+    the catalog holds, so the client walks the listing for a tool it never reaches, resends once, and raises.
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[], next_cursor="more", ttl_ms=0, cache_scope="public")
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        raise NotImplementedError
+
+    server = Server("endless", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    methods: list[str] = []
+
+    async def rewrite_mcp_name(request: httpx2.Request) -> None:
+        method = json.loads(request.content)["method"]
+        methods.append(method)
+        if method == "tools/call":
+            request.headers["mcp-name"] = "another-tool"
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    async with (
+        mounted_app(server, on_request=rewrite_mcp_name) as (http, _),
+        Client(
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+            mode=LATEST_MODERN_VERSION,
+            prior_discover=discover,
+        ) as client,
+    ):
+        with anyio.fail_after(5), pytest.raises(MCPError) as excinfo:
+            await client.call_tool("run", {"region": "us-west1"})
+
+    assert excinfo.value.error.code == HEADER_MISMATCH
+    assert methods == ["tools/call", *["tools/list"] * 100, "tools/call"]
+
+
+@requirement("client-transport:http:header-mismatch-recovery")
+async def test_modern_client_raises_the_header_mismatch_when_the_re_list_fails() -> None:
+    """A re-list that fails leaves the caller with the server's `HeaderMismatch`, not the listing's error.
+
+    SDK-defined: `call_tool` raises what a `tools/call` returned. The server has no `tools/list` handler, so
+    the re-list is refused; the rejection is raised with that refusal as its cause and the call is not resent.
+    """
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        raise NotImplementedError
+
+    server = Server("no-listing", on_call_tool=call_tool)
+
+    methods: list[str] = []
+
+    async def rewrite_mcp_name(request: httpx2.Request) -> None:
+        method = json.loads(request.content)["method"]
+        methods.append(method)
+        if method == "tools/call":
+            request.headers["mcp-name"] = "another-tool"
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    async with (
+        mounted_app(server, on_request=rewrite_mcp_name) as (http, _),
+        Client(
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+            mode=LATEST_MODERN_VERSION,
+            prior_discover=discover,
+        ) as client,
+    ):
+        with anyio.fail_after(5), pytest.raises(MCPError) as excinfo:
+            await client.call_tool("run", {"region": "us-west1"})
+
+    assert excinfo.value.error.code == HEADER_MISMATCH
+    cause = excinfo.value.__cause__
+    assert isinstance(cause, MCPError)
+    assert cause.error.code == METHOD_NOT_FOUND
+    assert methods == ["tools/call", "tools/list"]
+
+
+@requirement("client-transport:http:header-mismatch-recovery")
+async def test_legacy_client_raises_a_header_mismatch_error_without_re_listing_or_retrying() -> None:
+    """On a pre-2026 connection a `-32020` error from a tool call is raised as it arrives.
+
+    SDK-defined: the recovery belongs to the 2026-07-28 header contract. A legacy server never validates
+    `Mcp-Param-*` headers, so the code can only come from the tool's own handler, which a resend would run twice.
+    """
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        raise MCPError(code=HEADER_MISMATCH, message="raised by the tool")
+
+    server = Server("legacy", on_call_tool=call_tool)
+
+    posted: list[str] = []
+
+    async def on_request(request: httpx2.Request) -> None:
+        if request.method == "POST":
+            posted.append(json.loads(request.content)["method"])
+
+    async with (
+        mounted_app(server, on_request=on_request) as (http, _),
+        Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="legacy") as client,
+    ):
+        with anyio.fail_after(5), pytest.raises(MCPError) as excinfo:
+            await client.call_tool("run", {"region": "us-west1"})
+
+    assert excinfo.value.error.code == HEADER_MISMATCH
+    assert posted == snapshot(["initialize", "notifications/initialized", "tools/call"])
 
 
 @requirement("client-transport:http:custom-param-headers")

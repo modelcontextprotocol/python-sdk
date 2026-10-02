@@ -3624,6 +3624,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: headers are derived from the cached tool schema at the seam.",
     ),
+    "client-transport:http:header-mismatch-recovery": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#client-behavior",
+        behavior=(
+            "When the server rejects a tools/call with HeaderMismatch, the client calls tools/list for the "
+            "tool's current inputSchema and retries the call once with the Mcp-Param-* headers that schema "
+            "asks for. A second rejection is raised to the caller."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Client.call_tool only: ClientSession.call_tool sends once and leaves the recovery to its caller.",
+    ),
     "client-transport:http:vendor-name-param-header": Requirement(
         source="sdk",
         behavior=(

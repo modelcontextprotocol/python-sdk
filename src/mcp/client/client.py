@@ -8,12 +8,13 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any, Literal, TypeVar, cast
+from typing import Any, Final, Literal, TypeVar, cast
 
 import anyio
 import anyio.lowlevel
 import mcp_types as types
 from mcp_types import (
+    HEADER_MISMATCH,
     INVALID_PARAMS,
     CacheableResult,
     CallToolResult,
@@ -78,6 +79,9 @@ ConnectMode = Literal["legacy", "auto"] | str
 """``mode=`` value: ``"legacy"`` (initialize handshake), ``"auto"`` (discover, fall back to
 initialize), or a modern protocol-version string (adopt directly). The ``str`` arm is for
 forward-compat; ``Client.__post_init__`` rejects anything outside that set at construction."""
+
+_RELIST_PAGE_CAP: Final = 100
+"""Page cap for the tools/list walk that follows a `HEADER_MISMATCH`: a paginator that never ends cannot hang a call."""
 
 _T = TypeVar("_T")
 _ResultT = TypeVar("_ResultT")
@@ -775,6 +779,11 @@ class Client:
         exceptions propagate as-is. To receive the claimed shape yourself, use
         `client.session.call_tool(..., allow_claimed=True)`.
 
+        On a 2026-07-28 connection, a call the server rejects with `HEADER_MISMATCH`
+        (this client has not listed the tool, or its input schema changed since) is
+        resent once after refetching the tool listing. A second rejection is raised,
+        and so is the first when the listing cannot be refetched.
+
         Args:
             name: The name of the tool to call.
             arguments: Arguments to pass to the tool.
@@ -795,7 +804,7 @@ class Client:
                 conform to the negotiated protocol version.
         """
 
-        async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult | Result:
+        async def send(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult | Result:
             return await self.session.call_tool(
                 name,
                 arguments,
@@ -808,6 +817,19 @@ class Client:
                 # Input rounds resolve before a claimed result, so a claim may end any round.
                 allow_claimed=True,
             )
+
+        async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult | Result:
+            try:
+                return await send(r, s)
+            except MCPError as mismatch:
+                if mismatch.code != HEADER_MISMATCH or self.protocol_version not in MODERN_PROTOCOL_VERSIONS:
+                    raise
+                # The spec's recovery: the tool's listed schema is missing or stale, so re-list and resend once.
+                try:
+                    await self._relist_tool(name)
+                except MCPError as relist_error:
+                    raise mismatch from relist_error
+                return await send(r, s)
 
         result = await self._drive_input_required(await retry(input_responses, request_state), retry)
         if isinstance(result, CallToolResult):
@@ -942,6 +964,15 @@ class Client:
                 hit, complete=hit.next_cursor is None
             ),
         )
+
+    async def _relist_tool(self, name: str) -> None:
+        """Refetch the tool listing from the server, page by page, until a page lists `name`."""
+        cursor: str | None = None
+        for _ in range(_RELIST_PAGE_CAP):
+            page = await self.list_tools(cursor=cursor, cache_mode="refresh")
+            cursor = page.next_cursor
+            if cursor is None or any(tool.name == name for tool in page.tools):
+                return
 
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:
