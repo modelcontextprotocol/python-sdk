@@ -40,7 +40,7 @@ flows — with a single subprocess test for stdio.
 ```text
 tests/interaction/
   _requirements.py      the requirements manifest (see below)
-  _helpers.py           the wire-recording transport
+  _helpers.py           the wire-recording transport and the tool_listing handler helper
   _connect.py           the transport-parametrized connection factories
   conftest.py           the connect fixture (the transport matrix)
   test_coverage.py      enforces the manifest ↔ test contract
@@ -64,6 +64,12 @@ stateless configurations), and over the legacy SSE transport the same way. A tes
 `async with connect(server, ...) as client:` and asserts the same output on every leg, because the
 transport is not supposed to change observable behaviour. Requirements that need a server-to-client
 back-channel or persisted session state are carved out of the stateless arm via `arm_exclusions`.
+
+The 2026 cells run the client's response cache in its default-on configuration. Servers stamp
+`ttlMs: 0` by default, so nothing is served from cache unless a test opts in server-side by
+authoring a positive `ttl_ms` — a test that does so and then repeats a call must expect the
+repeat to be served from cache instead of reaching the handler.
+
 Tests that are tied to one transport do not use the fixture: the wire-recording tests
 (their seam is the in-memory stream pair), the bare-`ClientSession` lifecycle tests, the
 real-clock timeout tests (the timeout machinery is transport-independent and must not race
@@ -166,10 +172,11 @@ What admits or excludes a cell:
   closes, grep for the reason string to find every cell to re-admit.
 - **`known_failures`** keep a cell in the grid but mark it as a strict xfail — the test runs and
   must fail; an unexpected pass fails the suite.
-- **`TRANSPORT_SPEC_VERSIONS`** era-locks a transport to a subset of spec versions (currently only
-  `sse` is locked to `2025-11-25`). A `(transport, version)` cell is dropped if the version is not
-  in the transport's entry; transports absent from the map serve every spec version. This is the
-  mechanism for cutting an entire transport off from a new revision (or admitting it).
+- **`TRANSPORT_SPEC_VERSIONS`** era-locks a transport to a subset of spec versions (currently
+  `sse` and `streamable-http-stateless` are locked to `2025-11-25`). A `(transport, version)`
+  cell is dropped if the version is not in the transport's entry; transports absent from the
+  map serve every spec version. This is the mechanism for cutting an entire transport off from
+  a new revision (or admitting it).
 - **`transports`** is descriptive metadata for the non-`connect` transport-specific suites under
   `transports/` and does **not** drive cell generation. Only `arm_exclusions`, `added_in`,
   `removed_in`, and `TRANSPORT_SPEC_VERSIONS` filter the grid.
@@ -177,9 +184,7 @@ What admits or excludes a cell:
   enforces that links are bidirectional and versioned: the retired entry carries `removed_in`, the
   replacement carries `added_in`.
 
-Node IDs stay `[transport]` while `len(SPEC_VERSIONS) == 1`, so today's test IDs are
-byte-identical to before the era axis existed. They become `[transport-version]` the moment a
-second version is appended to `SPEC_VERSIONS`.
+Node IDs are `[transport-version]`; with a single-member `SPEC_VERSIONS` they collapse to `[transport]`.
 
 When a new spec revision lands:
 
@@ -200,7 +205,7 @@ The shortest complete example of the conventions:
 
 ```python
 @requirement("tools:call:content:text")
-async def test_call_tool_returns_text_content() -> None:
+async def test_call_tool_returns_text_content(connect: Connect, unstamped: Unstamp) -> None:
     """Arguments reach the tool handler; its content comes back as the call result."""
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -208,13 +213,18 @@ async def test_call_tool_returns_text_content() -> None:
         assert params.arguments is not None
         return CallToolResult(content=[TextContent(text=str(params.arguments["a"] + params.arguments["b"]))])
 
-    server = Server("adder", on_call_tool=call_tool)
+    server = Server("adder", on_list_tools=tool_listing("add"), on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("add", {"a": 2, "b": 3})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="5")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="5")]))
 ```
+
+The server needs a tools/list handler even though the test never lists: `Client.call_tool`
+refreshes tools/list once per connection to validate output schemas, so a `Server` without one
+fails the call (`tool_listing` from `_helpers.py` is the one-line handler). `unstamped` strips the
+2026-era serverInfo `_meta` stamp so one expected payload holds on every cell.
 
 - **The server is defined inside the test** (or in a small fixture at the top of the file when
   several tests genuinely share it). The whole observable behaviour fits on one screen.
