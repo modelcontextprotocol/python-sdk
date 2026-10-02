@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2e9aff14d3a882c0]
   tool: 1
 ---
 # 进度 {#progress}
@@ -111,4 +111,4 @@ Imported https://example.com/b.json (2.0/2.0)
 * 调用上没有回调，`report_progress` 就什么都不做。无条件地报告即可。
 * 不知道 `total` 就省略；回调拿到的是 `None`。
 
-进度是运行中的工具展示给**用户**看的。它为**你**——运维这台服务器的人——记录的那些日志行走的是另一条通道：**[日志](logging.md)**。
+进度是给还在等待的客户端看的。客户端不再等待时，你的工具看到的是 **[取消](cancellation.md)**。

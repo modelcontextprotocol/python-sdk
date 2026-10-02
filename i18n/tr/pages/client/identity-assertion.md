@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, e7828fd2729b2c9d, a03ec26bfc678b65, 1034c653c0bcf1b0]
+  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, 7cf38181f6c99fd5, 37804d4fb36d6302, 1034c653c0bcf1b0]
   tool: 1
 ---
 # Kimlik beyanı {#identity-assertion}
@@ -65,7 +65,7 @@ Uzantı bunu şart koşmaz; bu, bilerek yapılmış daha katı bir tercihtir. Bu
 
 ### Gizli istemci {#a-confidential-client}
 
-`client_secret` zorunludur; yapıcı onsuz `ValueError` fırlatır. [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) belgesinin dayandığı IETF profili bu grant'i gizli istemcilere ayırır, SEP-990 istemcinin kimliğini doğrulamasını şart koşar ve bu SDK, paylaşılan bir gizli anahtarda ısrar ederek ikisini de uygular. `token_endpoint_auth_method`, anahtarın nereden gideceğini seçer: `client_secret_post` (varsayılan, form gövdesinde) veya `client_secret_basic` (bir HTTP Basic başlığı). Profil `private_key_jwt` yöntemine de izin verir; bu sağlayıcı onu desteklemez.
+`client_secret` zorunludur; yapıcı onsuz `ValueError` fırlatır. [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) belgesinin dayandığı IETF profili bu grant'i yalnızca gizli istemciler için önerir, [RFC 7521](https://datatracker.ietf.org/doc/html/rfc7521) ise bu politikayı yetkilendirme sunucusuna bırakır. Bu SDK iki tarafta da temkinli yorumu benimser: yerleşik yetkilendirme sunucusu paylaşılan gizli anahtarı olmayan bir istemciyi reddeder, bu sağlayıcı da bir gizli anahtarda ısrar eder. `token_endpoint_auth_method`, anahtarın nereden gideceğini seçer: `client_secret_post` (varsayılan, form gövdesinde) veya `client_secret_basic` (bir HTTP Basic başlığı). Profil `private_key_jwt` yöntemine de izin verir; bu sağlayıcı onu desteklemez.
 
 !!! tip
     `client_secret`'ı ortam değişkenlerinden veya bir gizli anahtar yöneticisinden okuyun, asla
@@ -93,6 +93,7 @@ SDK yetkilendirme sunucusunun kendisi de *olabilir*: `create_auth_routes`, yetki
 
 * `identity_assertion_enabled=True` her şeyin kapısıdır. Kapalıyken (varsayılan budur) `/token`, hook'u uygulamış olsanız bile bu grant'e `unsupported_grant_type` ile yanıt verir ve meta veri ondan söz etmez. Açıkken meta veri `jwt-bearer` grant türünü kazanır ve uzantının desteği duyurmak için kullandığı alan olan `authorization_grant_profiles_supported` içinde `urn:ietf:params:oauth:grant-profile:id-jag` değerini listeler. (Bu SDK'nın istemcisi onu hiç okumaz: tek bir issuer için hazırlanmıştır ve doğrudan sorar.)
 * **`exchange_identity_assertion`** hook'un kendisidir. O çalışmadan önce SDK istemcinin kimliğini doğrulamış, açık (public) istemcileri reddetmiş ve kaydında bu grant'in listelenmediği istemcileri reddetmiştir. Size bir `IdentityAssertionParams` gelir (ham `assertion`, istenen `scopes` ve `resource`) ve düz bir `OAuthToken` döndürürsünüz.
+* Açık istemcileri reddetmek bir spesifikasyon gereği değil, SDK politikasıdır. Yerleşik sunucu istemcilerin kimliğini yalnızca paylaşılan gizli anahtarla doğrular: `private_key_jwt` desteği yoktur ve Client ID Metadata Document'leri henüz çözümlemez ([#1801](https://github.com/modelcontextprotocol/python-sdk/issues/1801)); bu yüzden kimliği bunlardan biriyle belirlenen bir istemci bu grant'i burada kullanamaz. Farklı bir politika isteyen bir dağıtım, `create_auth_routes` fonksiyonunun döndürdüğü `/token` route'unu kendisininkiyle değiştirebilir.
 * Dinamik istemci kaydı bu grant'i koşulsuz reddeder; bu yüzden buradaki `get_client` elle hazırlanmış bir istemci sunar. Bir ID-JAG istemcisi kendi kendini kaydederek var olamaz.
 * Sınıfın yarısı retlerden oluşur. `OAuthAuthorizationServerProvider` yetkilendirme sunucusunun *tamamıdır*, bu yüzden yetkilendirme kodu akışını da ister; kullanıcılara oturum da açtıran bir sunucu onları gerçekten uygular, bunun ise tam olarak tek bir kapısı var.
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [60a9de8a0bdaa531, 317bbe7e4355cdcc, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, 266f56fb798068a4, 7c0e57030b622139, df18d7c2417a9883]
+  sections: [60a9de8a0bdaa531, 6693607ea56d8bd6, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, b8bc624a627ead9b, 2139e68e36d9e621, 7c0e57030b622139, 34ab1af2b9ab5b45]
   tool: 1
 ---
 # Subscriptions {#subscriptions}
@@ -22,7 +22,7 @@ client को इसकी खबर **subscriptions** से मिलती �
 * इसके साथी `notify_prompts_changed()` और `notify_resources_changed()` हैं।
 * कोई subscriber नहीं, तो कोई काम नहीं। खाली बैठे server पर publish करना no-op है, इसलिए आपको कभी जाँचना नहीं पड़ता कि कोई सुन रहा है या नहीं। आप बस बताते हैं कि क्या बदला।
 
-`MCPServer` आपके लिए `subscriptions/listen` serve करता है। wire की ज़िम्मेदारियाँ (पहले frame के रूप में acknowledgment, हर stream के हिसाब से filtering, हर frame पर subscription id) SDK संभालता है।
+`MCPServer` आपके लिए `subscriptions/listen` serve करता है, जब तक आप [इसे बंद न कर दें](#turning-it-off)। wire की ज़िम्मेदारियाँ (पहले frame के रूप में acknowledgment, हर stream के हिसाब से filtering, हर frame पर subscription id) SDK संभालता है।
 
 !!! check
     wire पर, जिस stream के filter में `board://sprint` का नाम था वह `complete_task` चलने के बाद ऐसा दिखता है:
@@ -79,7 +79,32 @@ middleware का पूरा contract, यह और क्या-क्या
 
 publishes आपके handler से खुले streams तक `SubscriptionBus` के ज़रिए पहुँचते हैं। default in-memory है: एक process, उसके अंदर का हर stream। यही सही जवाब है जब तक आप load balancer के पीछे replicas नहीं चलाते, क्योंकि तब client का stream एक replica से बँध जाता है, और किसी दूसरे replica पर हुए publish को उस तक पहुँचना होता है।
 
-यह जोड़ आपको implement करना है: आपके pub/sub backend के ऊपर दो methods।
+default bus के साथ वह नहीं पहुँच सकता, क्योंकि हर replica का अपना bus होता है:
+
+```mermaid
+flowchart LR
+    client[Client] --> lb[Load balancer]
+    lb --> stream
+    lb ~~~~ gap
+    lb --> tool
+    subgraph B [Replica B]
+        tool[tools/call] -- publishes --> busB[(bus B)]
+    end
+    gap[(no shared bus)]
+    subgraph A [Replica A]
+        stream[listen stream] -- subscribed --> busA[(bus A)]
+    end
+    style A fill:none
+    style B fill:none
+    style gap fill:none,stroke-dasharray:4 4
+```
+
+कुछ भी fail नहीं होता: call सफल होता है, और stream चुप रहता है। इसलिए load balancer के पीछे, इनमें से एक चुनें:
+
+* **आपको change notifications चाहिए।** हर replica को एक ही bus दें, जैसा नीचे है।
+* **आपको नहीं चाहिए।** [इन्हें बंद कर दें](#turning-it-off), ताकि किसी client से ऐसे events का वादा न हो जो उसे मिलेंगे ही नहीं, और न कोई client उनके लिए stream खुला रखे।
+
+shared bus आपको implement करना है: आपके pub/sub backend के ऊपर दो methods।
 
 ```python
 from collections.abc import Callable
@@ -128,6 +153,20 @@ async def tools_reloaded() -> None:
     await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
 
+## इसे बंद करना {#turning-it-off}
+
+जिस server का catalog कभी नहीं बदलता, उसके पास publish करने को कुछ नहीं होता। server बनाते समय ही यह बता दें:
+
+```python title="server.py" hl_lines="3"
+--8<-- "docs_src/subscriptions/tutorial007.py"
+```
+
+* `2026-07-28` client को कोई change notification advertise होता नहीं दिखता, और `subscriptions/listen` request को खुले stream की जगह *Method not found* मिलता है।
+* `ctx.notify_*` अब भी काम करता है और किसी तक नहीं पहुँचता, इसलिए आपके handlers नहीं बदलते।
+* पहले के protocol versions वाले clients को कोई फ़र्क नहीं दिखता।
+
+खुला stream ऐसी request है जो कभी पूरी नहीं होती, इसलिए यह उस host पर भी मायने रखता है जो request की अवधि के हिसाब से bill करता है।
+
 ## Low-level composition {#the-low-level-composition}
 
 low-level `Server` पर पहले से कुछ भी जुड़ा हुआ नहीं है, और वही हिस्से तीन lines में जुड़ जाते हैं:
@@ -148,5 +187,6 @@ low-level `Server` पर पहले से कुछ भी जुड़ा �
 * client वाला सिरा `async with client.listen(...)` है: उसकी कहानी *Clients* के नीचे **[Subscriptions](../client/subscriptions.md)** में है।
 * low-level `Server` पर आप वही हिस्से खुद जोड़ते हैं: एक bus, `ListenHandler(bus)`, `on_subscriptions_listen` slot।
 * scale out करने का मतलब है `SubscriptionBus` implement करना, बस दो methods, और उसे `MCPServer(subscriptions=...)` के रूप में pass करना।
+* publish करने को कुछ नहीं, या replicas के बीच कोई shared bus नहीं: `MCPServer(subscriptions=False)` कोई change notification advertise नहीं करता और कोई stream खुला नहीं रखता।
 
 यह सब serve करने वाले server को चलाना, एक replica के पीछे हो या बीस के, **[Deploy और scale](../run/deploy.md)** में है।

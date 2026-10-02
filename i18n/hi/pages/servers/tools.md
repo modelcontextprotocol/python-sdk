@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, c1115cd005b81e8f, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # Tools {#tools}
@@ -141,7 +141,7 @@ type को `Annotated` में लपेटें और एक Pydantic `Fie
 
 अगर कोई tool I/O करता है (कोई API call करता है, file पढ़ता है, database से query करता है), तो उसे `async def` declare करें और उसके अंदर `await` करें। SDK उसे await करता है।
 
-सादा `def` tool भी चलता है: SDK उसे एक thread में चलाता है ताकि वह server को कभी block न करे।
+सादा `def` tool भी चलता है: SDK उसे एक thread में चलाता है ताकि वह server को कभी block न करे। लंबा चलने वाला tool यह जाँच सकता है कि client अभी भी इंतज़ार कर रहा है या नहीं; देखें **[Cancellation](../handlers/cancellation.md)**।
 
 और कुछ configure करने को नहीं है।
 

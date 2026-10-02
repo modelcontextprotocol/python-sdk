@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 7c157764133fea1f, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 0aeca6145e7bd302]
+  sections: [9cac816674181eb0, 5619e950d206e6c8, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 991c10e47fda2636]
   tool: 1
 ---
 # Transportes del cliente {#client-transports}
@@ -44,6 +44,8 @@ Dos cosas que notar:
 * El `httpx2.AsyncClient` es tuyo, así que **tú** entras y sales de él. El SDK nunca cierra un cliente que no creó.
 * `streamable_http_client(url, http_client=...)` devuelve un transporte, y `Client(transport)` lo acepta como cualquier otra cosa.
 
+Conserva el `timeout=`. Es el que usa el propio cliente del SDK (30 segundos, 300 para las lecturas); un `httpx2.AsyncClient` construido sin uno recibe el valor por defecto de `httpx2`, de 5 segundos, y una llamada a una herramienta que dure más que eso falla con un timeout de lectura.
+
 Una nota sobre TLS: `httpx2` verifica los certificados contra el almacén de confianza del sistema operativo (mediante
 [`truststore`](https://pypi.org/project/truststore/)), no contra una lista de CA incluida. En un entorno sin
 un almacén de CA del sistema utilizable (algunos contenedores mínimos), configura las variables de entorno
@@ -51,16 +53,32 @@ estándar `SSL_CERT_FILE`/`SSL_CERT_DIR` o pasa un `verify=ssl_context` explíci
 (el contexto está en
 [`httpx` y `httpx-sse` sustituidos por `httpx2`](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)).
 
+### Eventos SSE más grandes {#larger-sse-events}
+
+Pasa `max_sse_event_size` cuando un servidor envíe un resultado de herramienta o una notificación grande en un solo evento SSE:
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+El valor por defecto es 1 MiB por evento, medido en bytes antes de analizar el evento. El límite se aplica a
+las respuestas POST, al flujo GET y a los flujos reanudados. Un evento demasiado grande en una respuesta POST o
+en un flujo reanudado hace fallar esa solicitud con un error de SSE. En el flujo GET en segundo plano, el cliente
+registra el error y reintenta el flujo. Configura `max_sse_event_size=None` para desactivar el límite cuando confíes
+en el servidor y necesites eventos más grandes. Las respuestas JSON no se ven afectadas. Si usas `ClientSessionGroup`,
+configura la misma opción en `StreamableHttpParameters`.
+
 !!! warning
     `streamable_http_client` antes aceptaba `headers=` y `timeout=` directamente. Ya no:
-    sus únicos parámetros son `url`, `http_client` y `terminate_on_close`. Usa `headers=` por
+    sus parámetros son `url`, `http_client`, `terminate_on_close` y `max_sse_event_size`. Usa `headers=` por
     costumbre y obtienes:
 
     ```text
     TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
     ```
 
-    Todo lo que tiene forma de HTTP vive ahora en el único `httpx2.AsyncClient` que pasas.
+    Los encabezados, la autenticación, los proxies y los timeouts viven en el único `httpx2.AsyncClient` que pasas.
+    `max_sse_event_size`, en cambio, se aplica a los lectores SSE del transporte MCP.
 
 !!! info
     `httpx2` conserva la API conocida de `httpx`, así que si conoces `httpx` ya sabes cómo hacer la autenticación,
@@ -137,6 +155,7 @@ Un **transporte** es cualquier gestor de contexto asíncrono que produce un par 
 
 * `Client("http://.../mcp")` (una URL) se conecta por Streamable HTTP, el transporte de producción.
 * Los encabezados, la autenticación, los proxies y los timeouts van en un `httpx2.AsyncClient` que pasas a `streamable_http_client(url, http_client=...)`. No existe el argumento nombrado `headers=`.
+* Usa `streamable_http_client(url, max_sse_event_size=...)` para cambiar el límite en bytes de cada evento SSE.
 * Las redirecciones se siguen solo dentro del propio origen de la URL (un `307`/`308` de barra final), más `http`→`https` en el mismo host. Cualquier otra cosa falla con `Redirect to … not followed`; configura la URL final.
 * stdio es `Client(StdioServerParameters(...))`. Envuélvelo tú mismo en `stdio_client(...)` solo para redirigir el stderr del proceso hijo.
 * El subproceso recibe un entorno con lista de permitidos, no el tuyo; `env=` se añade a él.

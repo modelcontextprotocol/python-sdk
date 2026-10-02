@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, fcf984fa0615ed11, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, cdc6d86a4dae8a34]
   tool: 1
 ---
 # Dépannage {#troubleshooting}
@@ -128,6 +128,14 @@ Ajoutez les parenthèses. `@mcp.resource(...)` et `@mcp.prompt()` disent la mêm
     connecté avec zéro outil, présente donc cette forme : lancez vous-même `python server.py` et
     lisez le traceback. Un vérificateur de types l’attrape aussi : une fonction n’est pas un
     `name=` valide.
+
+## `InvalidSignature: Tool '<name>' has an invalid x-mcp-header annotation: <reason>` {#invalidsignature-tool-name-has-an-invalid-x-mcp-header-annotation-reason}
+
+Un argument d’outil est marqué avec `x-mcp-header` d’une manière que la spécification n’autorise pas, et `<reason>` indique quelle règle il enfreint. Les clients en version `2026-07-28` écarteraient un tel outil de leur liste, le SDK refuse donc de l’enregistrer.
+
+Seuls les arguments `str`, `int` et `bool` peuvent être marqués, et `str | None` n’est aucun des trois. **[Paramètres d’en-tête](advanced/header-parameters.md)** montre comment écrire un argument optionnel.
+
+Comme l’entrée précédente, cette exception est levée à l’**import** du module, avant qu’un client ne se connecte.
 
 ## `Tool already exists: <name>` {#tool-already-exists-name}
 
@@ -428,6 +436,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `ExceptionGroup: unhandled errors in a TaskGroup` n’est jamais l’erreur. Lisez la **dernière ligne** ; intercepter `MCPError` *à l’intérieur* du bloc `async with Client(...)` évite entièrement l’enveloppe.
 * `call_tool` ne lève pas d’exception pour un outil qui échoue. `Error executing tool ...` et `Unknown tool: ...` sont des résultats : vérifiez `result.is_error`. L’absence de message après le nom de l’outil signifie qu’il a planté, et le traceback est dans le journal du serveur.
 * `Client must be used within an async context manager` -> utilisez `async with`. `Use @tool() instead of @tool` -> ajoutez les parenthèses.
+* `has an invalid x-mcp-header annotation` -> seuls les arguments `str`, `int` et `bool` peuvent être marqués.
 * `Tool already exists:` dans le journal du serveur est le seul signe que deux outils de même nom se sont fondus en un seul.
 * Un 421, trois formulations : `Server returned an error response` (le `Client` python), `421 Misdirected Request` / `Invalid Host header` (tout le reste), `Invalid Host header: <host>` (le journal du serveur). Correctif : `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> une application montée dont le cycle de vie de l’hôte n’est jamais entré dans `mcp.session_manager.run()`.

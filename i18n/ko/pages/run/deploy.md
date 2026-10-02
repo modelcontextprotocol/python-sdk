@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # 배포와 확장 {#deploy-scale}
@@ -173,6 +173,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 * 실제 프로세스 간에는 **SDK가 제공하는 버스 중 도움이 되는 것이 없습니다.** `SubscriptionBus`는 메서드 두 개(`publish`와 `subscribe`)짜리 `Protocol`이며, 자체 pub/sub 백엔드(Redis, NATS, 이미 운영 중인 무엇이든) 위에 구현해서 `MCPServer(subscriptions=...)`로 전달합니다. 스케치와 계약은 **[구독](../handlers/subscriptions.md#scaling-past-one-process)**에서 확인하세요.
 * 버스는 작은 타입 이벤트 네 가지만 나르며, JSON-RPC는 절대 나르지 않습니다. 확인 응답, 필터링, 스트림 생명 주기는 SDK에 남아 있으므로, 버스가 프로토콜을 깨뜨릴 수는 없고 프로세스 간에 이벤트를 옮길 수만 있습니다.
 * 스트림은 재개할 수 **없고** 이벤트는 재생되지 **않습니다**. 레플리카를 잃으면 그 스트림도 끊기고, 클라이언트는 다시 listen하고 다시 가져옵니다. 공유할 이벤트 저장소도, 따로 설정할 것도 없습니다. 확장이 정말로 같은 것을 더 늘리는 일에 불과한 곳은 여기 하나뿐입니다.
+* 변경 알림이 필요 없는 서버라면 버스는 건너뛰고 **[변경 알림을 끄세요](../handlers/subscriptions.md#turning-it-off)**.
 
 ## SDK가 제공하지 않는 것 {#what-the-sdk-does-not-give-you}
 

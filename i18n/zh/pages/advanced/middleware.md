@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
+  sections: [58e1103d9a323ccf, 46056f318ef205e4, 812b414557fb0c35, 4df162eea2518d38, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # 中间件 {#middleware}
@@ -45,12 +45,28 @@ tools/call took 0.1 ms
 * 每一个到达服务器的请求和通知。对于通知，`ctx.request_id is None`，`call_next(ctx)` 返回 `None`，而你返回的任何东西都会被丢弃。（在 `2026-07-28` 的 Streamable HTTP 路径上，客户端的通知 POST 在传输层就以 `202` 确认，从不分发，所以也到不了中间件；该修订版本没有定义任何经由 HTTP 的客户端到服务器通知。）
 * 甚至包括服务器没有处理函数的方法：`call_next` 会抛出 `MCPError(-32601, "Method not found")`，**穿过**你的中间件送往客户端。
 
+## 并发上限 {#a-concurrency-cap}
+
+中间件不是非得调用 `call_next(ctx)`。改为抛出一个 `MCPError`，这一条消息就会被**拒绝**：连接保持不断，下一条消息照常通过。
+
+假设每次搜索都要占用连接池里的一个连接，而池里一共只有四个。这个中间件允许四个工具调用同时运行，第五个则拒绝：
+
+```python title="server.py" hl_lines="15-16 40-55 59"
+--8<-- "docs_src/middleware/tutorial002.py"
+```
+
+* 只统计 `tools/call`，所以服务器在拒绝工具调用的同时，仍然会响应 `server/discover` 和 `tools/list`。
+* MCP 没有定义“服务器繁忙”错误码，所以 `SERVER_BUSY` 是这个服务器自己定义的。
+* 拒绝能让客户端立刻知道服务器已经过载。如果更希望让调用方等待，就改用 `anyio.CapacityLimiter` 把 `call_next(ctx)` 包起来。
+
+抛出的 `MCPError` 会交给客户端应用，而不是模型。如果想让模型读到这条消息，就改为返回一个带 `is_error=True` 的工具结果：这就是下面的**作答**。
+
 ## 在中间件里能做什么 {#what-you-can-do-inside-one}
 
 按你应当犹豫的程度递增排列：
 
-* **观察。**计时、计数、记录日志。就是上面的例子。
-* **拒绝。**抛出一个 `MCPError` 来**代替**调用 `call_next(ctx)`，这一条消息就会以 JSON-RPC 错误作答。连接保持不断；下一条消息照常通过。服务器就是这样按调用方对 `subscriptions/listen` 设限的：订阅页面的 **[决定谁可以监听](../handlers/subscriptions.md#deciding-who-may-watch)** 一节有完整的讲解。
+* **观察。**计时、计数、记录日志。就是上面的计时中间件。
+* **拒绝。**抛出一个 `MCPError` 来**代替**调用 `call_next(ctx)`，这一条消息就会以 JSON-RPC 错误作答。连接保持不断；下一条消息照常通过。就是上面的并发上限。服务器也是这样按调用方对 `subscriptions/listen` 设限的：订阅页面的 **[决定谁可以监听](../handlers/subscriptions.md#deciding-who-may-watch)** 一节有完整的讲解。
 * **改写。**`ctx` 是一个 dataclass：`await call_next(dataclasses.replace(ctx, params=...))` 会把与客户端所发不同的参数交给链条剩下的部分。永远不要对 `initialize` 这样做：客户端拿到的结果是根据你改写后的参数构建的，但服务器提交连接状态时依据的是线路上的原始参数。两端可能在握手结束时对协商结果各执一词。
 * **作答。**不调用 `call_next(ctx)` 而直接返回一个结果，它就会作为你的响应发给客户端。`call_next` 交给你的是最终的线路形式，而流水线从不修补你返回的内容，所以整个信封都由你负责：在 2026 年代的连接上，这包括 `serverInfo` 的 `_meta` 戳记——SDK 会给处理函数的结果加上它，但不会给你的结果加。
 

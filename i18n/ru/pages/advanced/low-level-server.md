@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # Низкоуровневый Server {#the-low-level-server}
@@ -209,6 +209,7 @@ use Server.middleware to observe or wrap initialization
 * `on_call_tool`, `on_get_prompt` и `on_read_resource` могут вернуть `InputRequiredResult` вместо обычного результата, чтобы приостановить вызов и запросить ввод у клиента; см. **[Многораундовые запросы](../handlers/multi-round-trip.md)**. Верные духу этого уровня, они ничего не устанавливают за вас: там, где `MCPServer` по умолчанию запечатывает `requestState`, здесь заданный вами `request_state` идёт по сети ровно в том виде, в каком написан, пока вы не включите защиту явно: `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))` — одна строка (оба имени импортируются из `mcp.server.request_state`) для точно такого же запечатывания и проверки, какие выполняет `MCPServer` (**[Защита `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion` — та же форма `(ctx, params) -> result` для остальных примитивов.
 * `on_subscriptions_listen` обслуживает поток `subscriptions/listen` версии 2026-07-28. Передайте `ListenHandler`, построенный поверх `SubscriptionBus`, и публикуйте события в шину из остальных обработчиков; полная схема компоновки — на странице **[Подписки](../handlers/subscriptions.md)**.
+* `get_tool_input_schema` убирает `on_list_tools` с пути вызова; см. **[Параметры в заголовках](header-parameters.md#schemas-by-name)**.
 * `server.streamable_http_app()` возвращает то же Starlette-приложение, что и у `MCPServer`; разворачивайте его так же, как страница **[Запуск сервера](../run/index.md)** разворачивает любое другое ASGI-приложение. `server.run(transport=...)` здесь нет: `server.run(read_stream, write_stream, server.create_initialization_options())` ведёт одно подключение по паре потоков, и этой одной строкой всё исчерпывается.
 
 ## Итоги {#recap}

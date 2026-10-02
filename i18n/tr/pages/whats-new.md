@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, bd42ee3a268f6ea4, 875eb2889263424e]
   tool: 1
 ---
 # v2'deki yenilikler {#whats-new-in-v2}
@@ -204,7 +204,7 @@ Yayımlama ve sunma **[Abonelikler](handlers/subscriptions.md)** sayfasında, iz
 ### Geri kalanlar, kısaca {#the-rest-quickly}
 
 * **Kimlik isteğe bağlı, mesaj başına bir üstveridir.** İstek tarafındaki `clientInfo` `_meta` anahtarı isteğe bağlıdır (zorunlu ikili `protocolVersion` + `clientCapabilities`) ve `serverInfo`, `server/discover` sonuç gövdesinden çıktı: sunucular artık onu 2026 neslinden her sonucun `_meta`'sına damgalar ([spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). SDK her zaman damgalar; bir sunucu kendini tanıtmadığında (örneğin bir middleware anahtarı çıkardığında) `client.server_info` `None` olur. Damganın iletilen verideki hâlini **[Düşük düzey Server](advanced/low-level-server.md)** gösterir.
-* **İstekler gövde ayrıştırılmadan yönlendirilebilir.** Modern HTTP istekleri `Mcp-Method` taşır (ve araç benzeri üç çağrı için `Mcp-Name`); `x-mcp-header` ile işaretlenmiş bir araç girdi şeması özelliği bir `Mcp-Param-*` başlığına yansıtılır ve sunucu bunu çapraz denetler ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Ağ geçitleri ve hız sınırlayıcılar yalnızca başlıklara bakarak yönlendirebilir; kurallar **[Geçiş kılavuzu](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)** sayfasında.
+* **İstekler gövde ayrıştırılmadan yönlendirilebilir.** Modern HTTP istekleri `Mcp-Method` taşır (ve araç benzeri üç çağrı için `Mcp-Name`); `x-mcp-header` ile işaretlenmiş bir araç girdi şeması özelliği bir `Mcp-Param-*` başlığına yansıtılır ve sunucu bunu çapraz denetler ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Ağ geçitleri ve hız sınırlayıcılar yalnızca başlıklara bakarak yönlendirebilir. Bir argümanın nasıl işaretleneceğini **[Başlık parametreleri](advanced/header-parameters.md)** gösterir.
 * **Sonuçlar önbellek ipuçları taşır.** Listeleme ve okuma sonuçları `ttlMs` ve `cacheScope` bildirir ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)); bunları metot başına `cache_hints=` ile ayarlarsınız, `Client` da yerleşik bir yanıt önbelleğiyle onlara uyar. Hiç ipucu göndermeyen bir sunucu (2026 öncesi her sunucu) birebir aynı, önbelleksiz trafik görür. **[Önbellek ipuçları](client/caching.md)**.
 * **Uzantılar birinci sınıf.** Sunucular ve istemciler ters DNS tanımlayıcıları altında isteğe bağlı yetenek paketleri bildirir ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)); yerleşik `Apps` uzantısı (MCP Apps) referans örnektir. **[Uzantılar](advanced/extensions.md)** ve **[MCP Apps](advanced/apps.md)**.
 * **Hata kodları standartlaştı.** Eksik bir kaynak, URI `error.data` içinde olmak üzere `-32602`'dir; spesifikasyonun ayırdığı yeni kodlar da `-32020` (başlık uyuşmazlığı), `-32021` (gerekli yetenek eksik) ve `-32022` (desteklenmeyen protokol sürümü) olarak görünür. **[Sorun giderme](troubleshooting.md)** tam mesaj metinlerine göre düzenlenmiştir.

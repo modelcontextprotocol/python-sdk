@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # Deploy और scale करना {#deploy-scale}
@@ -160,19 +160,20 @@ seal के बारे में बाकी सब कुछ **[`requestStat
 
 ## अलग-अलग replicas के बीच change notifications {#change-notifications-across-replicas}
 
-client की `subscriptions/listen` stream एक लंबे समय तक चलने वाला response है, इसलिए वह अपनी पूरी ज़िंदगी एक replica से बँधी रहती है। किसी **दूसरे** replica पर publish हुआ `ctx.notify_resource_updated(...)` उस तक पहुँचना चाहिए।
+client का `subscriptions/listen` stream एक लंबे समय तक चलने वाला response है, इसलिए वह अपनी पूरी ज़िंदगी एक replica से बँधा रहता है। किसी **दूसरे** replica पर publish हुआ `ctx.notify_resource_updated(...)` उस तक पहुँचना चाहिए।
 
-दोनों के बीच का जोड़ `SubscriptionBus` है। आप server को जो भी bus देते हैं, हर publish उसी में जाता है और हर खुली stream उसी को सुनती है, इसलिए हर replica को वही bus दें:
+दोनों के बीच का जोड़ `SubscriptionBus` है। आप server को जो भी bus देते हैं, हर publish उसी में जाता है और हर खुला stream उसी को सुनता है, इसलिए हर replica को वही bus दें:
 
 ```python title="server.py" hl_lines="2 7 9"
 --8<-- "docs_src/deploy/tutorial004.py"
 ```
 
-fan-out को इससे कोई मतलब नहीं कि stream किस server object से जुड़ी है। एक ही `InMemorySubscriptionBus` रखने वाले दो servers पहले से ऐसे ही बर्ताव करते हैं: एक पर listen stream खोलें, दूसरे पर `edit_note` चलाएँ, और stream को इसकी ख़बर मिल जाती है। वह in-memory bus सिर्फ़ एक process के अंदर के server objects तक फैलता है, इसलिए यह model है, deployment नहीं:
+fan-out को इससे कोई मतलब नहीं कि stream किस server object से जुड़ा है। एक ही `InMemorySubscriptionBus` रखने वाले दो servers पहले से ऐसे ही बर्ताव करते हैं: एक पर listen stream खोलें, दूसरे पर `edit_note` चलाएँ, और stream को इसकी ख़बर मिल जाती है। वह in-memory bus सिर्फ़ एक process के अंदर के server objects तक फैलता है, इसलिए यह model है, deployment नहीं:
 
 * असली processes के बीच, **SDK में ऐसा कोई bus नहीं आता जो आपकी मदद कर सके।** `SubscriptionBus` दो methods वाला `Protocol` है (`publish` और `subscribe`) जिसे आप अपने pub/sub backend (Redis, NATS, जो भी आप पहले से चलाते हैं) के ऊपर implement करते हैं और `MCPServer(subscriptions=...)` के रूप में देते हैं। sketch और contract **[Subscriptions](../handlers/subscriptions.md#scaling-past-one-process)** में हैं।
 * bus चार छोटे typed events ढोता है, JSON-RPC कभी नहीं। Acknowledgment, filtering, और stream lifecycle SDK में ही रहते हैं, इसलिए आपका bus protocol तोड़ नहीं सकता; वह सिर्फ़ events को processes के बीच ले जा सकता है।
-* Streams resumable **नहीं** हैं और events replay **नहीं** होते। कोई replica खो जाए तो उसकी streams गिर जाती हैं; clients फिर से listen और फिर से fetch करते हैं। साझा करने को कोई event store नहीं और configure करने को और कुछ नहीं। यह वह एक जगह है जहाँ scale out करना सच में बस वही चीज़ और ज़्यादा है।
+* Streams resumable **नहीं** हैं और events replay **नहीं** होते। कोई replica खो जाए तो उसके streams गिर जाते हैं; clients फिर से listen और फिर से fetch करते हैं। साझा करने को कोई event store नहीं और configure करने को और कुछ नहीं। यह वह एक जगह है जहाँ scale out करना सच में बस वही चीज़ और ज़्यादा है।
+* जिस server को change notifications की ज़रूरत नहीं, वह bus छोड़ देता है: **[इन्हें बंद कर दें](../handlers/subscriptions.md#turning-it-off)**।
 
 ## SDK आपको क्या नहीं देता {#what-the-sdk-does-not-give-you}
 

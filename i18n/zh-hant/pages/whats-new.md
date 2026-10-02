@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, bd42ee3a268f6ea4, 875eb2889263424e]
   tool: 1
 ---
 # v2 的新功能 {#whats-new-in-v2}
@@ -196,7 +196,7 @@ v2 實作 2026-07-28 修訂版，而且**兩個**修訂版同時服務：同一�
 ### 其餘的，快速帶過 {#the-rest-quickly}
 
 * **身分是選用的、逐訊息的中繼資料。** 請求端的 `clientInfo` `_meta` 鍵是選用的（必要的一對是 `protocolVersion` + `clientCapabilities`），而 `serverInfo` 搬出了 `server/discover` 的結果本體：伺服器改為把它蓋進每個 2026 世代結果的 `_meta`（[spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)）。SDK 一定會蓋；伺服器沒有表明身分時（例如中介軟體拿掉了那個鍵），`client.server_info` 是 `None`。**[低階 Server](advanced/low-level-server.md)** 展示線路上的這個戳記。
-* **請求不必解析本體就能路由。** 現代 HTTP 請求帶有 `Mcp-Method`（三個類似工具的呼叫還帶 `Mcp-Name`）；標註了 `x-mcp-header` 的工具輸入 schema 屬性會鏡射到 `Mcp-Param-*` 標頭，並由伺服器交叉核對（[SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)）。閘道和限流器光靠標頭就能路由；規則請見 **[遷移指南](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)**。
+* **請求不必解析本體就能路由。** 現代 HTTP 請求帶有 `Mcp-Method`（三個類似工具的呼叫還帶 `Mcp-Name`）；標註了 `x-mcp-header` 的工具輸入 schema 屬性會鏡射到 `Mcp-Param-*` 標頭，並由伺服器交叉核對（[SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)）。閘道和限流器光靠標頭就能路由。**[標頭參數](advanced/header-parameters.md)** 示範怎麼標記引數。
 * **結果帶有快取提示。** 列表和讀取結果會宣告 `ttlMs` 和 `cacheScope`（[SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)）；用 `cache_hints=` 逐方法設定，`Client` 則用內建的回應快取遵守它們。不送提示的伺服器（所有 2026 以前的伺服器）看到的是一模一樣、沒有快取的流量。**[快取提示](client/caching.md)**。
 * **擴充功能是一等公民。** 伺服器和用戶端在反向 DNS 識別碼底下宣告選用的能力組合（[SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)）；內建的 `Apps` 擴充功能（MCP Apps）是參考範例。**[擴充功能](advanced/extensions.md)** 和 **[MCP Apps](advanced/apps.md)**。
 * **錯誤碼標準化了。** 找不到的資源是 `-32602`，URI 放在 `error.data`，新的規格保留碼則是 `-32020`（標頭不符）、`-32021`（缺少必要能力）和 `-32022`（不支援的協定版本）。**[疑難排解](troubleshooting.md)** 以確切的訊息為索引。

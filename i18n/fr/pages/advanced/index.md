@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ca6988b7503cd2d3]
+  sections: [348f8697c6b12cd0]
   tool: 1
 ---
 # Avancé {#advanced}
@@ -14,6 +14,8 @@ de `MCPServer` vous gêne :
   méthodes JSON-RPC personnalisées.
 * **[Pagination](pagination.md)** et **[Middleware](middleware.md)** : deux choses que vous
   ne pouvez faire *que* sur le `Server` de bas niveau.
+* **[Paramètres d’en-tête](header-parameters.md)** : permettent à une passerelle de router un appel d’outil
+  selon l’un de ses arguments.
 * **[Extensions](extensions.md)** et **[MCP Apps](apps.md)** : la surface d’extension
   du protocole. Combinez des paquets d’extension dans un serveur, ou écrivez les vôtres.
 

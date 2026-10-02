@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [424930166c4bc6f3]
+  sections: [22ca41e50cc1b536]
   tool: 1
 ---
 # İşleyicinin içinde {#inside-your-handler}
@@ -28,6 +28,8 @@ Okuyabildikleri:
   **[Örnekleme (sampling) ve kök dizinler (roots)](sampling-and-roots.md)**
   ile istemciden bir LLM tamamlaması ya da çalışma alanı klasörlerini istemek.
 * Yavaş bir işte **[İlerleme](progress.md)** bildirmek.
+* İstemci çağrıdan vazgeçtiğinde **[İptal](cancellation.md)** ile temizlik
+  yapmak ya da erken durmak.
 * **[Log tutma](logging.md)** ile log yazmak (sunucuyu kim işletiyorsa onun
   için, standart hataya).
 * **[Abonelikler](subscriptions.md)** ile abone olmuş istemcilere bir şeyin

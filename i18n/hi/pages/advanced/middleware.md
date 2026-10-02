@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
+  sections: [58e1103d9a323ccf, 46056f318ef205e4, 812b414557fb0c35, 4df162eea2518d38, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -15,8 +15,8 @@ translation:
     **अस्वीकार करने** के लिए करें; इसे वह नींव न बनाएँ जिस पर आपका server खड़ा हो।
 
 `MCPServer` यह list construction के समय लेता है (`MCPServer(name, middleware=[...])`) और इसे
-`mcp.middleware` के रूप में उपलब्ध कराता है; low-level `Server` वही list `server.middleware` के रूप में देता है। नीचे दिया गया
-उदाहरण low-level `Server` इस्तेमाल करता है; अगर `Server(name, on_call_tool=...)` आपके लिए नया है, तो पहले
+`mcp.middleware` के रूप में उपलब्ध कराता है; low-level `Server` वही list `server.middleware` के रूप में देता है। नीचे दिए गए
+उदाहरण low-level `Server` इस्तेमाल करते हैं; अगर `Server(name, on_call_tool=...)` आपके लिए नया है, तो पहले
 **[Low-level Server](low-level-server.md)** पढ़ें।
 
 ## Timing middleware {#a-timing-middleware}
@@ -60,22 +60,43 @@ client ने connection तैयार करने के लिए भेज
 * वह method भी जिसके लिए server के पास कोई handler नहीं है: `call_next`
   `MCPError(-32601, "Method not found")` को client की ओर जाते हुए आपके middleware के **बीच से** raise करता है।
 
+## concurrency की सीमा {#a-concurrency-cap}
+
+middleware के लिए `call_next(ctx)` call करना ज़रूरी नहीं है। इसकी जगह `MCPError` raise करें और वह एक
+message **अस्वीकार** कर दिया जाता है: connection बना रहता है और अगला message निकल जाता है।
+
+मान लें कि हर search चार connections वाले pool का एक connection थामे रखता है। यह middleware चार tool calls को
+एक साथ चलने देता है और पाँचवें को अस्वीकार कर देता है:
+
+```python title="server.py" hl_lines="15-16 40-55 59"
+--8<-- "docs_src/middleware/tutorial002.py"
+```
+
+* सिर्फ़ `tools/call` गिना जाता है, इसलिए tool calls अस्वीकार करते समय भी server `server/discover` और `tools/list`
+  का जवाब देता रहता है।
+* MCP कोई "server busy" error code define नहीं करता, इसलिए `SERVER_BUSY` इस server का अपना है।
+* अस्वीकार करने से client को तुरंत पता चल जाता है कि server overloaded है। अगर आप callers को इंतज़ार कराना
+  बेहतर समझते हैं, तो इसकी जगह `call_next(ctx)` के चारों ओर `anyio.CapacityLimiter` hold करें।
+
+raise किया गया `MCPError` client application को जाता है, model को नहीं। अगर message model को पढ़ना चाहिए,
+तो इसकी जगह `is_error=True` वाला tool result लौटाएँ: यही नीचे वाला **जवाब दें** है।
+
 ## इसके अंदर आप क्या कर सकते हैं {#what-you-can-do-inside-one}
 
 इस क्रम में कि आपको कितना हिचकना चाहिए, कम से ज़्यादा की ओर:
 
-* **देखें (Observe)।** समय मापें, गिनें, log करें। ऊपर वाला उदाहरण।
-* **अस्वीकार करें (Refuse)।** `call_next(ctx)` call करने के **बजाय** `MCPError` raise करें और उस एक message का
-  जवाब JSON-RPC error से दिया जाता है। connection बना रहता है; अगला message निकल जाता है। इसी तरह
-  server हर caller के लिए `subscriptions/listen` को gate करता है:
+* **देखें।** समय मापें, गिनें, log करें। ऊपर वाला timing middleware।
+* **अस्वीकार करें।** `call_next(ctx)` call करने के **बजाय** `MCPError` raise करें और उस एक message का
+  जवाब JSON-RPC error से दिया जाता है। connection बना रहता है; अगला message निकल जाता है। ऊपर वाली
+  concurrency की सीमा। server हर caller के लिए `subscriptions/listen` को भी इसी तरह gate करता है:
   Subscriptions page पर **[यह तय करना कि कौन देख सकता है](../handlers/subscriptions.md#deciding-who-may-watch)**
   इसे चरण दर चरण समझाता है।
-* **फिर से लिखें (Rewrite)।** `ctx` dataclass है: `await call_next(dataclasses.replace(ctx, params=...))`
+* **फिर से लिखें।** `ctx` dataclass है: `await call_next(dataclasses.replace(ctx, params=...))`
   बाकी chain को client के भेजे params से अलग params देता है। `initialize` के साथ ऐसा कभी न करें:
   client को जो result वापस मिलता है वह आपके बदले हुए params से बनता है, लेकिन
   server अपनी connection state मूल wire params से commit करता है। दोनों पक्ष
   handshake इस असहमति के साथ पूरा कर सकते हैं कि उन्होंने क्या negotiate किया।
-* **जवाब दें (Answer)।** `call_next(ctx)` call किए बिना result लौटाएँ और वह आपके response के रूप में client को
+* **जवाब दें।** `call_next(ctx)` call किए बिना result लौटाएँ और वह आपके response के रूप में client को
   जाता है। `call_next` आपको तैयार wire form देता है, और pipeline आप जो लौटाते हैं उसे कभी patch नहीं करता,
   इसलिए पूरा envelope आपका है: 2026 पीढ़ी के connection पर इसमें
   `serverInfo` का `_meta` stamp शामिल है, जिसे SDK handler results में जोड़ता है पर आपके results में नहीं।

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [424930166c4bc6f3]
+  sections: [22ca41e50cc1b536]
   tool: 1
 ---
 # Dentro de tu handler {#inside-your-handler}
@@ -15,9 +15,10 @@ Lo que puede leer:
 
 Lo que puede hacer mientras se ejecuta:
 
-* Pedir más datos al usuario con **[Elicitación](elicitation.md)**, y con **[Solicitudes de varias idas y vueltas](multi-round-trip.md)**, el patrón de 2026-07-28 que la transporta.
-* Pedir al cliente una respuesta de su LLM o sus carpetas de trabajo con **[Muestreo y roots](sampling-and-roots.md)**, obsoletos pero todavía atendidos.
+* Pedir más datos al usuario con **[Elicitación (elicitation)](elicitation.md)**, y con **[Solicitudes de varias idas y vueltas (multi-round-trip)](multi-round-trip.md)**, el patrón de 2026-07-28 que la transporta.
+* Pedir al cliente una respuesta de su LLM o sus carpetas de trabajo con **[Muestreo (sampling) y roots](sampling-and-roots.md)**, obsoletos pero todavía atendidos.
 * Informar del **[Progreso](progress.md)** de algo lento.
+* Hacer limpieza, o detenerse antes de tiempo, cuando el cliente abandona la llamada, con **[Cancelación](cancellation.md)**.
 * Escribir logs (en el error estándar, para quien opere el servidor) con **[Logging](logging.md)**.
 * Avisar a los clientes suscritos de que algo cambió con **[Suscripciones](subscriptions.md)**.
 

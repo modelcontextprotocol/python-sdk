@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
+  sections: [58e1103d9a323ccf, 46056f318ef205e4, 812b414557fb0c35, 4df162eea2518d38, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # 中介軟體 {#middleware}
@@ -45,12 +45,28 @@ tools/call took 0.1 ms
 * 每一個抵達伺服器的請求和每一則通知。對通知而言，`ctx.request_id is None`，`call_next(ctx)` 回傳 `None`，而你回傳的任何東西都會被丟棄。（在 `2026-07-28` 的 Streamable HTTP 路徑上，用戶端以 POST 送出的通知會在傳輸層直接以 `202` 確認收到、從不分派，所以也不會抵達中介軟體；該修訂版沒有定義任何透過 HTTP 由用戶端送往伺服器的通知。）
 * 連伺服器沒有處理函式的方法也一樣：`call_next` 會引發 `MCPError(-32601, "Method not found")`，**穿過**你的中介軟體一路送到用戶端。
 
+## 並行上限 {#a-concurrency-cap}
+
+中介軟體不一定要呼叫 `call_next(ctx)`。改為引發 `MCPError`，就等於**拒絕**了那一則訊息：連線不會斷，下一則訊息照常通過。
+
+假設每次搜尋都會佔用連線池裡的一條連線，而池子裡只有 4 條。這個中介軟體讓 4 個工具呼叫同時執行，第 5 個就拒絕：
+
+```python title="server.py" hl_lines="15-16 40-55 59"
+--8<-- "docs_src/middleware/tutorial002.py"
+```
+
+* 只計算 `tools/call`，所以伺服器在拒絕工具呼叫的同時，仍會繼續回應 `server/discover` 和 `tools/list`。
+* MCP 沒有定義「伺服器忙碌」的錯誤碼，所以 `SERVER_BUSY` 是這個伺服器自己定義的。
+* 拒絕能讓用戶端立刻知道伺服器已經過載。如果寧可讓呼叫端等待，就改在 `call_next(ctx)` 外面包一層 `anyio.CapacityLimiter`。
+
+引發的 `MCPError` 會送到用戶端應用程式，而不是模型。如果要讓模型讀到這則訊息，就改為回傳一個帶有 `is_error=True` 的工具結果：這就是下面的**回答**。
+
 ## 在裡面能做什麼 {#what-you-can-do-inside-one}
 
 依照該有的猶豫程度，由低到高排列：
 
-* **觀察。**計時、計數、記錄。就是上面的範例。
-* **拒絕。**不呼叫 `call_next(ctx)`，**改為**引發 `MCPError`，那一則訊息就會以 JSON-RPC 錯誤回應。連線不會斷；下一則訊息照常通過。伺服器就是這樣依呼叫端控管 `subscriptions/listen` 的：訂閱頁面的 **[決定誰可以觀看](../handlers/subscriptions.md#deciding-who-may-watch)** 有逐步說明。
+* **觀察。**計時、計數、記錄。就是上面的計時中介軟體。
+* **拒絕。**不呼叫 `call_next(ctx)`，**改為**引發 `MCPError`，那一則訊息就會以 JSON-RPC 錯誤回應。連線不會斷；下一則訊息照常通過。就是上面的並行上限。伺服器也是這樣依呼叫端控管 `subscriptions/listen` 的：訂閱頁面的 **[決定誰可以觀看](../handlers/subscriptions.md#deciding-who-may-watch)** 有逐步說明。
 * **改寫。**`ctx` 是一個 dataclass：`await call_next(dataclasses.replace(ctx, params=...))` 會把和用戶端送來的不同的參數交給鏈上剩下的部分。絕對不要對 `initialize` 這麼做：用戶端拿到的結果是根據你改寫後的參數建立的，但伺服器提交連線狀態時用的是線路上原本的參數。雙方可能在交握結束時，對彼此協商出的內容認知不一致。
 * **回答。**不呼叫 `call_next(ctx)` 就直接回傳一個結果，它會作為你的回應送到用戶端。`call_next` 交給你的是完成的線路格式，而管線絕不會修補你回傳的東西，所以整個封包都由你負責：在 2026 世代的連線上，這包括 `serverInfo` 的 `_meta` 戳記，SDK 會替處理函式的結果加上它，但不會替你的加。
 

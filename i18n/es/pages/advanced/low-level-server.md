@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # El Server de bajo nivel {#the-low-level-server}
@@ -209,6 +209,7 @@ Cada uno de estos es una idea para la que ya tienes el vocabulario; cada uno tie
 * `on_call_tool`, `on_get_prompt` y `on_read_resource` pueden devolver un `InputRequiredResult` en lugar de su resultado normal para pausar la llamada y pedir datos al cliente; consulta **[Solicitudes de varias idas y vueltas (multi-round-trip)](../handlers/multi-round-trip.md)**. Fiel a este nivel, nada se instala por ti: donde `MCPServer` sella `requestState` por defecto, aquí el `request_state` que estableces se transmite exactamente como lo escribiste hasta que optas por `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))`: una línea (ambos nombres se importan de `mcp.server.request_state`) para el mismo sellado y verificación que realiza `MCPServer` (**[Proteger `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt` y `on_completion` tienen la misma forma `(ctx, params) -> result` para las demás primitivas.
 * `on_subscriptions_listen` sirve el stream `subscriptions/listen` de 2026-07-28. Pasa un `ListenHandler` construido sobre un `SubscriptionBus` y publica eventos en el bus desde tus otros handlers; consulta **[Suscripciones](../handlers/subscriptions.md)** para la composición completa.
+* `get_tool_input_schema` mantiene `on_list_tools` fuera de la ruta de llamada; consulta **[Parámetros de encabezado](header-parameters.md#schemas-by-name)**.
 * `server.streamable_http_app()` devuelve la misma app de Starlette que la de `MCPServer`; despliégala como **[Ejecutar tu servidor](../run/index.md)** despliega cualquier otra app ASGI. Aquí abajo no hay `server.run(transport=...)`: `server.run(read_stream, write_stream, server.create_initialization_options())` conduce una conexión sobre un par de streams, y esa única línea es todo lo que hay.
 
 ## Resumen {#recap}

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 7c157764133fea1f, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 0aeca6145e7bd302]
+  sections: [9cac816674181eb0, 5619e950d206e6c8, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 991c10e47fda2636]
   tool: 1
 ---
 # İstemci aktarımları {#client-transports}
@@ -44,22 +44,40 @@ Dikkat edilecek iki şey:
 * `httpx2.AsyncClient`'ın sahibi sizsiniz, bu yüzden içine **siz** girer ve **siz** çıkarsınız. SDK, kendi oluşturmadığı bir istemciyi asla kapatmaz.
 * `streamable_http_client(url, http_client=...)` bir aktarım döndürür ve `Client(transport)` onu diğer her şey gibi kabul eder.
 
+`timeout=` değerini koruyun. Bu, SDK'nın kendi istemcisinin kullandığı değerdir (30 saniye, okumalar için 300); zaman aşımı verilmeden oluşturulan bir `httpx2.AsyncClient`, `httpx2`'nin 5 saniyelik varsayılan değerini alır ve bundan uzun süren bir araç çağrısı okuma zaman aşımıyla başarısız olur.
+
 TLS ile ilgili bir not: `httpx2`, sertifikaları paketle gelen bir CA listesine göre değil, işletim sisteminin güven deposuna göre doğrular (
 [`truststore`](https://pypi.org/project/truststore/) aracılığıyla). Kullanılabilir bir sistem CA deposu olmayan bir ortamda (bazı minimal kapsayıcılar) standart `SSL_CERT_FILE`/`SSL_CERT_DIR`
 ortam değişkenlerini ayarlayın ya da `httpx2.AsyncClient`'ınıza açıkça bir `verify=ssl_context` geçirin
 (arka plan bilgisi için
 [`httpx` ve `httpx-sse`'nin yerini `httpx2` aldı](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)).
 
+### Daha büyük SSE olayları {#larger-sse-events}
+
+Sunucu büyük bir araç sonucunu ya da bildirimi tek bir SSE olayında gönderiyorsa `max_sse_event_size` geçirin:
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+Varsayılan değer olay başına 1 MiB; bu, olay ayrıştırılmadan önce bayt cinsinden ölçülür. Sınır
+POST yanıtlarına, GET akışına ve sürdürülen akışlara uygulanır. Bir POST yanıtındaki ya da sürdürülen
+bir akıştaki aşırı büyük bir olay, o isteği bir SSE hatasıyla başarısız kılar. Arka plandaki GET akışında ise istemci
+hatayı log'a yazar ve akışı yeniden dener. Sunucuya güveniyorsanız ve daha büyük olaylara ihtiyacınız varsa
+sınırı devre dışı bırakmak için `max_sse_event_size=None` ayarlayın. JSON yanıtları bundan etkilenmez. `ClientSessionGroup` kullanıyorsanız
+aynı seçeneği `StreamableHttpParameters` üzerinde ayarlayın.
+
 !!! warning
     `streamable_http_client` eskiden `headers=` ve `timeout=` parametrelerini doğrudan alırdı. Artık almıyor:
-    tek parametreleri `url`, `http_client` ve `terminate_on_close`. Alışkanlıkla `headers=`'a
+    parametreleri `url`, `http_client`, `terminate_on_close` ve `max_sse_event_size`. Alışkanlıkla `headers=`'a
     uzanırsanız şunu alırsınız:
 
     ```text
     TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
     ```
 
-    HTTP'yle ilgili her şey artık geçirdiğiniz o tek `httpx2.AsyncClient` üzerinde bulunur.
+    Başlıklar, kimlik doğrulama, vekil sunucular ve zaman aşımları, geçirdiğiniz o tek `httpx2.AsyncClient` üzerinde yer alır.
+    `max_sse_event_size` ise MCP aktarımının SSE okuyucularına uygulanır.
 
 !!! info
     `httpx2`, tanıdık `httpx` API'sini korur; yani `httpx`'i biliyorsanız kimlik doğrulama,
@@ -136,6 +154,7 @@ Bir **aktarım**, `(read, write)` mesaj akışı çifti veren herhangi bir asenk
 
 * `Client("http://.../mcp")` (bir URL), üretim aktarımı olan Streamable HTTP üzerinden bağlanır.
 * Başlıklar, kimlik doğrulama, vekil sunucular ve zaman aşımları, `streamable_http_client(url, http_client=...)`'a geçirdiğiniz bir `httpx2.AsyncClient` üzerinde yer alır. `headers=` anahtar sözcüğü yoktur.
+* Her SSE olayının bayt sınırını değiştirmek için `streamable_http_client(url, max_sse_event_size=...)` kullanın.
 * Yönlendirmeler yalnızca URL'nin kendi kökeni içinde (sondaki eğik çizgi için `307`/`308`) ve aynı ana bilgisayarda `http`→`https` için izlenir. Geri kalan her şey `Redirect to … not followed` hatasıyla başarısız olur; nihai URL'yi yapılandırın.
 * stdio, `Client(StdioServerParameters(...))` demektir. Onu `stdio_client(...)` ile yalnızca alt sürecin stderr'ini başka yere yönlendirmek için kendiniz sarın.
 * Alt süreç sizinkini değil, izin listesine göre oluşturulmuş bir ortam alır; `env=` buna ekleme yapar.

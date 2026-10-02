@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, e7828fd2729b2c9d, a03ec26bfc678b65, 1034c653c0bcf1b0]
+  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, 7cf38181f6c99fd5, 37804d4fb36d6302, 1034c653c0bcf1b0]
   tool: 1
 ---
 # 身分斷言 {#identity-assertion}
@@ -57,7 +57,7 @@ translation:
 
 ### 機密用戶端 {#a-confidential-client}
 
-`client_secret` 是必填；沒有它，建構子會引發 `ValueError`。[SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) 底下的 IETF profile 把這種授權類型保留給機密用戶端，SEP-990 要求用戶端必須驗證身分，而這個 SDK 以堅持要有共享密鑰的方式同時強制這兩點。`token_endpoint_auth_method` 決定它走哪裡：`client_secret_post`（預設，放在表單主體）或 `client_secret_basic`（HTTP Basic 標頭）。profile 也允許 `private_key_jwt`；這個 provider 不支援。
+`client_secret` 是必填；沒有它，建構子會引發 `ValueError`。[SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) 底下的 IETF profile 建議只讓機密用戶端使用這種授權類型，而 [RFC 7521](https://datatracker.ietf.org/doc/html/rfc7521) 把這項政策交給授權伺服器決定。這個 SDK 在兩端都採取保守的解讀：內建的授權伺服器會拒絕沒有共享密鑰的用戶端，這個 provider 也堅持一定要有。`token_endpoint_auth_method` 決定它走哪裡：`client_secret_post`（預設，放在表單主體）或 `client_secret_basic`（HTTP Basic 標頭）。profile 也允許 `private_key_jwt`；這個 provider 不支援。
 
 !!! tip
     從環境變數或密鑰管理服務讀取 `client_secret`，永遠不要從版本控制裡讀。
@@ -84,6 +84,7 @@ SDK 也可以自己**當**授權伺服器：`create_auth_routes` 以任何 Starl
 
 * `identity_assertion_enabled=True` 管控一切。關閉時（這是預設），即使你實作了 hook，`/token` 也會以 `unsupported_grant_type` 回應這種授權類型，中繼資料也不會提到它。開啟時，中繼資料會多出 `jwt-bearer` 授權類型，並在 `authorization_grant_profiles_supported` 裡列出 `urn:ietf:params:oauth:grant-profile:id-jag`，也就是擴充功能用來宣傳支援的欄位。（這個 SDK 的用戶端從不讀它：它只為一個 issuer 佈建，直接開口問就是了。）
 * **`exchange_identity_assertion`** 就是那個 hook。在它執行之前，SDK 已經驗證了用戶端、拒絕了公開用戶端，也拒絕了註冊資料裡沒列出這種授權類型的用戶端。你會拿到一個 `IdentityAssertionParams`（原始的 `assertion`、請求的 `scopes` 和 `resource`），回傳一個普通的 `OAuthToken`。
+* 拒絕公開用戶端是 SDK 的政策，不是規格的要求。內建的伺服器只用共享密鑰驗證用戶端：它不支援 `private_key_jwt`，也還不會解析 Client ID Metadata Document（[#1801](https://github.com/modelcontextprotocol/python-sdk/issues/1801)），所以以這種文件識別的用戶端在這裡無法使用這種授權類型。想採用不同政策的部署，可以把 `create_auth_routes` 回傳的 `/token` 路由換成自己的。
 * 動態用戶端註冊無條件拒絕這種授權類型，所以這裡的 `get_client` 提供的是手動佈建的用戶端。ID-JAG 用戶端沒辦法靠自己註冊而存在。
 * 這個類別有一半是拒絕。`OAuthAuthorizationServerProvider` 是**整個**授權伺服器，所以它也要求授權碼流程；同時讓使用者登入的伺服器會真的實作那些，而這一台只有一扇門。
 
