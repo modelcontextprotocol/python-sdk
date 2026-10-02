@@ -40,6 +40,7 @@ nav:
       - Multi-round-trip requests: handlers/multi-round-trip.md
       - Sampling and roots: handlers/sampling-and-roots.md
       - Progress: handlers/progress.md
+      - Cancellation: handlers/cancellation.md
       - Logging: handlers/logging.md
       - Subscriptions: handlers/subscriptions.md
   - Running your server:
