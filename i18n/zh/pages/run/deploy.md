@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # 部署与扩展 {#deploy-scale}
@@ -156,7 +156,8 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 * 跨真正的进程时，**SDK 没有提供任何能帮上忙的总线。** `SubscriptionBus` 是一个两方法的 `Protocol`（`publish` 和 `subscribe`），你在自己的 pub/sub 后端（Redis、NATS，或任何你已经在跑的东西）上实现它，并作为 `MCPServer(subscriptions=...)` 传入。**[订阅](../handlers/subscriptions.md#scaling-past-one-process)** 有示意代码和契约。
 * 总线承载的是四种小的有类型事件，从来不是 JSON-RPC。确认、过滤和流的生命周期都留在 SDK 里，所以你的总线不可能破坏协议；它只能在进程之间搬运事件。
-* 流**不可**恢复，事件**不会**重放。丢失一个副本就丢掉它的流；客户端重新监听、重新获取。没有需要共享的事件存储，也没有别的需要配置。这是横向扩展真正只是"多来几份"的唯一一处。
+* 流**不可**恢复，事件**不会**重放。丢失一个副本就丢掉它的流；客户端重新监听、重新获取。没有需要共享的事件存储，也没有别的需要配置。这是横向扩展真正只是“多来几份”的唯一一处。
+* 不需要变更通知的服务器可以跳过总线：**[把它们关掉](../handlers/subscriptions.md#turning-it-off)**。
 
 ## SDK 不提供什么 {#what-the-sdk-does-not-give-you}
 

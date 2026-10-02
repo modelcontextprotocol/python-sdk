@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [424930166c4bc6f3]
+  sections: [22ca41e50cc1b536]
   tool: 1
 ---
 # Dans votre gestionnaire {#inside-your-handler}
@@ -18,6 +18,7 @@ Ce qu’il peut faire pendant son exécution :
 * Demander davantage d’informations à l’utilisateur avec **[l’élicitation](elicitation.md)** (elicitation), et les **[requêtes à plusieurs allers-retours](multi-round-trip.md)** (multi-round-trip), le mécanisme de la version 2026-07-28 qui la véhicule.
 * Demander au client une complétion de LLM ou les dossiers de son espace de travail avec **[l’échantillonnage et les racines](sampling-and-roots.md)** (sampling et roots), obsolètes mais toujours pris en charge.
 * Signaler la **[progression](progress.md)** d’une opération lente.
+* Faire le ménage, ou s’arrêter plus tôt, lorsque le client abandonne l’appel, avec **[l’annulation](cancellation.md)**.
 * Écrire des journaux (sur la sortie d’erreur standard, pour quiconque exploite le serveur) avec la **[journalisation](logging.md)**.
 * Prévenir les clients abonnés que quelque chose a changé avec les **[abonnements](subscriptions.md)**.
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [424930166c4bc6f3]
+  sections: [22ca41e50cc1b536]
   tool: 1
 ---
 # 핸들러 내부 {#inside-your-handler}
@@ -18,6 +18,7 @@ translation:
 * **[엘리시테이션(elicitation)](elicitation.md)**으로 사용자에게 추가 입력을 요청합니다. 이를 실어 나르는 2026-07-28 패턴은 **[다중 왕복 요청](multi-round-trip.md)**에서 다룹니다.
 * **[샘플링과 루트](sampling-and-roots.md)**로 클라이언트에 LLM 완성이나 작업 공간 폴더를 요청합니다. 지원 중단 예정(deprecated)이지만 여전히 제공됩니다.
 * 오래 걸리는 작업의 **[진행률](progress.md)**을 보고합니다.
+* 클라이언트가 호출을 포기하면 **[취소](cancellation.md)**로 뒷정리를 하거나 일찍 중단합니다.
 * **[로깅](logging.md)**으로 로그를 남깁니다(서버를 운영하는 사람을 위해 표준 오류로 출력됩니다).
 * **[구독](subscriptions.md)**으로 구독 중인 클라이언트에게 변경 사항을 알립니다.
 

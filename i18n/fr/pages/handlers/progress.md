@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2e9aff14d3a882c0]
   tool: 1
 ---
 # Progression {#progress}
@@ -111,4 +111,4 @@ La fonction de rappel reçoit `total=None`. Un client peut toujours montrer une 
 * Sans fonction de rappel sur l’appel, `report_progress` ne fait rien. Signalez sans condition.
 * Omettez `total` quand vous ne le connaissez pas ; la fonction de rappel reçoit `None`.
 
-La progression est ce qu’un outil en cours d’exécution montre à l’*utilisateur*. Les lignes qu’il journalise pour *vous*, la personne qui exploite le serveur, passent par un autre canal : la **[journalisation](logging.md)**.
+La progression s’adresse à un client qui attend encore. Ce que votre outil voit quand le client cesse d’attendre, c’est l’**[annulation](cancellation.md)**.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, bd42ee3a268f6ea4, 875eb2889263424e]
   tool: 1
 ---
 # v2에서 달라진 점 {#whats-new-in-v2}
@@ -204,7 +204,7 @@ Streamable HTTP에서는 2026 경로에 `Mcp-Session-Id`가 없으며, 운영 �
 ### 나머지 변경 사항 한눈에 보기 {#the-rest-quickly}
 
 * **식별 정보는 선택적인 메시지별 메타데이터입니다.** 요청 쪽의 `clientInfo` `_meta` 키는 선택 사항이고(필수 쌍은 `protocolVersion` + `clientCapabilities`입니다), `serverInfo`는 `server/discover` 결과 본문에서 빠졌습니다. 대신 서버가 2026 시대의 모든 결과의 `_meta`에 찍어 넣습니다([사양 #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). SDK는 항상 찍어 넣으며, 서버가 자신을 식별하지 않는 경우(예를 들어 미들웨어가 키를 제거한 경우) `client.server_info`는 `None`입니다. 와이어에 찍힌 모습은 **[저수준 Server](advanced/low-level-server.md)**에서 볼 수 있습니다.
-* **본문을 파싱하지 않고도 요청을 라우팅할 수 있습니다.** 최신 방식의 HTTP 요청에는 `Mcp-Method`가 실리고(도구 성격의 호출 세 가지에는 `Mcp-Name`도 실립니다), `x-mcp-header`로 어노테이션한 도구 입력 스키마 속성은 `Mcp-Param-*` 헤더로 복제되어 서버가 교차 검증합니다([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). 게이트웨이와 속도 제한기는 헤더만으로 라우팅할 수 있습니다. 규칙은 **[마이그레이션 가이드](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)**에 있습니다.
+* **본문을 파싱하지 않고도 요청을 라우팅할 수 있습니다.** 최신 방식의 HTTP 요청에는 `Mcp-Method`가 실리고(도구 성격의 호출 세 가지에는 `Mcp-Name`도 실립니다), `x-mcp-header`로 어노테이션한 도구 입력 스키마 속성은 `Mcp-Param-*` 헤더로 복제되어 서버가 교차 검증합니다([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). 게이트웨이와 속도 제한기는 헤더만으로 라우팅할 수 있습니다. 인자에 표시를 다는 방법은 **[헤더 매개변수](advanced/header-parameters.md)**에서 볼 수 있습니다.
 * **결과에 캐시 힌트가 실립니다.** 목록 및 읽기 결과는 `ttlMs`, `cacheScope` 두 필드를 선언합니다([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)). 메서드별로 `cache_hints=` 인자로 설정하며, `Client`는 내장 응답 캐시로 이를 따릅니다. 힌트를 보내지 않는 서버(2026 이전의 모든 서버)는 이전과 동일한, 캐시되지 않은 트래픽을 받습니다. **[캐시 힌트](client/caching.md)**를 참고하세요.
 * **확장은 일급입니다.** 서버와 클라이언트는 역방향 DNS 식별자 아래에 선택적 기능 묶음을 선언합니다([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)). 내장 `Apps` 확장(MCP Apps)이 참조 구현입니다. **[확장](advanced/extensions.md)**과 **[MCP Apps](advanced/apps.md)**를 참고하세요.
 * **오류 코드가 표준화되었습니다.** 없는 리소스는 `error.data`에 URI를 담은 `-32602` 오류이고, 사양이 새로 예약한 코드는 `-32020`(헤더 불일치), `-32021`(필수 기능 누락), `-32022`(지원하지 않는 프로토콜 버전)입니다. **[문제 해결](troubleshooting.md)**은 정확한 메시지를 기준으로 정리되어 있습니다.

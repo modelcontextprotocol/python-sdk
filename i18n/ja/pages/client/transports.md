@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 7c157764133fea1f, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 0aeca6145e7bd302]
+  sections: [9cac816674181eb0, 5619e950d206e6c8, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 991c10e47fda2636]
   tool: 1
 ---
 # クライアントのトランスポート {#client-transports}
@@ -43,16 +43,28 @@ URL の文字列を渡すと **Streamable HTTP** になります。デプロイ�
 * `httpx2.AsyncClient` の所有者は**自分**なので、入るのも出るのも自分で行います。SDK は自身が作成していないクライアントを決して閉じません。
 * `streamable_http_client(url, http_client=...)` はトランスポートを返し、`Client(transport)` はそれを他のものと同じように受け取ります。
 
+`timeout=` はそのまま残してください。これは SDK 自身のクライアントが使うのと同じ値です（30 秒、read は 300 秒）。タイムアウトを指定せずに組み立てた `httpx2.AsyncClient` には `httpx2` のデフォルトである 5 秒が適用され、それより長くかかるツール呼び出しは read タイムアウトで失敗します。
+
 TLS について 1 点。`httpx2` は、同梱の CA リストではなく、オペレーティングシステムのトラストストアに対して証明書を検証します（[`truststore`](https://pypi.org/project/truststore/) を使用）。利用できるシステム CA ストアがない環境（一部の最小構成コンテナなど）では、標準の環境変数 `SSL_CERT_FILE`/`SSL_CERT_DIR` を設定するか、`httpx2.AsyncClient` に明示的に `verify=ssl_context` を渡してください（背景は [`httpx` と `httpx-sse` の `httpx2` への置き換え](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)を参照）。
 
+### より大きな SSE イベント {#larger-sse-events}
+
+サーバーが大きなツール結果や通知を 1 つの SSE イベントで送る場合は、`max_sse_event_size` を渡します。
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+デフォルトは 1 イベントあたり 1 MiB で、イベントがパースされる前のバイト数で測ります。この上限は、POST レスポンス、GET ストリーム、再開されたストリームに適用されます。POST レスポンスや再開されたストリームで上限を超えるイベントがあると、そのリクエストは SSE エラーで失敗します。バックグラウンドの GET ストリームでは、クライアントはエラーをログに記録し、ストリームをリトライします。サーバーを信頼していて、より大きなイベントが必要な場合は、`max_sse_event_size=None` を設定して上限を無効にしてください。JSON レスポンスは影響を受けません。`ClientSessionGroup` を使う場合は、同じオプションを `StreamableHttpParameters` に設定してください。
+
 !!! warning
-    `streamable_http_client` は以前、`headers=` と `timeout=` を直接受け取っていました。今はもう受け取りません。パラメーターは `url`、`http_client`、`terminate_on_close` だけです。習慣で `headers=` を渡すと、次のようになります。
+    `streamable_http_client` は以前、`headers=` と `timeout=` を直接受け取っていました。今はもう受け取りません。パラメーターは `url`、`http_client`、`terminate_on_close`、`max_sse_event_size` です。習慣で `headers=` を渡すと、次のようになります。
 
     ```text
     TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
     ```
 
-    HTTP に関わるものはすべて、渡す 1 つの `httpx2.AsyncClient` に集約されています。
+    ヘッダー、認証、プロキシ、タイムアウトは、渡す 1 つの `httpx2.AsyncClient` に設定します。一方、`max_sse_event_size` は MCP トランスポートの SSE リーダーに適用されます。
 
 !!! info
     `httpx2` はおなじみの `httpx` の API をそのまま保っているので、`httpx` を知っていれば、認証、プロキシ、イベントフック、リトライ、接続数の制限のやり方はすでに知っていることになります。SDK はその上に何も足さず、何も引きません。唯一の例外が[リダイレクトの扱い](#redirects)です。OAuth が差し込まれるのもここです。`httpx2.AsyncClient(auth=OAuthClientProvider(...))` のように書きます。そのフロー全体については **[OAuth クライアント](oauth-clients.md)** を参照してください。
@@ -120,6 +132,7 @@ TLS について 1 点。`httpx2` は、同梱の CA リストではなく、オ
 
 * `Client("http://.../mcp")`（URL）は、本番用のトランスポートである Streamable HTTP で接続します。
 * ヘッダー、認証、プロキシ、タイムアウトは、`streamable_http_client(url, http_client=...)` に渡す `httpx2.AsyncClient` に設定します。`headers=` キーワードはありません。
+* SSE イベントごとのバイト数の上限を変更するには、`streamable_http_client(url, max_sse_event_size=...)` を使います。
 * リダイレクトに従うのは、URL 自身のオリジン内（末尾スラッシュの `307`/`308`）と、同じホスト上の `http`→`https` だけです。それ以外は `Redirect to … not followed` で失敗します。最終的な URL を設定してください。
 * stdio は `Client(StdioServerParameters(...))` です。自分で `stdio_client(...)` に包むのは、子プロセスの stderr をリダイレクトしたいときだけです。
 * サブプロセスが受け取るのは自分の環境ではなく、許可リストに基づく環境です。`env=` でそこに追加します。

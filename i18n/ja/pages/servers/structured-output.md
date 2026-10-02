@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
+  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 7608fc5ebc31d6ea, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
   tool: 1
 ---
 # 構造化出力 {#structured-output}
@@ -171,6 +171,8 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 ```
 
 キーは `str` でなければなりません。`dict[int, float]` は JSON オブジェクトになれないため、`{"result": ...}` ラッパーにフォールバックします。
+
+辞書の結果は、バリデーションとシリアライズに Pydantic の `TypeAdapter` を使います。ツールの `FuncMetadata.output_model` を調べると、そこにはスキーマのタイトルが付いた辞書の型アノテーションが入っています。
 
 ## バリデーション {#validation}
 

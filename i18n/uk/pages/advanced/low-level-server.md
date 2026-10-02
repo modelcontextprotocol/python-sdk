@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # Низькорівневий Server {#the-low-level-server}
@@ -209,6 +209,7 @@ use Server.middleware to observe or wrap initialization
 * `on_call_tool`, `on_get_prompt` і `on_read_resource` можуть повернути `InputRequiredResult` замість звичайного результату, щоб призупинити виклик і попросити клієнта про введення; див. **[Багатораундові запити](../handlers/multi-round-trip.md)** (multi-round-trip). Як і годиться цьому рівню, нічого не встановлюється за вас: якщо `MCPServer` за замовчуванням запечатує `requestState`, то тут заданий вами `request_state` передається мережею точно так, як написано, доки ви не ввімкнете захист через `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))`: один рядок (обидва імені імпортуються з `mcp.server.request_state`) — і отримуєте те саме запечатування й перевірку, що їх виконує `MCPServer` (**[Захист `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion` — та сама форма `(ctx, params) -> result` для інших примітивів.
 * `on_subscriptions_listen` обслуговує потік `subscriptions/listen` версії 2026-07-28. Передайте `ListenHandler`, побудований поверх `SubscriptionBus`, і публікуйте події в шину з інших обробників; повну композицію див. на сторінці **[Підписки](../handlers/subscriptions.md)**.
+* `get_tool_input_schema` прибирає `on_list_tools` зі шляху виклику; див. **[Параметри в заголовках](header-parameters.md#schemas-by-name)**.
 * `server.streamable_http_app()` повертає той самий Starlette-застосунок, що й у `MCPServer`; розгортайте його так, як **[Запуск сервера](../run/index.md)** розгортає будь-який інший ASGI-застосунок. `server.run(transport=...)` тут немає: `server.run(read_stream, write_stream, server.create_initialization_options())` веде одне з'єднання через пару потоків, і цей один рядок — оце й усе.
 
 ## Підсумки {#recap}

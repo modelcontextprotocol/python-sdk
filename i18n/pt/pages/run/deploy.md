@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # Deploy e escala {#deploy-scale}
@@ -170,9 +170,10 @@ A costura entre os dois é o `SubscriptionBus`. Qualquer bus que você dê a um 
 
 Nada no fan-out se importa com qual objeto de servidor um stream está ligado. Dois servidores segurando um único `InMemorySubscriptionBus` já se comportam assim: abra um stream de listen em um, `edit_note` no outro, e o stream fica sabendo. Esse bus em memória só abrange objetos de servidor dentro de um processo, o que faz dele o modelo, não o deploy:
 
-* Entre processos de verdade, **o SDK não traz nenhum bus que possa te ajudar.** `SubscriptionBus` é um `Protocol` de dois métodos (`publish` e `subscribe`) que você implementa sobre seu próprio backend de pub/sub (Redis, NATS, o que você já roda) e passa como `MCPServer(subscriptions=...)`. **[Assinaturas](../handlers/subscriptions.md#scaling-past-one-process)** tem o esboço e o contrato.
+* Entre processos de verdade, **o SDK não traz nenhum bus que possa ajudar você.** `SubscriptionBus` é um `Protocol` de dois métodos (`publish` e `subscribe`) que você implementa sobre seu próprio backend de pub/sub (Redis, NATS, o que você já roda) e passa como `MCPServer(subscriptions=...)`. **[Assinaturas](../handlers/subscriptions.md#scaling-past-one-process)** tem o esboço e o contrato.
 * O bus carrega quatro pequenos eventos tipados, nunca JSON-RPC. Confirmação, filtragem e ciclo de vida do stream ficam no SDK, então seu bus não consegue quebrar o protocolo; ele só consegue mover eventos entre processos.
 * Streams **não** são retomáveis e eventos **não** são reenviados. Perder uma réplica derruba os streams dela; os clientes escutam de novo e buscam de novo. Não há event store para compartilhar e nada mais para configurar. Este é o único lugar em que escalar horizontalmente é de fato só mais do mesmo.
+* Um servidor que não precisa de notificações de mudança dispensa o bus: **[desligue-as](../handlers/subscriptions.md#turning-it-off)**.
 
 ## O que o SDK não te dá {#what-the-sdk-does-not-give-you}
 

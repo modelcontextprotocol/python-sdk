@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # 저수준 Server {#the-low-level-server}
@@ -209,6 +209,7 @@ use Server.middleware to observe or wrap initialization
 * `on_call_tool`, `on_get_prompt`, `on_read_resource`는 호출을 일시 중지하고 클라이언트에 입력을 요청하기 위해 평소의 결과 대신 `InputRequiredResult`를 반환할 수 있습니다. **[다중 왕복 요청](../handlers/multi-round-trip.md)**을 참고하세요. 이 계층답게 대신 설치해 주는 것은 없습니다. `MCPServer`가 기본적으로 `requestState`를 봉인하는 반면, 여기서는 설정한 `request_state`가 `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))`로 명시적으로 켜기 전까지 쓴 그대로 와이어를 건너갑니다. 이 한 줄(두 이름 모두 `mcp.server.request_state`에서 임포트합니다)이면 `MCPServer`가 수행하는 것과 동일한 봉인과 검증이 이루어집니다(**[`requestState` 보호하기](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion`은 나머지 프리미티브용으로 같은 `(ctx, params) -> result` 형태입니다.
 * `on_subscriptions_listen`은 2026-07-28의 `subscriptions/listen` 스트림을 제공합니다. `SubscriptionBus` 위에 만든 `ListenHandler`를 전달하고 다른 핸들러에서 버스로 이벤트를 발행하세요. 전체 구성은 **[구독](../handlers/subscriptions.md)**에서 확인하세요.
+* `get_tool_input_schema`는 `on_list_tools`가 호출 경로에 끼어들지 않게 해 줍니다. **[헤더 매개변수](header-parameters.md#schemas-by-name)**를 참고하세요.
 * `server.streamable_http_app()`은 `MCPServer`의 것과 같은 Starlette 앱을 반환합니다. **[서버 실행하기](../run/index.md)**에서 다른 ASGI 앱을 배포하는 방식 그대로 배포하세요. 여기에는 `server.run(transport=...)` 같은 것이 없습니다. `server.run(read_stream, write_stream, server.create_initialization_options())` 호출이 스트림 한 쌍 위에서 연결 하나를 구동하며, 이 한 줄이 전부입니다.
 
 ## 요약 {#recap}

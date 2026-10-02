@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [60a9de8a0bdaa531, 317bbe7e4355cdcc, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, 266f56fb798068a4, 7c0e57030b622139, df18d7c2417a9883]
+  sections: [60a9de8a0bdaa531, 6693607ea56d8bd6, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, b8bc624a627ead9b, 2139e68e36d9e621, 7c0e57030b622139, 34ab1af2b9ab5b45]
   tool: 1
 ---
 # Abonnements {#subscriptions}
@@ -22,7 +22,7 @@ Votre part se résume à une ligne : publier le changement.
 * Les méthodes sœurs sont `notify_prompts_changed()` et `notify_resources_changed()`.
 * Pas d’abonnés, pas de travail. Publier sur un serveur inactif est sans effet, vous ne vérifiez donc jamais si quelqu’un écoute. Vous indiquez ce qui a changé.
 
-`MCPServer` sert `subscriptions/listen` pour vous. Les obligations sur la liaison (l’accusé de réception comme première trame, le filtrage par flux, l’identifiant d’abonnement sur chaque trame) sont l’affaire du SDK.
+`MCPServer` sert `subscriptions/listen` pour vous, sauf si vous [le désactivez](#turning-it-off). Les obligations sur la liaison (l’accusé de réception comme première trame, le filtrage par flux, l’identifiant d’abonnement sur chaque trame) sont l’affaire du SDK.
 
 !!! check
     Sur la liaison, un flux dont le filtre nommait `board://sprint` ressemble à ceci après l’exécution de `complete_task` :
@@ -79,7 +79,32 @@ Entrer dans `client.listen(...)` envoie la requête et attend votre accusé de r
 
 Les publications voyagent de votre gestionnaire vers les flux ouverts via un `SubscriptionBus`. Le bus par défaut est en mémoire : un processus, et tous les flux qu’il contient. C’est la bonne réponse jusqu’au jour où vous exécutez des réplicas derrière un répartiteur de charge, car le flux d’un client est alors épinglé à un réplica, et une publication sur un autre réplica doit l’atteindre.
 
-Cette jointure est à vous d’implémenter : deux méthodes au-dessus de votre backend pub/sub.
+Avec le bus par défaut, elle ne le peut pas, car chaque réplica a le sien :
+
+```mermaid
+flowchart LR
+    client[Client] --> lb[Load balancer]
+    lb --> stream
+    lb ~~~~ gap
+    lb --> tool
+    subgraph B [Replica B]
+        tool[tools/call] -- publishes --> busB[(bus B)]
+    end
+    gap[(no shared bus)]
+    subgraph A [Replica A]
+        stream[listen stream] -- subscribed --> busA[(bus A)]
+    end
+    style A fill:none
+    style B fill:none
+    style gap fill:none,stroke-dasharray:4 4
+```
+
+Rien n’échoue : l’appel réussit, et le flux reste silencieux. Derrière un répartiteur de charge, choisissez donc l’une des deux options :
+
+* **Vous avez besoin des notifications de changement.** Donnez le même bus à chaque réplica, comme décrit ci-dessous.
+* **Vous n’en avez pas besoin.** [Désactivez-les](#turning-it-off), afin qu’aucun client ne se voie promettre des événements qu’il manquera ni ne garde un flux ouvert pour les attendre.
+
+Le bus partagé est à vous d’implémenter : deux méthodes au-dessus de votre backend pub/sub.
 
 ```python
 from collections.abc import Callable
@@ -128,6 +153,20 @@ async def tools_reloaded() -> None:
     await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
 
+## Désactiver les abonnements {#turning-it-off}
+
+Un serveur dont le catalogue ne change jamais n’a rien à publier. Dites-le au moment de le construire :
+
+```python title="server.py" hl_lines="3"
+--8<-- "docs_src/subscriptions/tutorial007.py"
+```
+
+* Un client `2026-07-28` ne voit aucune notification de changement annoncée, et une requête `subscriptions/listen` reçoit *Method not found* au lieu d’un flux ouvert.
+* `ctx.notify_*` fonctionne toujours et n’atteint personne : vos gestionnaires ne changent donc pas.
+* Les clients qui utilisent des versions antérieures du protocole ne voient aucune différence.
+
+Un flux ouvert est une requête qui ne se termine jamais : cela compte donc aussi chez un hébergeur qui facture à la durée des requêtes.
+
 ## La composition bas niveau {#the-low-level-composition}
 
 Sur le `Server` bas niveau, rien n’est précâblé, et les mêmes pièces s’assemblent en trois lignes :
@@ -148,5 +187,6 @@ Sur le `Server` bas niveau, rien n’est précâblé, et les mêmes pièces s’
 * Le côté client, c’est `async with client.listen(...)` : tous les détails sont dans **[Abonnements](../client/subscriptions.md)** sous *Clients*.
 * Sur le `Server` bas niveau, vous assemblez vous-même les mêmes pièces : un bus, `ListenHandler(bus)`, l’emplacement `on_subscriptions_listen`.
 * Passer à l’échelle horizontalement signifie implémenter `SubscriptionBus`, deux méthodes, et le passer via `MCPServer(subscriptions=...)`.
+* Rien à publier, ou des réplicas sans bus partagé : `MCPServer(subscriptions=False)` n’annonce aucune notification de changement et ne garde aucun flux ouvert.
 
 Exécuter le serveur qui sert tout cela, derrière un réplica ou vingt, c’est **[Déployer et passer à l’échelle](../run/deploy.md)**.

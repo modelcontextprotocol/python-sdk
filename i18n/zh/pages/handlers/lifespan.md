@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f3ca8ac5f90f2dfa, 85a1ef3588ba0736, 563346d4d5804933, 9e3528340d0bab53]
+  sections: [f3ca8ac5f90f2dfa, 48e478ef7bd688b1, 563346d4d5804933, 52ac6a7734d6f581]
   tool: 1
 ---
 # 生命周期 {#lifespan}
@@ -46,7 +46,7 @@ translation:
 
 `genre` 是模型唯一能传入的参数。生命周期是服务器自己的事。
 
-`@mcp.resource()` 和 `@mcp.prompt()` 函数也可以接收 `ctx` 参数，只是要写成裸的 `Context`，原因下一节会讲到。`ctx` 携带的所有内容详见 **[Context](context.md)**。
+`@mcp.resource()` 和 `@mcp.prompt()` 函数也可以接收 `ctx` 参数。`ctx` 携带的所有内容详见 **[Context](context.md)**。
 
 ### 它确实带类型 {#it-really-is-typed}
 
@@ -55,15 +55,6 @@ translation:
 正是这一个类型参数，让 `ctx.request_context.lifespan_context` 在类型检查器眼里**就是**一个 `AppContext`。`.db` 能自动补全；`.dbb` 在你运行服务器之前就会报错。
 
 如果改写成裸的 `Context`，`lifespan_context` 的类型就是 `dict[str, Any]`：类型检查器无从知道你的生命周期 yield 了什么。运行时对象还在，只是失去了类型上的帮助。
-
-!!! warning
-    `Context[AppContext]` 是**仅限工具**的写法。把它放在 `@mcp.resource()` 或 `@mcp.prompt()` 函数上，对该处理函数的每次调用都会失败。客户端会收到一个错误，服务器日志会说明原因：
-
-    ```text
-    Context is not available outside of a request
-    ```
-
-    在资源和提示词里，写裸的 `ctx: Context`。生命周期 yield 出的对象在运行时仍然是 `ctx.request_context.lifespan_context`；你放弃的是类型参数，不是对象。
 
 !!! tip
     生命周期总是存在。如果你不传，SDK 的默认实现会 yield 一个空 `dict`，所以 `ctx.request_context.lifespan_context` 是 `{}`，绝不会是 `None`。也正是因为这个默认值，裸的 `Context` 才把它的类型定为 `dict[str, Any]`。
@@ -95,7 +86,7 @@ translation:
 * `yield` 之前的代码是启动。之后的 `finally` 是关闭。
 * 它只运行一次，围绕服务器的整个生命，而不是每个请求一次。
 * 无论 `yield` 出什么，它在每个工具、资源和提示词里都是 `ctx.request_context.lifespan_context`。
-* `ctx: Context[AppContext]` 让这种访问在工具里完全带类型。资源和提示词用裸的 `Context`。
+* `ctx: Context[AppContext]` 让这种访问完全带类型。
 * 不传 `lifespan=` 意味着一个空 `dict`，绝不会是 `None`。
 
 在调用中途停下来，向用户询问只有他们知道的事情的处理函数，详见 **[征询（elicitation）](elicitation.md)**。

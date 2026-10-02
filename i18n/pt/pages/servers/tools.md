@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, c1115cd005b81e8f, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # Ferramentas {#tools}
@@ -141,7 +141,7 @@ Você pode misturar à vontade: parâmetros simples ao lado de parâmetros de mo
 
 Se uma ferramenta faz I/O (chama uma API, lê um arquivo, consulta um banco de dados), declare-a como `async def` e use `await` dentro dela. O SDK se encarrega de aguardá-la.
 
-Uma ferramenta com `def` comum também funciona: o SDK a executa em uma thread, então ela nunca bloqueia o servidor.
+Uma ferramenta com `def` comum também funciona: o SDK a executa em uma thread, então ela nunca bloqueia o servidor. Uma ferramenta demorada pode verificar se o cliente ainda está esperando; veja **[Cancelamento](../handlers/cancellation.md)**.
 
 Não há mais nada para configurar.
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2e9aff14d3a882c0]
   tool: 1
 ---
 # İlerleme {#progress}
@@ -120,4 +120,4 @@ Callback `total=None` alır. İstemci yine de *etkinlik* gösterebilir ("şimdiy
 * Çağrıda callback yoksa `report_progress` hiçbir şey yapmaz. Koşulsuz bildirin.
 * Bilmediğinizde `total`'ı vermeyin; callback `None` alır.
 
-İlerleme, çalışan bir aracın *kullanıcıya* gösterdiği şeydir. *Sizin* için, yani sunucuyu işleten kişi için yazdığı log satırları ise ayrı bir kanaldır: **[Log tutma](logging.md)**.
+İlerleme, hâlâ bekleyen bir istemci içindir. İstemci beklemeyi bıraktığında aracınızın gördüğü şey ise **[İptal](cancellation.md)**.

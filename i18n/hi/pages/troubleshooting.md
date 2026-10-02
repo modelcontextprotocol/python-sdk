@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, fcf984fa0615ed11, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, cdc6d86a4dae8a34]
   tool: 1
 ---
 # समस्याएँ सुलझाना {#troubleshooting}
@@ -127,6 +127,14 @@ parentheses जोड़ें। यही चूक होने पर `@mcp.
     host आपके server को zero tools के साथ connected दिखाने के बजाय **failed to start** (या
     **disconnected**) दिखाता है, वह इसी shape का है: खुद `python server.py` चलाएँ और traceback
     पढ़ें। type checker भी इसे पकड़ लेता है: function कोई valid `name=` नहीं है।
+
+## `InvalidSignature: Tool '<name>' has an invalid x-mcp-header annotation: <reason>` {#invalidsignature-tool-name-has-an-invalid-x-mcp-header-annotation-reason}
+
+किसी tool argument को `x-mcp-header` से ऐसे तरीके से mark किया गया है जिसकी spec अनुमति नहीं देता, और `<reason>` बताता है कि कौन-सा नियम टूट रहा है। `2026-07-28` वाले clients ऐसे tool को अपनी listing से बाहर छोड़ देते, इसलिए SDK उसे register करने से मना कर देता है।
+
+सिर्फ़ `str`, `int` और `bool` arguments ही mark किए जा सकते हैं, और `str | None` इनमें से कोई नहीं है। optional argument को कैसे लिखना है, यह **[Header parameters](advanced/header-parameters.md)** में है।
+
+ऊपर वाली entry की तरह, यह भी module **import** होते ही raise हो जाता है, किसी भी client के जुड़ने से पहले।
 
 ## `Tool already exists: <name>` {#tool-already-exists-name}
 
@@ -425,6 +433,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `ExceptionGroup: unhandled errors in a TaskGroup` कभी असली error नहीं है। **आखिरी line** पढ़ें; `async with Client(...)` block के **अंदर** `MCPError` catch करने से wrapping पूरी तरह टल जाती है।
 * `call_tool` fail होने वाले tool के लिए raise नहीं करता। `Error executing tool ...` और `Unknown tool: ...` results हैं: `result.is_error` जाँचें। tool के नाम के बाद कोई message न हो तो मतलब वह crash हुआ, और traceback server log में है।
 * `Client must be used within an async context manager` -> `async with` इस्तेमाल करें। `Use @tool() instead of @tool` -> parentheses जोड़ें।
+* `has an invalid x-mcp-header annotation` -> सिर्फ़ `str`, `int` और `bool` arguments ही mark किए जा सकते हैं।
 * server log में `Tool already exists:` ही इकलौता संकेत है कि एक ही नाम के दो tools सिमटकर एक रह गए।
 * एक 421, तीन रूप: `Server returned an error response` (python `Client`), `421 Misdirected Request` / `Invalid Host header` (बाकी सब), `Invalid Host header: <host>` (server log)। सुधार: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`।
 * `Task group is not initialized` -> mounted app जिसके host lifespan ने कभी `mcp.session_manager.run()` में enter नहीं किया।

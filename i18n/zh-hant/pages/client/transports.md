@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 7c157764133fea1f, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 0aeca6145e7bd302]
+  sections: [9cac816674181eb0, 5619e950d206e6c8, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 991c10e47fda2636]
   tool: 1
 ---
 # 用戶端傳輸方式 {#client-transports}
@@ -43,16 +43,28 @@ translation:
 * `httpx2.AsyncClient` 是你的，所以由**你**負責進入和離開它。SDK 永遠不會關閉不是它自己建立的用戶端。
 * `streamable_http_client(url, http_client=...)` 回傳的是一個傳輸，而 `Client(transport)` 和接受其他東西一樣接受它。
 
+保留 `timeout=`。這就是 SDK 自己的用戶端所用的設定（30 秒，read 為 300 秒）；沒有設定逾時就建立的 `httpx2.AsyncClient` 會套用 `httpx2` 的 5 秒預設值，執行時間超過這個長度的工具呼叫就會因為 read 逾時而失敗。
+
 關於 TLS 有一點要提：`httpx2` 是對照作業系統的信任存放區驗證憑證（透過 [`truststore`](https://pypi.org/project/truststore/)），而不是內建的 CA 清單。在沒有可用系統 CA 存放區的環境（某些精簡容器）裡，請設定標準的 `SSL_CERT_FILE`/`SSL_CERT_DIR` 環境變數，或明確傳入 `verify=ssl_context` 給你的 `httpx2.AsyncClient`（背景說明請見 [`httpx` 和 `httpx-sse` 已由 `httpx2` 取代](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)）。
 
+### 更大的 SSE 事件 {#larger-sse-events}
+
+伺服器在單一 SSE 事件裡送出很大的工具結果或通知時，傳入 `max_sse_event_size`：
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+預設值是每個事件 1 MiB，以事件解析前的位元組數計算。這個上限適用於 POST 回應、GET 串流和恢復的串流。POST 回應或恢復的串流裡出現過大的事件時，該請求會失敗並回報 SSE 錯誤。在背景的 GET 串流上，用戶端會記錄這個錯誤並重試串流。信任伺服器、又需要更大的事件時，設定 `max_sse_event_size=None` 即可停用上限。JSON 回應不受影響。如果使用 `ClientSessionGroup`，請在 `StreamableHttpParameters` 上設定同一個選項。
+
 !!! warning
-    `streamable_http_client` 以前可以直接接受 `headers=` 和 `timeout=`。現在不行了：它僅有的參數是 `url`、`http_client` 和 `terminate_on_close`。如果習慣性地寫了 `headers=`，會得到：
+    `streamable_http_client` 以前可以直接接受 `headers=` 和 `timeout=`。現在不行了：它的參數是 `url`、`http_client`、`terminate_on_close` 和 `max_sse_event_size`。如果習慣性地寫了 `headers=`，會得到：
 
     ```text
     TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
     ```
 
-    所有跟 HTTP 有關的設定，現在都放在你傳入的那一個 `httpx2.AsyncClient` 上。
+    標頭、驗證、proxy 和逾時都放在你傳入的那一個 `httpx2.AsyncClient` 上。`max_sse_event_size` 則是套用在 MCP 傳輸的 SSE 讀取器上。
 
 !!! info
     `httpx2` 保留了熟悉的 `httpx` API，所以只要會用 `httpx`，就已經知道這裡的驗證、proxy、事件掛鉤、重試和連線數限制該怎麼做。SDK 沒有在上面加任何東西，也沒有拿掉任何東西，[重新導向的處理](#redirects)除外。OAuth 也是從這裡接上的：`httpx2.AsyncClient(auth=OAuthClientProvider(...))`。整個流程請見 **[OAuth 用戶端](oauth-clients.md)**。
@@ -120,6 +132,7 @@ translation:
 
 * `Client("http://.../mcp")`（URL）透過 Streamable HTTP 連線，也就是正式環境用的傳輸方式。
 * 標頭、驗證、proxy 和逾時都放在你傳給 `streamable_http_client(url, http_client=...)` 的 `httpx2.AsyncClient` 上。沒有 `headers=` 這個關鍵字引數。
+* 用 `streamable_http_client(url, max_sse_event_size=...)` 調整每個 SSE 事件的位元組上限。
 * 重新導向只在 URL 自己的來源內跟隨（結尾斜線的 `307`/`308`），外加同一台主機上的 `http`→`https`。其他的一律失敗並出現 `Redirect to … not followed`；把最終的 URL 寫進設定即可。
 * stdio 是 `Client(StdioServerParameters(...))`。只有要把子處理程序的 stderr 導到別處時，才需要自己用 `stdio_client(...)` 包起來。
 * 子處理程序拿到的是允許清單上的環境，不是你的環境；`env=` 會往上加。

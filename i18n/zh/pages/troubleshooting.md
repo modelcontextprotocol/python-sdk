@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, fcf984fa0615ed11, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, cdc6d86a4dae8a34]
   tool: 1
 ---
 # 故障排查 {#troubleshooting}
@@ -122,6 +122,14 @@ TypeError: The @tool decorator was used incorrectly. Did you forget to call it? 
 
 !!! note
     这个异常在模块**被导入**时抛出，早于任何客户端连接。所以如果宿主把你的服务器显示为“启动失败”（或“已断开”），而不是已连接但零个工具，就是这种情形：自己运行 `python server.py`，读 traceback。类型检查器也能抓到它：函数不是合法的 `name=`。
+
+## `InvalidSignature: Tool '<name>' has an invalid x-mcp-header annotation: <reason>` {#invalidsignature-tool-name-has-an-invalid-x-mcp-header-annotation-reason}
+
+某个工具参数标记 `x-mcp-header` 的方式不被规范允许，`<reason>` 会说明它违反了哪条规则。`2026-07-28` 上的客户端会把这样的工具从列表里漏掉，所以 SDK 拒绝注册它。
+
+只有 `str`、`int` 和 `bool` 参数可以标记，而 `str | None` 不属于其中任何一种。可选参数的写法见 **[请求头参数](advanced/header-parameters.md)**。
+
+和上一条一样，这个异常在模块**被导入**时抛出，早于任何客户端连接。
 
 ## `Tool already exists: <name>` {#tool-already-exists-name}
 
@@ -409,6 +417,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `ExceptionGroup: unhandled errors in a TaskGroup` 从来都不是真正的错误。读**最后一行**；在 `async with Client(...)` 块**内部**捕获 `MCPError` 可以完全跳过这层包装。
 * `call_tool` 不会因为工具失败而抛异常。`Error executing tool ...` 和 `Unknown tool: ...` 是结果：检查 `result.is_error`。工具名后面没有消息表示它崩溃了，traceback 在服务器日志里。
 * `Client must be used within an async context manager` -> 用 `async with`。`Use @tool() instead of @tool` -> 加上括号。
+* `has an invalid x-mcp-header annotation` -> 只有 `str`、`int` 和 `bool` 参数可以标记。
 * 服务器日志里的 `Tool already exists:` 是两个同名工具合并成一个的唯一迹象。
 * 一个 421，三种写法：`Server returned an error response`（python `Client`）、`421 Misdirected Request` / `Invalid Host header`（其他所有地方）、`Invalid Host header: <host>`（服务器日志）。修复：`transport_security=TransportSecuritySettings(allowed_hosts=[...])`。
 * `Task group is not initialized` -> 被挂载的应用，其宿主生命周期从未进入 `mcp.session_manager.run()`。

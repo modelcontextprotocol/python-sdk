@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 7c157764133fea1f, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 0aeca6145e7bd302]
+  sections: [9cac816674181eb0, 5619e950d206e6c8, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 991c10e47fda2636]
   tool: 1
 ---
 # Transports côté client {#client-transports}
@@ -44,6 +44,8 @@ Deux points à remarquer :
 * Le `httpx2.AsyncClient` vous appartient, donc c’est **vous** qui y entrez et en sortez. Le SDK ne ferme jamais un client qu’il n’a pas créé.
 * `streamable_http_client(url, http_client=...)` renvoie un transport, et `Client(transport)` l’accepte comme n’importe quoi d’autre.
 
+Conservez le `timeout=`. C’est celui qu’utilise le client du SDK lui-même (30 secondes, 300 pour les lectures) ; un `httpx2.AsyncClient` construit sans délai d’expiration reçoit la valeur par défaut de `httpx2`, soit 5 secondes, et un appel d’outil qui dure plus longtemps échoue sur une expiration du délai de lecture.
+
 Une remarque sur TLS : `httpx2` vérifie les certificats par rapport au magasin de confiance du système d’exploitation (via
 [`truststore`](https://pypi.org/project/truststore/)), et non par rapport à une liste d’autorités de certification embarquée. Dans un environnement sans
 magasin d’autorités de certification système utilisable (certains conteneurs minimaux), définissez les variables d’environnement standard `SSL_CERT_FILE`/`SSL_CERT_DIR`
@@ -51,16 +53,32 @@ ou passez un `verify=ssl_context` explicite à votre `httpx2.AsyncClient`
 (le contexte se trouve dans
 [`httpx` et `httpx-sse` remplacés par `httpx2`](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)).
 
+### Événements SSE plus volumineux {#larger-sse-events}
+
+Passez `max_sse_event_size` lorsqu’un serveur envoie un résultat d’outil ou une notification de grande taille dans un seul événement SSE :
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+La valeur par défaut est de 1 Mio par événement, mesurée en octets avant l’analyse de l’événement. La limite s’applique aux
+réponses POST, au flux GET et aux flux repris. Un événement trop volumineux dans une réponse POST ou un flux
+repris fait échouer cette requête avec une erreur SSE. Sur le flux GET d’arrière-plan, le client journalise
+l’erreur et relance le flux. Définissez `max_sse_event_size=None` pour désactiver le plafond lorsque vous faites confiance au
+serveur et avez besoin d’événements plus volumineux. Les réponses JSON ne sont pas concernées. Si vous utilisez `ClientSessionGroup`, définissez la
+même option sur `StreamableHttpParameters`.
+
 !!! warning
     `streamable_http_client` acceptait autrefois `headers=` et `timeout=` directement. Ce n’est plus le cas :
-    ses seuls paramètres sont `url`, `http_client` et `terminate_on_close`. Utilisez `headers=` par
+    ses paramètres sont `url`, `http_client`, `terminate_on_close` et `max_sse_event_size`. Utilisez `headers=` par
     habitude et vous obtenez :
 
     ```text
     TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
     ```
 
-    Tout ce qui relève de HTTP se trouve désormais sur l’unique `httpx2.AsyncClient` que vous passez.
+    Les en-têtes, l’authentification, les proxys et les délais d’expiration se trouvent sur l’unique `httpx2.AsyncClient` que vous passez.
+    `max_sse_event_size`, lui, s’applique aux lecteurs SSE du transport MCP.
 
 !!! info
     `httpx2` conserve l’API familière de `httpx` ; si vous connaissez `httpx`, vous savez déjà comment gérer ici l’authentification,
@@ -137,6 +155,7 @@ Un **transport** est n’importe quel gestionnaire de contexte asynchrone qui pr
 
 * `Client("http://.../mcp")` (une URL) se connecte via Streamable HTTP, le transport de production.
 * Les en-têtes, l’authentification, les proxys et les délais d’expiration vont sur un `httpx2.AsyncClient` que vous passez à `streamable_http_client(url, http_client=...)`. Il n’y a pas de mot-clé `headers=`.
+* Utilisez `streamable_http_client(url, max_sse_event_size=...)` pour modifier la limite en octets de chaque événement SSE.
 * Les redirections ne sont suivies qu’à l’intérieur de l’origine de l’URL (une redirection `307`/`308` de barre oblique finale), plus `http`→`https` sur le même hôte. Tout le reste échoue avec `Redirect to … not followed` ; configurez l’URL finale.
 * stdio s’écrit `Client(StdioServerParameters(...))`. Ne l’enveloppez vous-même dans `stdio_client(...)` que pour rediriger le stderr du processus enfant.
 * Le sous-processus reçoit un environnement sous liste d’autorisation, pas le vôtre ; `env=` s’y ajoute.

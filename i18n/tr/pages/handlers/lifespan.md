@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f3ca8ac5f90f2dfa, 85a1ef3588ba0736, 563346d4d5804933, 9e3528340d0bab53]
+  sections: [f3ca8ac5f90f2dfa, 48e478ef7bd688b1, 563346d4d5804933, 52ac6a7734d6f581]
   tool: 1
 ---
 # Lifespan {#lifespan}
@@ -46,7 +46,7 @@ Yeni bir şey yok. `ctx` bir **Context** parametresidir; bu yüzden SDK onu enje
 
 Modelin geçirebileceği tek argüman `genre`. Lifespan sunucunuzun kendi işidir.
 
-`@mcp.resource()` ve `@mcp.prompt()` fonksiyonları da `ctx` parametresi alabilir; bir sonraki bölümün açıklayacağı bir nedenle bu parametre yalın `Context` olarak yazılır. `ctx`'in taşıdığı her şey **[Context nesnesi](context.md)** sayfasında.
+`@mcp.resource()` ve `@mcp.prompt()` fonksiyonları da `ctx` parametresi alabilir. `ctx`'in taşıdığı her şey **[Context nesnesi](context.md)** sayfasında.
 
 ### Gerçekten türü belirli {#it-really-is-typed}
 
@@ -55,19 +55,6 @@ Tür açıklamasına bir daha bakın: `ctx: Context[AppContext]`.
 Tür denetleyiciniz için `ctx.request_context.lifespan_context`'in bir `AppContext` **olmasını** sağlayan işte bu tek tür parametresidir. `.db` otomatik tamamlanır; `.dbb` ise daha sunucuyu çalıştırmadan hata verir.
 
 Bunun yerine yalın `Context` yazarsanız `lifespan_context`'in türü `dict[str, Any]` olur: tür denetleyicisinin, lifespan'inizin ne yield ettiğini bilmesinin yolu yoktur. Nesne çalışma zamanında yine oradadır; yalnızca yardımı kaybedersiniz.
-
-!!! warning
-    `Context[AppContext]` **yalnızca araçlara özgü** bir yazımdır. Bunu bir `@mcp.resource()` ya da
-    `@mcp.prompt()` fonksiyonuna koyarsanız o işleyiciye yapılan her çağrı başarısız olur. İstemciye bir hata döner,
-    sunucu log'u da nedenini gösterir:
-
-    ```text
-    Context is not available outside of a request
-    ```
-
-    Kaynaklarda ve prompt'larda yalın `ctx: Context` yazın. Lifespan'inizin yield ettiği nesne
-    çalışma zamanında yine `ctx.request_context.lifespan_context`'tir; vazgeçtiğiniz şey nesne değil,
-    tür parametresidir.
 
 !!! tip
     Her zaman bir lifespan vardır. Siz bir tane geçirmezseniz SDK'nın varsayılanı boş bir `dict` yield eder;
@@ -101,7 +88,7 @@ Sunucuyu yaşam döngüsüne kadar sadeleştirin: `Database`'e bir `connected` b
 * `yield`'den önceki kod başlatmadır. Sonrasındaki `finally` kapatmadır.
 * İstek başına değil, sunucunun tüm ömrü boyunca bir kez çalışır.
 * `yield` ettiğiniz şey her araçta, kaynakta ve prompt'ta `ctx.request_context.lifespan_context` olur.
-* `ctx: Context[AppContext]` bu erişimi araçlarda tam tür bilgisiyle donatır. Kaynaklar ve prompt'lar yalın `Context` alır.
+* `ctx: Context[AppContext]` bu erişimi tam tür bilgisiyle donatır.
 * `lifespan=` yoksa boş bir `dict` gelir, asla `None` değil.
 
 Çağrının ortasında durup kullanıcıya yalnızca onun bildiği bir şeyi soran işleyici, **[Elicitation](elicitation.md)** (kullanıcıdan bilgi isteme) sayfasının konusu.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2e9aff14d3a882c0]
   tool: 1
 ---
 # Progreso {#progress}
@@ -120,4 +120,4 @@ El callback recibe `total=None`. Un cliente todavía puede mostrar *actividad* (
 * Si la llamada no lleva callback, `report_progress` no hace nada. Reporta sin condiciones.
 * Omite `total` cuando no lo conozcas; el callback recibe `None`.
 
-El progreso es lo que una herramienta en ejecución le muestra al *usuario*. Las líneas que registra para *ti*, la persona que opera el servidor, van por otro canal: **[Logging](logging.md)**.
+El progreso es para un cliente que sigue esperando. Lo que ve tu herramienta cuando el cliente deja de esperar es **[Cancelación](cancellation.md)**.

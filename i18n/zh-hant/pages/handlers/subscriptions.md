@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [60a9de8a0bdaa531, 317bbe7e4355cdcc, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, 266f56fb798068a4, 7c0e57030b622139, df18d7c2417a9883]
+  sections: [60a9de8a0bdaa531, 6693607ea56d8bd6, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, b8bc624a627ead9b, 2139e68e36d9e621, 7c0e57030b622139, 34ab1af2b9ab5b45]
   tool: 1
 ---
 # 訂閱 {#subscriptions}
@@ -22,7 +22,7 @@ translation:
 * 同系列的還有 `notify_prompts_changed()` 和 `notify_resources_changed()`。
 * 沒有訂閱者，就沒有工作。對閒置的伺服器發布是空操作，所以永遠不必檢查有沒有人在聽，只要說明什麼變了。
 
-`MCPServer` 會替你服務 `subscriptions/listen`。線路上的義務（第一個訊框是確認、逐串流過濾、每個訊框都帶訂閱 id）是 SDK 的工作。
+`MCPServer` 會替你服務 `subscriptions/listen`，除非你[把它關閉](#turning-it-off)。線路上的義務（第一個訊框是確認、逐串流過濾、每個訊框都帶訂閱 id）是 SDK 的工作。
 
 !!! check
     在線路上，一個過濾條件指名 `board://sprint` 的串流，在 `complete_task` 執行之後看起來像這樣：
@@ -79,7 +79,32 @@ translation:
 
 發布的內容透過 `SubscriptionBus` 從處理函式送到開啟中的串流。預設是記憶體內的：一個處理程序，所有串流都在裡面。在你於負載平衡器後面執行多個副本之前，這都是正確答案；因為到那時，用戶端的串流會固定在某一個副本上，而另一個副本上的發布必須送得到它。
 
-那個接縫由你實作：在你的 pub/sub 後端上實作兩個方法。
+用預設的匯流排就送不到，因為每個副本都有自己的匯流排：
+
+```mermaid
+flowchart LR
+    client[Client] --> lb[Load balancer]
+    lb --> stream
+    lb ~~~~ gap
+    lb --> tool
+    subgraph B [Replica B]
+        tool[tools/call] -- publishes --> busB[(bus B)]
+    end
+    gap[(no shared bus)]
+    subgraph A [Replica A]
+        stream[listen stream] -- subscribed --> busA[(bus A)]
+    end
+    style A fill:none
+    style B fill:none
+    style gap fill:none,stroke-dasharray:4 4
+```
+
+不會有任何東西失敗：呼叫成功，串流卻保持安靜。所以在負載平衡器後面，二選一：
+
+* **需要變更通知。** 讓每個副本都用同一個匯流排，做法見下方。
+* **不需要。** [把它關閉](#turning-it-off)，這樣就不會有用戶端被承諾一些它收不到的事件，也不會為了等這些事件而讓串流一直開著。
+
+共用的匯流排由你實作：在你的 pub/sub 後端上實作兩個方法。
 
 ```python
 from collections.abc import Callable
@@ -128,6 +153,20 @@ async def tools_reloaded() -> None:
     await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
 
+## 關閉訂閱 {#turning-it-off}
+
+目錄永遠不變的伺服器沒有東西可以發布。建立伺服器時就直接說明：
+
+```python title="server.py" hl_lines="3"
+--8<-- "docs_src/subscriptions/tutorial007.py"
+```
+
+* `2026-07-28` 用戶端不會看到伺服器宣告任何變更通知，而 `subscriptions/listen` 請求會得到 *Method not found*，而不是一個開啟的串流。
+* `ctx.notify_*` 照樣能用，只是不會送達任何人，所以處理函式不用改。
+* 使用較早協定版本的用戶端看不出任何差別。
+
+開啟的串流是一個永遠不會結束的請求，所以在依請求持續時間計費的主機上，這一點也很重要。
+
 ## 低階組合方式 {#the-low-level-composition}
 
 在低階的 `Server` 上沒有任何預先接好的東西，同樣的零件三行就能組起來：
@@ -148,5 +187,6 @@ async def tools_reloaded() -> None:
 * 用戶端那一端是 `async with client.listen(...)`：完整說明請見「用戶端」章節下的 **[訂閱](../client/subscriptions.md)**。
 * 在低階的 `Server` 上，同樣的零件自己組：一個匯流排、`ListenHandler(bus)`、`on_subscriptions_listen` 插槽。
 * 橫向擴展代表實作 `SubscriptionBus`（兩個方法），然後以 `MCPServer(subscriptions=...)` 傳入。
+* 沒有東西要發布，或是副本之間沒有共用的匯流排：`MCPServer(subscriptions=False)` 不會宣告任何變更通知，也不會保持任何串流開啟。
 
 執行提供這一切的伺服器，不管是一個副本還是 20 個，請見 **[部署與擴展](../run/deploy.md)**。

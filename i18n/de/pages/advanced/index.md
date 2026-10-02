@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ca6988b7503cd2d3]
+  sections: [348f8697c6b12cd0]
   tool: 1
 ---
 # Für Fortgeschrittene {#advanced}
@@ -14,6 +14,8 @@ von `MCPServer` im Weg ist:
   eigene JSON-RPC-Methoden.
 * **[Paginierung](pagination.md)** und **[Middleware](middleware.md)**: zwei Dinge, die
   *nur* auf dem Low-Level-`Server` gehen.
+* **[Header-Parameter](header-parameters.md)**: lassen ein Gateway einen Tool-Aufruf anhand
+  eines seiner Argumente routen.
 * **[Erweiterungen](extensions.md)** und **[MCP Apps](apps.md)**: die
   Erweiterungsfläche des Protokolls. Kombiniere Erweiterungspakete zu einem Server oder schreibe deine eigenen.
 

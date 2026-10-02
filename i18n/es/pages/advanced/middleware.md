@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
+  sections: [58e1103d9a323ccf, 46056f318ef205e4, 812b414557fb0c35, 4df162eea2518d38, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -15,8 +15,8 @@ Lo escribes como `async (ctx, call_next)` y lo añades a `server.middleware`. Es
     registrar, trazar) y para *rechazar* mensajes; no la conviertas en los cimientos del servidor.
 
 `MCPServer` recibe la lista en el constructor (`MCPServer(name, middleware=[...])`) y la expone como
-`mcp.middleware`; el `Server` de bajo nivel expone la misma lista como `server.middleware`. El ejemplo
-de abajo usa el `Server` de bajo nivel; si `Server(name, on_call_tool=...)` es nuevo para ti, lee
+`mcp.middleware`; el `Server` de bajo nivel expone la misma lista como `server.middleware`. Los ejemplos
+de abajo usan el `Server` de bajo nivel; si `Server(name, on_call_tool=...)` es nuevo para ti, lee
 primero **[El Server de bajo nivel](low-level-server.md)**.
 
 ## Un middleware que mide tiempos {#a-timing-middleware}
@@ -62,14 +62,38 @@ Ese es el punto. El middleware envuelve **cada** mensaje entrante:
 * Incluso un método para el que el servidor no tiene handler: `call_next` lanza el
   `MCPError(-32601, "Method not found")` *a través de* tu middleware de camino al cliente.
 
+## Un límite de concurrencia {#a-concurrency-cap}
+
+Un middleware no tiene por qué llamar a `call_next(ctx)`. Lanza un `MCPError` en su lugar y ese
+único mensaje se **rechaza**: la conexión sigue activa y el siguiente mensaje pasa.
+
+Supón que cada búsqueda ocupa una conexión de un pool de cuatro. Este middleware deja que se
+ejecuten cuatro llamadas a herramientas a la vez y rechaza la quinta:
+
+```python title="server.py" hl_lines="15-16 40-55 59"
+--8<-- "docs_src/middleware/tutorial002.py"
+```
+
+* Solo se cuenta `tools/call`, así que el servidor sigue respondiendo a `server/discover` y
+  `tools/list` mientras rechaza llamadas a herramientas.
+* MCP no define ningún código de error de "servidor ocupado", así que `SERVER_BUSY` es propio de
+  este servidor.
+* Rechazar le indica al cliente de inmediato que el servidor está sobrecargado. Si prefieres hacer
+  esperar a los llamantes, envuelve `call_next(ctx)` con un `anyio.CapacityLimiter` en su lugar.
+
+Un `MCPError` lanzado llega a la aplicación cliente, no al modelo. Si el modelo debe leer el
+mensaje, devuelve en su lugar un resultado de herramienta con `is_error=True`: eso es
+**Responder**, más abajo.
+
 ## Qué puedes hacer dentro de uno {#what-you-can-do-inside-one}
 
 En orden creciente de cuánto deberías dudar:
 
-* **Observar.** Cronométralo, cuéntalo, regístralo. El ejemplo de arriba.
+* **Observar.** Cronométralo, cuéntalo, regístralo. El middleware de arriba que mide tiempos.
 * **Rechazar.** Lanza un `MCPError` *en lugar de* llamar a `call_next(ctx)` y ese único mensaje se
-  responde con un error JSON-RPC. La conexión sigue activa; el siguiente mensaje pasa. Así es
-  como un servidor restringe `subscriptions/listen` por llamante:
+  responde con un error JSON-RPC. La conexión sigue activa; el siguiente mensaje pasa. El límite
+  de concurrencia de arriba. También es así como un servidor restringe `subscriptions/listen` por
+  llamante:
   **[Decidir quién puede observar](../handlers/subscriptions.md#deciding-who-may-watch)** en la
   página de Suscripciones lo recorre paso a paso.
 * **Reescribir.** `ctx` es una dataclass: `await call_next(dataclasses.replace(ctx, params=...))`
@@ -96,7 +120,7 @@ En orden creciente de cuánto deberías dudar:
 !!! warning
     `initialize` se maneja en línea: el servidor no lee más mensajes entrantes hasta que tu cadena
     de middleware devuelve. Esperar con await una solicitud del servidor al cliente
-    (`ctx.session.send_request(...)`, una elicitación) mientras se maneja `initialize` **bloquea
+    (`ctx.session.send_request(...)`, una elicitación (elicitation)) mientras se maneja `initialize` **bloquea
     la conexión por completo**: la respuesta que esperas nunca se podrá leer. Las notificaciones
     que se envían sin esperar respuesta no dan problemas.
 

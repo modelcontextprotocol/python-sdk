@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ca6988b7503cd2d3]
+  sections: [348f8697c6b12cd0]
   tool: 1
 ---
 # İleri düzey {#advanced}
@@ -14,6 +14,8 @@ kaçış yollarını içerir:
   ve kendinize ait özel JSON-RPC metotları.
 * **[Sayfalama](pagination.md)** ve **[Middleware](middleware.md)**: *yalnızca*
   alt düzey `Server` üzerinde yapabileceğiniz iki şey.
+* **[Başlık parametreleri](header-parameters.md)**: bir ağ geçidinin, araç çağrısını
+  argümanlarından birine göre yönlendirmesini sağlayın.
 * **[Uzantılar](extensions.md)** ve **[MCP Apps](apps.md)**: protokolün uzantı
   yüzeyi. Uzantı paketlerini bir sunucuda bir araya getirin ya da kendinizinkini yazın.
 

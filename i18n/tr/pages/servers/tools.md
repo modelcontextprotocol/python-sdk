@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, c1115cd005b81e8f, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # Araçlar {#tools}
@@ -141,7 +141,7 @@ Dilediğiniz gibi karıştırabilirsiniz: model parametrelerinin yanında sırad
 
 Bir araç G/Ç yapıyorsa (bir API çağırıyor, dosya okuyor, veritabanı sorguluyorsa) onu `async def` olarak bildirin ve içinde `await` kullanın. SDK onu await eder.
 
-Sıradan bir `def` araç da çalışır: SDK onu bir iş parçacığında çalıştırır, böylece sunucuyu asla engellemez.
+Sıradan bir `def` araç da çalışır: SDK onu bir iş parçacığında çalıştırır, böylece sunucuyu asla engellemez. Uzun süren bir araç, istemcinin hâlâ bekleyip beklemediğini kontrol edebilir; **[İptal](../handlers/cancellation.md)** sayfasına bakın.
 
 Yapılandırılacak başka bir şey yok.
 

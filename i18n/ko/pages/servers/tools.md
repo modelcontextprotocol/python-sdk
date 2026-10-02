@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, c1115cd005b81e8f, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # 도구 {#tools}
@@ -141,7 +141,7 @@ Inspector는 필수 항목인 `query` 텍스트 필드와 필수 항목인 `limi
 
 도구가 I/O를 한다면(API를 호출하거나, 파일을 읽거나, 데이터베이스를 조회한다면) `async def`로 선언하고 그 안에서 `await`를 쓰세요. SDK가 알아서 await합니다.
 
-일반 `def` 도구도 잘 동작합니다. SDK가 스레드에서 실행하므로 서버를 막는 일이 없습니다.
+일반 `def` 도구도 잘 동작합니다. SDK가 스레드에서 실행하므로 서버를 막는 일이 없습니다. 오래 걸리는 도구는 클라이언트가 아직 기다리고 있는지 확인할 수 있습니다. 자세한 내용은 **[취소](../handlers/cancellation.md)**를 참고하세요.
 
 따로 설정할 것은 아무것도 없습니다.
 

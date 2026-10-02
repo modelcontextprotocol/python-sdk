@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 7c157764133fea1f, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 0aeca6145e7bd302]
+  sections: [9cac816674181eb0, 5619e950d206e6c8, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 991c10e47fda2636]
   tool: 1
 ---
 # Transportes do cliente {#client-transports}
@@ -44,6 +44,8 @@ Duas coisas para notar:
 * Você é o dono do `httpx2.AsyncClient`, então é **você** quem entra e sai dele. O SDK nunca fecha um cliente que não criou.
 * `streamable_http_client(url, http_client=...)` retorna um transporte, e `Client(transport)` o aceita como qualquer outra coisa.
 
+Mantenha o `timeout=`. É o que o próprio cliente do SDK usa (30 segundos, 300 para leituras); um `httpx2.AsyncClient` construído sem ele fica com o padrão de 5 segundos do `httpx2`, e uma chamada de ferramenta que demore mais do que isso falha com um timeout de leitura.
+
 Uma observação sobre TLS: `httpx2` verifica certificados contra o repositório de confiança do sistema operacional (via
 [`truststore`](https://pypi.org/project/truststore/)), não contra uma lista de CAs embutida. Em um ambiente
 sem um repositório de CAs do sistema utilizável (alguns contêineres mínimos), defina as variáveis de ambiente padrão
@@ -51,16 +53,32 @@ sem um repositório de CAs do sistema utilizável (alguns contêineres mínimos)
 (contexto em
 [`httpx` e `httpx-sse` substituídos por `httpx2`](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)).
 
+### Eventos SSE maiores {#larger-sse-events}
+
+Passe `max_sse_event_size` quando um servidor envia um resultado de ferramenta ou uma notificação grandes em um único evento SSE:
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+O padrão é 1 MiB por evento, medido em bytes antes de o evento ser analisado. O limite vale para
+respostas de POST, para o stream GET e para streams retomados. Um evento grande demais em uma resposta de POST ou em um
+stream retomado faz essa requisição falhar com um erro de SSE. No stream GET em segundo plano, o cliente registra
+o erro no log e tenta o stream de novo. Defina `max_sse_event_size=None` para desativar o limite quando você confia no
+servidor e precisa de eventos maiores. As respostas JSON não são afetadas. Se você usa `ClientSessionGroup`, defina a
+mesma opção em `StreamableHttpParameters`.
+
 !!! warning
     `streamable_http_client` costumava aceitar `headers=` e `timeout=` diretamente. Não aceita mais:
-    seus únicos parâmetros são `url`, `http_client` e `terminate_on_close`. Use `headers=` por
+    seus parâmetros são `url`, `http_client`, `terminate_on_close` e `max_sse_event_size`. Use `headers=` por
     hábito e você recebe:
 
     ```text
     TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
     ```
 
-    Tudo que tem cara de HTTP agora vive no único `httpx2.AsyncClient` que você passa.
+    Headers, autenticação, proxies e timeouts vivem no único `httpx2.AsyncClient` que você passa.
+    Já `max_sse_event_size` se aplica aos leitores SSE do transporte MCP.
 
 !!! info
     `httpx2` mantém a API conhecida do `httpx`, então se você conhece `httpx` já sabe como fazer auth,
@@ -137,6 +155,7 @@ Um **transporte** é qualquer gerenciador de contexto assíncrono que produz um 
 
 * `Client("http://.../mcp")` (uma URL) conecta por Streamable HTTP, o transporte de produção.
 * Headers, auth, proxies e timeouts pertencem a um `httpx2.AsyncClient` que você passa a `streamable_http_client(url, http_client=...)`. Não existe o argumento `headers=`.
+* Use `streamable_http_client(url, max_sse_event_size=...)` para alterar o limite de bytes de cada evento SSE.
 * Redirecionamentos só são seguidos dentro da própria origem da URL (um `307`/`308` de barra final), mais `http`→`https` no mesmo host. Qualquer outra coisa falha com `Redirect to … not followed`; configure a URL final.
 * stdio é `Client(StdioServerParameters(...))`. Envolva-o em `stdio_client(...)` você mesmo apenas para redirecionar o stderr do processo filho.
 * O subprocesso recebe um ambiente em allow-list, não o seu; `env=` acrescenta a ele.
