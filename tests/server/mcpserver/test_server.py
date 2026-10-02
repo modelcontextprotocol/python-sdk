@@ -13,6 +13,7 @@ from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
+    METHOD_NOT_FOUND,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     AudioContent,
     BlobResourceContents,
@@ -3107,6 +3108,61 @@ async def test_programmatic_entry_points_carry_the_subscription_bus() -> None:
     await mcp.get_prompt("ask")
 
     assert seen == [ToolsListChanged(), ResourcesListChanged(), PromptsListChanged()]
+
+
+async def test_server_advertises_change_notifications_on_the_modern_wire_by_default() -> None:
+    """SDK-defined: a default `MCPServer` serves `subscriptions/listen`, so `server/discover`
+    reports every change-notification flag true."""
+    mcp = MCPServer("board")
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            assert client.server_capabilities.model_dump(by_alias=True, exclude_none=True) == snapshot(
+                {
+                    "prompts": {"listChanged": True},
+                    "resources": {"subscribe": True, "listChanged": True},
+                    "tools": {"listChanged": True},
+                }
+            )
+
+
+async def test_subscriptions_false_neither_advertises_nor_serves_listen() -> None:
+    """SDK-defined: `MCPServer(subscriptions=False)` registers no `subscriptions/listen` handler,
+    so `server/discover` reports every change-notification flag false and a listen request is
+    refused with method-not-found instead of opening a stream."""
+    mcp = MCPServer("static", subscriptions=False)
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            assert client.server_capabilities.model_dump(by_alias=True, exclude_none=True) == snapshot(
+                {
+                    "prompts": {"listChanged": False},
+                    "resources": {"subscribe": False, "listChanged": False},
+                    "tools": {"listChanged": False},
+                }
+            )
+            # Entering is where the request is sent; `__aenter__` directly avoids an unreachable with-body.
+            with pytest.raises(MCPError) as exc_info:
+                await client.listen(tools_list_changed=True).__aenter__()
+            assert exc_info.value.error.code == METHOD_NOT_FOUND
+
+
+async def test_notify_still_succeeds_when_subscriptions_are_off() -> None:
+    """SDK-defined: with `subscriptions=False` a handler that publishes a change completes as
+    usual; the event has no stream to reach."""
+    mcp = MCPServer("static", subscriptions=False)
+
+    @mcp.tool()
+    async def touch(ctx: Context) -> str:
+        await ctx.notify_tools_changed()
+        return "ok"
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            result = await client.call_tool("touch")
+
+    assert result.is_error is False
+    assert result.content == [TextContent(type="text", text="ok")]
 
 
 def test_context_mcp_server_outside_request_raises() -> None:

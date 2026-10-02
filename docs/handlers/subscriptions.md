@@ -19,6 +19,8 @@ Your side of it is one line: publish the change.
 
 `MCPServer` serves `subscriptions/listen` for you. The wire obligations (the acknowledgment as the first frame, per-stream filtering, the subscription id on every frame) are the SDK's job.
 
+A server that never publishes can opt out with `MCPServer("Static", subscriptions=False)`: it advertises no change notifications, and a `subscriptions/listen` request gets a *Method not found* error instead of an open stream.
+
 !!! check
     On the wire, a stream whose filter named `board://sprint` looks like this after `complete_task` runs:
 
