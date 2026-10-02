@@ -265,8 +265,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         """Exchange refresh token - not supported in this example."""
         raise NotImplementedError("Refresh tokens not supported")
 
-    # TODO(Marcelo): The type hint is wrong. We need to fix, and test to check if it works.
-    async def revoke_token(self, token: str, token_type_hint: str | None = None) -> None:  # type: ignore
+    async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         """Revoke a token."""
-        if token in self.tokens:
-            del self.tokens[token]
+        if token.token in self.tokens:
+            del self.tokens[token.token]
