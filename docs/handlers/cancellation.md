@@ -26,11 +26,12 @@ Put the cleanup in a `finally`:
 
 A plain `def` tool runs in a thread, and nothing can interrupt a thread from outside. The tool has to ask:
 
-```python title="server.py" hl_lines="18"
+```python title="server.py" hl_lines="22 25-26"
 --8<-- "docs_src/cancellation/tutorial002.py"
 ```
 
 * `anyio.from_thread.check_cancelled()` does nothing while the call is live, and raises once it has been cancelled. Call it between units of work.
+* Cleanup goes in a `finally` here too. Nothing in a thread awaits, so it needs no shield.
 * A `def` tool that never asks runs to the end, and its result is thrown away.
 
 ## Where it applies
@@ -48,7 +49,7 @@ It works the same over stdio and Streamable HTTP. With this SDK's `Client`, givi
 
 * When the client gives up on a call, the SDK cancels the handler: tool, prompt or resource.
 * `async def`: clean up in a `finally`, and put cleanup that awaits inside `anyio.move_on_after(seconds, shield=True)`.
-* Plain `def`: call `anyio.from_thread.check_cancelled()` between units of work, or the tool runs to the end.
+* Plain `def`: call `anyio.from_thread.check_cancelled()` between units of work, or the tool runs to the end. A plain `finally` cleans up.
 * `json_response=True` (modern connections) and `stateless_http=True` (legacy ones) switch cancellation off.
 
 Progress and cancellation are between a running tool and its *caller*. The lines it logs for *you*, the person operating the server, are a different channel: **[Logging](logging.md)**.

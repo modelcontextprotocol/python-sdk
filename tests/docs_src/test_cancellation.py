@@ -20,6 +20,8 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 # "auto" dispatches in process; "legacy" puts a JSON-RPC stream, and so a cancellation message, in between.
 both_connections = pytest.mark.parametrize("mode", ["auto", "legacy"])
 
+TITLES = ["Dune", "Emma", "Ulysses"]
+
 
 async def abandon(
     call: Callable[[], Awaitable[object]], started: anyio.Event, then: Callable[[], object] = lambda: None
@@ -115,23 +117,35 @@ async def test_a_client_timeout_cancels_the_tool_the_same_way(
 
 @both_connections
 async def test_check_cancelled_stops_a_def_tool_at_its_next_check(mode: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """tutorial002: cancelled during the first book, the loop raises at its next check and indexes no more."""
+    """tutorial002: cancelled during the first book, the loop raises at its next check and the `finally` cleans up."""
     started = anyio.Event()
     resume = threading.Event()
     indexed: list[str] = []
 
     def index_book(title: str) -> None:
+        assert tutorial002.offline == {"search"}
         indexed.append(title)
         anyio.from_thread.run_sync(started.set)
         assert resume.wait(5)
 
     monkeypatch.setattr(tutorial002, "index_book", index_book)
-    titles = ["Dune", "Emma", "Ulysses"]
     with anyio.fail_after(5):
-        # Leaving the block waits for the tool's thread, so `indexed` is final after it.
+        # Leaving the block waits for the tool's thread, so what it left behind is final after it.
         async with Client(tutorial002.mcp, mode=mode) as client:
-            await abandon(lambda: client.call_tool("rebuild_index", {"titles": titles}), started, then=resume.set)
+            await abandon(lambda: client.call_tool("rebuild_index", {"titles": TITLES}), started, then=resume.set)
     assert indexed == ["Dune"]
+    assert tutorial002.offline == set()
+
+
+async def test_a_def_tool_nobody_cancels_indexes_every_book_and_cleans_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """tutorial002: while the call is live the checks do nothing, and the `finally` runs on a normal finish too."""
+    indexed: list[str] = []
+    monkeypatch.setattr(tutorial002, "index_book", indexed.append)
+    async with Client(tutorial002.mcp) as client:
+        result = await client.call_tool("rebuild_index", {"titles": TITLES})
+    assert result.structured_content == {"result": "Indexed 3 books."}
+    assert indexed == TITLES
+    assert tutorial002.offline == set()
 
 
 async def test_a_def_tool_that_never_checks_runs_to_the_end() -> None:
