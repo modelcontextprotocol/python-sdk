@@ -3,6 +3,7 @@ from typing import Annotated
 
 import mcp_types as types
 import pytest
+from inline_snapshot import snapshot
 from pydantic import Field
 
 from mcp import Client
@@ -80,33 +81,45 @@ def non_token_header(region: Annotated[str, Field(json_schema_extra={"x-mcp-head
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("fn", "reason"),
+    ("fn", "message"),
     [
         pytest.param(
             array_header,
-            "property 'tags': x-mcp-header is only permitted on integer/string/boolean properties (got 'array')",
+            snapshot(
+                "Tool 'array_header' has an invalid x-mcp-header annotation: "
+                "property 'tags': x-mcp-header is only permitted on integer/string/boolean properties (got 'array')"
+            ),
             id="array",
         ),
         pytest.param(
             number_header,
-            "property 'ratio': x-mcp-header is only permitted on integer/string/boolean properties (got 'number')",
+            snapshot(
+                "Tool 'number_header' has an invalid x-mcp-header annotation: "
+                "property 'ratio': x-mcp-header is only permitted on integer/string/boolean properties (got 'number')"
+            ),
             id="number",
         ),
         pytest.param(
             optional_header,
-            "property 'region': x-mcp-header is only permitted on integer/string/boolean properties "
-            "(the type keyword is NoneType, not a string)",
+            snapshot(
+                "Tool 'optional_header' has an invalid x-mcp-header annotation: "
+                "property 'region': x-mcp-header is only permitted on integer/string/boolean properties "
+                "(the type keyword is NoneType, not a string)"
+            ),
             id="optional",
         ),
         pytest.param(
             non_token_header,
-            "property 'region': x-mcp-header 'Region Name' is not an RFC 9110 token",
+            snapshot(
+                "Tool 'non_token_header' has an invalid x-mcp-header annotation: "
+                "property 'region': x-mcp-header 'Region Name' is not an RFC 9110 token"
+            ),
             id="non-token-name",
         ),
     ],
 )
 async def test_tool_with_an_invalid_x_mcp_header_annotation_is_rejected_at_registration(
-    fn: Callable[..., str], reason: str
+    fn: Callable[..., str], message: str
 ):
     """SDK-defined: the spec has 2026-07-28 clients exclude such a tool, so registration
     refuses it with an error naming the tool and the reason, and nothing is registered."""
@@ -115,7 +128,7 @@ async def test_tool_with_an_invalid_x_mcp_header_annotation_is_rejected_at_regis
     with pytest.raises(InvalidSignature) as exc_info:
         mcp.add_tool(fn)
 
-    assert str(exc_info.value) == f"Tool {fn.__name__!r} has an invalid x-mcp-header annotation: {reason}"
+    assert str(exc_info.value) == message
     assert await mcp.list_tools() == []
 
 
