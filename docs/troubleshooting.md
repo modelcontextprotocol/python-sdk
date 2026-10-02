@@ -123,6 +123,14 @@ Add the parentheses. `@mcp.resource(...)` and `@mcp.prompt()` say the same thing
     tools, has this shape: run `python server.py` yourself and read the traceback. A type checker
     also catches it: a function is not a valid `name=`.
 
+## `InvalidSignature: Tool '<name>' has an invalid x-mcp-header annotation: <reason>`
+
+A tool argument is marked with `x-mcp-header` in a way the spec doesn't allow, and `<reason>` says which rule it breaks. Clients on `2026-07-28` would leave such a tool out of their listing, so the SDK refuses to register it.
+
+Only `str`, `int` and `bool` arguments can be marked, and `str | None` is none of them. **[Header parameters](advanced/header-parameters.md)** has the spelling for an optional argument.
+
+Like the entry above, this raises when the module is **imported**, before any client connects.
+
 ## `Tool already exists: <name>`
 
 Two registrations used the same tool name. The **first** one wins, the second is silently dropped, and this warning in the *server log* is the only signal:
@@ -420,6 +428,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `ExceptionGroup: unhandled errors in a TaskGroup` is never the error. Read the **last line**; catching `MCPError` *inside* the `async with Client(...)` block skips the wrapping entirely.
 * `call_tool` does not raise for a failing tool. `Error executing tool ...` and `Unknown tool: ...` are results: check `result.is_error`. No message after the tool name means it crashed, and the traceback is in the server log.
 * `Client must be used within an async context manager` -> use `async with`. `Use @tool() instead of @tool` -> add the parentheses.
+* `has an invalid x-mcp-header annotation` -> only `str`, `int` and `bool` arguments can be marked.
 * `Tool already exists:` in the server log is the only sign that two same-named tools collapsed into one.
 * One 421, three spellings: `Server returned an error response` (the python `Client`), `421 Misdirected Request` / `Invalid Host header` (everything else), `Invalid Host header: <host>` (the server log). Fix: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> a mounted app whose host lifespan never entered `mcp.session_manager.run()`.

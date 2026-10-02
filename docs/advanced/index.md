@@ -9,6 +9,8 @@ layer is in the way:
   methods of your own.
 * **[Pagination](pagination.md)** and **[Middleware](middleware.md)**: two things you
   can *only* do on the low-level `Server`.
+* **[Header parameters](header-parameters.md)**: let a gateway route a tool call on one
+  of its arguments.
 * **[Extensions](extensions.md)** and **[MCP Apps](apps.md)**: the protocol's
   extension surface. Compose extension packages into a server, or write your own.
 
