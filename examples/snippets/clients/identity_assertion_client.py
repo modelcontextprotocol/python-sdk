@@ -8,7 +8,7 @@ MCP access token. No browser redirect or dynamic client registration is involved
 Obtaining the ID-JAG (logging into the IdP and the leg-1 exchange against it) is deployment-specific
 and out of scope for the SDK; supply it through the `assertion_provider` callback. The callback
 receives the authorization server's issuer (the ID-JAG `aud`) and the MCP server's resource
-identifier (the ID-JAG `resource` claim). SEP-990 requires a confidential client, so a client secret
+identifier (the ID-JAG `resource` claim). The provider requires a confidential client, so a client secret
 is mandatory, and `issuer` is the authorization server the credentials are provisioned for - the
 provider fetches metadata from that issuer's well-known and never asks the resource server which AS
 to use.

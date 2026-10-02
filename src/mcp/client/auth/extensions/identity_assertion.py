@@ -104,7 +104,7 @@ class IdentityAssertionOAuthProvider(RedirectAwareAuth):
             server_url: The MCP server URL.
             storage: Token storage implementation.
             client_id: The OAuth client ID registered with the MCP authorization server.
-            client_secret: The client secret. SEP-990 section 5.1 requires a confidential client.
+            client_secret: The client secret. This provider supports confidential clients only.
             issuer: The issuer identifier of the MCP authorization server this client is provisioned
                 for. Authorization-server metadata is fetched from this issuer's well-known and the
                 ID-JAG and secret are sent only to its token endpoint.
@@ -115,7 +115,7 @@ class IdentityAssertionOAuthProvider(RedirectAwareAuth):
                 (default) or `client_secret_basic`.
         """
         if not client_secret:
-            raise ValueError("client_secret is required: SEP-990 mandates a confidential client")
+            raise ValueError("client_secret is required: this provider supports confidential clients only")
         if not issuer:
             raise ValueError("issuer is required: the authorization server is configuration, not discovery")
         self._resource = resource_url_from_server_url(server_url)

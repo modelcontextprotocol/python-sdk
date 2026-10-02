@@ -59,7 +59,7 @@ The extension does not demand this; it is a deliberately stricter choice. This c
 
 ### A confidential client
 
-`client_secret` is required; the constructor raises `ValueError` without one. The IETF profile underneath [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) reserves this grant for confidential clients, SEP-990 requires the client to authenticate, and this SDK enforces both by insisting on a shared secret. `token_endpoint_auth_method` picks where it travels: `client_secret_post` (the default, in the form body) or `client_secret_basic` (an HTTP Basic header). The profile also permits `private_key_jwt`; this provider does not support it.
+`client_secret` is required; the constructor raises `ValueError` without one. The IETF profile underneath [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) recommends this grant for confidential clients only, and [RFC 7521](https://datatracker.ietf.org/doc/html/rfc7521) leaves that policy to the authorization server. This SDK takes the conservative reading on both sides: the built-in authorization server refuses a client that has no shared secret, and this provider insists on one. `token_endpoint_auth_method` picks where it travels: `client_secret_post` (the default, in the form body) or `client_secret_basic` (an HTTP Basic header). The profile also permits `private_key_jwt`; this provider does not support it.
 
 !!! tip
     Read `client_secret` from the environment or a secret manager, never from source control.
@@ -86,6 +86,7 @@ The SDK can also *be* the authorization server: `create_auth_routes` returns the
 
 * `identity_assertion_enabled=True` gates everything. Off, which is the default, `/token` answers this grant with `unsupported_grant_type` even if you implemented the hook, and the metadata does not mention it. On, the metadata gains the `jwt-bearer` grant type and lists `urn:ietf:params:oauth:grant-profile:id-jag` in `authorization_grant_profiles_supported`, the field the extension uses to advertise support. (This SDK's client never reads it: it is provisioned for one issuer and simply asks.)
 * **`exchange_identity_assertion`** is the hook. Before it runs, the SDK has authenticated the client, refused public clients, and refused clients whose registration does not list the grant. You get an `IdentityAssertionParams` (the raw `assertion`, the requested `scopes` and `resource`) and return a plain `OAuthToken`.
+* Refusing public clients is SDK policy, not a spec requirement. A client identified by a Client ID Metadata Document has no secret, so it can't use this grant here, and the built-in server doesn't resolve those documents yet ([#1801](https://github.com/modelcontextprotocol/python-sdk/issues/1801)). A deployment that wants a different policy can swap the `/token` route that `create_auth_routes` returns for its own.
 * Dynamic client registration refuses this grant unconditionally, so `get_client` here serves a hand-provisioned client. An ID-JAG client cannot register itself into existence.
 * Half the class is refusals. `OAuthAuthorizationServerProvider` is the *whole* authorization server, so it also asks for the authorization-code flow; a server that signs users in as well implements those for real, and this one has exactly one door.
 
