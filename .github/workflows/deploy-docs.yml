@@ -26,7 +26,12 @@ on:
 
 concurrency:
   group: deploy-docs
-  cancel-in-progress: false
+  # Newest run wins. build-docs.sh builds the tips of main and v1.x, not the
+  # triggering commit, so a newer run publishes everything an older one would,
+  # and Pages takes the site as one artifact, so a cancelled run leaves the live
+  # site as it was. With `false`, a run that never gets a runner holds the group
+  # and every later deploy waits behind it.
+  cancel-in-progress: true
 
 jobs:
   deploy-docs:
