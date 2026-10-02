@@ -9,6 +9,7 @@ import anyio.abc
 import anyio.streams.memory
 import mcp_types as types
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
@@ -1826,6 +1827,70 @@ async def test_a_2026_result_type_tag_from_a_legacy_server_never_reaches_the_res
             await session.initialize()
             result = await _call_legacy(session, verb)
     assert result.result_type == "complete"
+
+
+# --- null structuredContent ---
+# The results are scripted: a server built on this SDK leaves a null `structuredContent` off the wire.
+
+
+def _listing_with_output_schema(output_schema: dict[str, Any]) -> dict[str, Any]:
+    tool = {"name": "t", "inputSchema": {"type": "object"}, "outputSchema": output_schema}
+    return {"resultType": "complete", "tools": [tool], "ttlMs": 0, "cacheScope": "private"}
+
+
+@pytest.mark.anyio
+async def test_call_tool_accepts_a_null_structured_content_the_output_schema_permits() -> None:
+    """Spec (2026-07-28): `structuredContent` may be any JSON value, null included, so a null
+    the output schema permits is a valid result rather than missing structured content."""
+    dispatcher = _ScriptedDispatcher(
+        _discover_result_dict(),
+        _listing_with_output_schema({"type": ["object", "null"]}),
+        {"resultType": "complete", "content": [], "structuredContent": None},
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            await session.list_tools()
+            result = await session.call_tool("t", {})
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content is None
+
+
+@pytest.mark.anyio
+async def test_call_tool_rejects_a_null_structured_content_the_output_schema_forbids() -> None:
+    """A null `structuredContent` is validated like any other value: against a schema that does
+    not permit null it fails as a schema mismatch, not as missing structured content."""
+    dispatcher = _ScriptedDispatcher(
+        _discover_result_dict(),
+        _listing_with_output_schema({"type": "object"}),
+        {"resultType": "complete", "content": [], "structuredContent": None},
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            await session.list_tools()
+            with pytest.raises(RuntimeError) as exc_info:
+                await session.call_tool("t", {})
+            # Stable SDK prefix only: the message tail is jsonschema text that shifts with the dependency.
+            assert str(exc_info.value).startswith("Invalid structured content returned by tool t")
+
+
+@pytest.mark.anyio
+async def test_call_tool_reports_an_absent_structured_content_as_missing_even_when_null_is_permitted() -> None:
+    """SDK-defined: only a result with no `structuredContent` field at all is reported as
+    missing structured content, and it is so even when the output schema would accept null."""
+    dispatcher = _ScriptedDispatcher(
+        _discover_result_dict(),
+        _listing_with_output_schema({"type": ["object", "null"]}),
+        {"resultType": "complete", "content": []},
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            await session.list_tools()
+            with pytest.raises(RuntimeError) as exc_info:
+                await session.call_tool("t", {})
+            assert str(exc_info.value) == snapshot("Tool t has an output schema but did not return structured content")
 
 
 @pytest.mark.anyio

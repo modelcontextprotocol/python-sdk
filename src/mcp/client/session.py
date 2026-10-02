@@ -1136,7 +1136,7 @@ class ClientSession:
             from jsonschema import exceptions as jsonschema_exceptions
             from referencing.exceptions import Unresolvable
 
-            if result.structured_content is None:
+            if result.structured_content is None and "structured_content" not in result.model_fields_set:
                 raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
             validator = self._output_schema_validator(name, output_schema)
             # `best_match` picks the same error the previous `jsonschema.validate()` call raised,
