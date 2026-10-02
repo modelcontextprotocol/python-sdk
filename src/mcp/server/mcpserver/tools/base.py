@@ -24,6 +24,7 @@ from mcp.server.mcpserver.utilities.context_injection import find_context_parame
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
+from mcp.shared.inbound import find_invalid_x_mcp_header
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 
 if TYPE_CHECKING:
@@ -104,6 +105,8 @@ class Tool(BaseModel):
             structured_output=structured_output,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
+        if (reason := find_invalid_x_mcp_header(parameters)) is not None:
+            raise InvalidSignature(f"Tool {func_name!r} has an invalid x-mcp-header annotation: {reason}")
 
         # Match `model_dump_one_level`'s kwarg keys (alias when present, else field name)
         # so a by-name resolver param resolves to a key that exists at call time.
