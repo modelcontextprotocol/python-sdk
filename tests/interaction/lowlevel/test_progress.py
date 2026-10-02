@@ -98,8 +98,7 @@ async def test_no_progress_callback_means_no_token(connect: Connect, unstamped: 
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "inspect"
-        assert ctx.meta is not None
-        return CallToolResult(content=[TextContent(text=str(ctx.meta.get("progress_token")))])
+        return CallToolResult(content=[TextContent(text=str((ctx.meta or {}).get("progress_token")))])
 
     server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
 
