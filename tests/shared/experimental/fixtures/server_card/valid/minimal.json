@@ -1,0 +1,6 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+  "name": "example-org/minimal",
+  "version": "1.0.0",
+  "description": "Smallest valid Server Card."
+}

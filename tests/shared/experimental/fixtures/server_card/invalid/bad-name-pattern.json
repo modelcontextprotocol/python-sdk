@@ -1,0 +1,6 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+  "name": "no-slash-in-name",
+  "version": "1.0.0",
+  "description": "Name must contain exactly one slash separating namespace and server name."
+}
