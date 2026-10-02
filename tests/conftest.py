@@ -82,7 +82,7 @@ def _capfire_isolated(capfire: CaptureLogfire) -> Iterator[CaptureLogfire]:
     rest of the process. Without isolation, every subsequent test in the same
     worker would emit real spans, and `send_raw_request` would inject a real
     `traceparent` into outbound `_meta`, breaking the interaction-suite
-    snapshots that pin `_meta={}` under a no-op tracer.
+    snapshots that pin no `_meta` under a no-op tracer.
 
     Setup points `_tracer` at the now-live provider so MCP spans record;
     teardown replaces it with a `NoOpTracer`.

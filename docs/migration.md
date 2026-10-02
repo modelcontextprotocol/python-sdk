@@ -97,7 +97,7 @@ dependencies = [
 ]
 ```
 
-Relax or bump any conflicting pins when upgrading. sse-starlette jumps two majors, so a project that imports `sse_starlette` itself must also work through that library's own breaking changes to co-install with mcp v2. `opentelemetry-api` is a new hard dependency because every outbound request now carries a `_meta` envelope used for OpenTelemetry trace propagation; see [Every outbound request now carries a `_meta` envelope](#every-outbound-request-now-carries-a-_meta-envelope-opentelemetry-is-on-by-default). `mcp-types` is exact-pinned to the SDK version; nothing in a v1 tree can conflict with it, but do not pin `mcp-types` independently of `mcp`.
+Relax or bump any conflicting pins when upgrading. sse-starlette jumps two majors, so a project that imports `sse_starlette` itself must also work through that library's own breaking changes to co-install with mcp v2. `opentelemetry-api` is a new hard dependency because OpenTelemetry trace propagation now ships enabled; see [OpenTelemetry is on by default](#opentelemetry-is-on-by-default). `mcp-types` is exact-pinned to the SDK version; nothing in a v1 tree can conflict with it, but do not pin `mcp-types` independently of `mcp`.
 
 ### `httpx` and `httpx-sse` replaced by `httpx2`
 
@@ -1789,7 +1789,7 @@ Positional callers (`session.elicit_form(message, schema)`) are unaffected, and 
 
 ### `Client` defaults to `mode='auto'`
 
-In v1, connecting to a server always performed the `initialize` handshake. In v2, `Client` defaults to `mode='auto'`: on enter it probes `server/discover` and, if the server doesn't support it, falls back to the `initialize` handshake. Pass `mode='legacy'` to force the initialize handshake and reproduce v1's pre-2026 connection sequence (the per-request wire shape still differs from v1; see [Every outbound request now carries a `_meta` envelope](#every-outbound-request-now-carries-a-_meta-envelope-opentelemetry-is-on-by-default)), or pass a modern protocol-version string (e.g. `mode='2026-07-28'`) to pin a version without probing.
+In v1, connecting to a server always performed the `initialize` handshake. In v2, `Client` defaults to `mode='auto'`: on enter it probes `server/discover` and, if the server doesn't support it, falls back to the `initialize` handshake. Pass `mode='legacy'` to force the initialize handshake and reproduce v1's pre-2026 connection sequence, or pass a modern protocol-version string (e.g. `mode='2026-07-28'`) to pin a version without probing.
 
 The probe is transport-independent: v2 servers answer it over stdio (and any other stream-pair transport) as well as streamable HTTP, so `mode='auto'` lands on `2026-07-28` against a v2 server on every transport. If your stdio workflow relies on server-initiated requests (sampling, push elicitation, roots), pass `mode='legacy'` — a 2026-07-28 connection refuses them on every transport with `NoBackChannelError` (see [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror)).
 
@@ -2659,25 +2659,9 @@ Validation runs when the result is serialized onto the wire, not when the model 
 
 In v1, a request for a method the SDK didn't recognize failed request-union validation and was answered with `-32602` (`"Invalid request parameters"`, empty `data`). Any method the receiver doesn't serve — unrecognized on either side, or a spec method the server has no registered handler for — is now answered with the JSON-RPC-specified `-32601` (`"Method not found"`), with the method name in `data`, in every initialization state. Clients still decline sampling, elicitation, and roots requests with `-32600` when no callback is registered, as in v1. Update anything that matched on the old code for this case.
 
-### Every outbound request now carries a `_meta` envelope; OpenTelemetry is on by default
+### OpenTelemetry is on by default
 
-v2 sends `"_meta": {}` in the params of every request it emits, at every negotiated protocol version. Requests that had no params in v1, such as `ping` and `tools/list`, now carry `"params": {"_meta": {}}`; server-initiated requests get the same envelope. This is spec-valid and accepted by all peers, but wire traffic differs from v1 on every call, and no configuration restores the v1 wire shape. Update any test or tooling that asserts on raw outbound request bytes.
-
-**Before (v1):** same client code, 2025-11-25 peer:
-
-```text
-{"method":"ping","jsonrpc":"2.0","id":1}
-{"method":"tools/list","jsonrpc":"2.0","id":2}
-```
-
-**After (v2):**
-
-```text
-{"jsonrpc":"2.0","id":2,"method":"ping","params":{"_meta":{}}}
-{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{}}}
-```
-
-The envelope exists for OpenTelemetry trace propagation ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)), which now ships enabled: every server installs a tracing middleware and the client opens a span per outbound request. With no OpenTelemetry SDK configured these are no-ops and only the empty envelope is visible. If your application already configures a global tracer provider, it starts recording MCP client and server spans with no code change, and a W3C `traceparent` field is injected into outbound `_meta`, propagating your trace ids to the servers you call. To suppress the spans, filter the `mcp-python-sdk` tracer in your pipeline; [OpenTelemetry](run/opentelemetry.md) has the recipe for removing the server middleware. There is no public switch for the client-side span and `traceparent` injection.
+OpenTelemetry trace propagation ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)) now ships enabled: every server installs a tracing middleware and the client opens a span per outbound request. With no OpenTelemetry SDK configured these are no-ops and nothing is added to outbound requests. If your application already configures a global tracer provider, it starts recording MCP client and server spans with no code change, and a W3C `traceparent` field is injected into outbound `_meta`, propagating your trace ids to the servers you call. To suppress the spans, filter the `mcp-python-sdk` tracer in your pipeline; [OpenTelemetry](run/opentelemetry.md) has the recipe for removing the server middleware. There is no public switch for the client-side span and `traceparent` injection.
 
 The SDK's new `opentelemetry-api` runtime dependency is covered under [Packaging, dependencies, and CLI](#packaging-dependencies-and-cli).
 

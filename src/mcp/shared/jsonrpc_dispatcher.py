@@ -359,7 +359,6 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         if on_progress is not None:
             # The request id doubles as the progress token, so `_pending[token]` finds `on_progress` directly.
             out_meta["progressToken"] = request_id
-        out_params["_meta"] = out_meta
 
         # buffer=1: a close signal can arrive before the waiter parks in receive();
         # a WouldBlock later just means the waiter already has its one outcome.
@@ -386,9 +385,18 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 kind=SpanKind.CLIENT,
                 attributes={"mcp.method.name": method, "jsonrpc.request.id": str(request_id)},
             ):
-                # SEP-414: inject W3C trace context; `_meta` stays on the wire even with a no-op tracer.
+                # SEP-414: inject W3C trace context.
                 inject_trace_context(out_meta)
-                msg = JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=out_params)
+                if out_meta:
+                    out_params["_meta"] = out_meta
+                else:
+                    out_params.pop("_meta", None)
+                # Leave `params` unset when empty: with `exclude_unset=True` an explicit
+                # None would serialize as `"params": null`, which JSON-RPC 2.0 forbids.
+                if out_params:
+                    msg = JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=out_params)
+                else:
+                    msg = JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method)
                 # Surface a pre-existing cancellation while the request provably
                 # never started; past this point a cancelled write counts as issued.
                 await anyio.lowlevel.checkpoint_if_cancelled()
