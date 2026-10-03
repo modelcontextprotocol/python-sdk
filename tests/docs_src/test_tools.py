@@ -1,11 +1,14 @@
 """`docs/servers/tools.md`: every claim the page makes, proved against the real SDK."""
 
+import anyio
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import TextContent, ToolAnnotations
+from pydantic import BaseModel
 
 from docs_src.tools import tutorial001, tutorial002, tutorial003, tutorial004, tutorial005
 from mcp import Client
+from mcp.server import MCPServer
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -93,10 +96,88 @@ async def test_pydantic_model_parameter() -> None:
     """tutorial004: a `BaseModel` parameter nests its own schema and arrives as a real instance."""
     async with Client(tutorial004.mcp) as client:
         (tool,) = (await client.list_tools()).tools
-        assert tool.input_schema["$defs"]["Book"]["required"] == ["title", "author", "year"]
-        book = {"title": "Dune", "author": "Frank Herbert", "year": 1965}
-        result = await client.call_tool("add_book", {"book": book})
+        assert tool.input_schema == snapshot(
+            {
+                "type": "object",
+                "$defs": {
+                    "Book": {
+                        "properties": {
+                            "title": {"title": "Title", "type": "string"},
+                            "author": {"title": "Author", "type": "string"},
+                            "year": {
+                                "description": "Year of first publication.",
+                                "minimum": 1450,
+                                "title": "Year",
+                                "type": "integer",
+                            },
+                        },
+                        "required": ["title", "author", "year"],
+                        "title": "Book",
+                        "type": "object",
+                    }
+                },
+                "properties": {"book": {"$ref": "#/$defs/Book"}},
+                "required": ["book"],
+                "title": "add_bookArguments",
+            }
+        )
+        book = tutorial004.Book(title="Dune", author="Frank Herbert", year=1965)
+        result = await client.call_tool("add_book", {"book": book.model_dump(mode="json", by_alias=True)})
+        assert not result.is_error
         assert result.structured_content == {"result": "Added 'Dune' by Frank Herbert (1965)."}
+
+
+async def test_model_defaults_and_extensions_keep_the_named_parameter_envelope() -> None:
+    """SDK-defined: a default changes requiredness, while extension fields belong inside the model.
+
+    Pin the current SDK behavior from #3637: flat fields do not populate a defaulted model parameter.
+    """
+
+    class Request(BaseModel):
+        model_config = {"extra": "allow"}
+        adcp_version: str | None = None
+
+    mcp = MCPServer("model-envelope")
+
+    @mcp.tool()
+    async def capabilities(request: Request = Request()) -> Request:
+        assert isinstance(request, Request)
+        return request
+
+    payload = {"adcp_version": "3.2", "future_extension": {"enabled": True}}
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            (tool,) = (await client.list_tools()).tools
+            assert tool.input_schema == snapshot(
+                {
+                    "type": "object",
+                    "$defs": {
+                        "Request": {
+                            "additionalProperties": True,
+                            "properties": {
+                                "adcp_version": {
+                                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                                    "default": None,
+                                    "title": "Adcp Version",
+                                }
+                            },
+                            "title": "Request",
+                            "type": "object",
+                        }
+                    },
+                    "properties": {"request": {"$ref": "#/$defs/Request", "default": {"adcp_version": None}}},
+                    "title": "capabilitiesArguments",
+                }
+            )
+            nested = await client.call_tool("capabilities", {"request": payload})
+            assert not nested.is_error
+            assert nested.structured_content == payload
+            omitted = await client.call_tool("capabilities", {})
+            assert not omitted.is_error
+            assert omitted.structured_content == snapshot({"adcp_version": None})
+            flat = await client.call_tool("capabilities", payload)
+            assert not flat.is_error
+            assert flat.structured_content == omitted.structured_content
 
 
 async def test_title_and_annotations() -> None:

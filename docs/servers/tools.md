@@ -130,6 +130,20 @@ When a tool takes more than a couple of arguments, group them into a Pydantic mo
 
 The `Book` schema is nested inside the tool's input schema (as a `$defs` reference), the model fills it in as a JSON object, and your function receives a **real `Book` instance**, already validated, with `.title`, `.author` and `.year` attributes.
 
+In this example, `book` is the envelope key. For `add_book(book: Book)`, send:
+
+```json
+{"book": {"title": "Dune", "author": "Frank Herbert", "year": 1965}}
+```
+
+If you already have a `Book` instance, use `{"book": book.model_dump(mode="json", by_alias=True)}` as the call arguments. Passing `book.model_dump()` directly does not bind the `book` parameter.
+
+A model parameter with a default keeps the same envelope; the default only makes that parameter optional. Flat model fields do not populate it. Setting `extra="allow"` on the model accepts extension fields **inside** the envelope.
+
+If your application's wire protocol requires the model fields at the top level, use the **[low-level Server](../advanced/low-level-server.md)**: publish `Book.model_json_schema(by_alias=True)` as `Tool.input_schema` and validate `params.arguments` with `Book.model_validate(...)`. This lets the model define the wire shape without re-declaring its fields as function parameters.
+
+Catch `ValidationError` and return a `CallToolResult` with `is_error=True` for invalid arguments; the low-level handler owns validation and **[error handling](../advanced/low-level-server.md#nothing-is-checked-for-you)**.
+
 You can mix and match: plain parameters next to model parameters, nested models, lists of models. It's Pydantic all the way down.
 
 ## `async def`
