@@ -102,8 +102,11 @@ class ClientAuthenticator:
             raise AuthenticationError("Client is registered for secret-based authentication but has no stored secret")
 
         # If client from the store expects a secret, validate that the request provides
-        # that secret
-        if client.client_secret:
+        # that secret. A client registered for "none" is a public client (RFC 7591 section 2),
+        # so a secret left on the stored record by an earlier registration is not its
+        # current credential; demanding it would override the client's own declaration of
+        # its type, against RFC 6749 section 2.1.
+        if client.token_endpoint_auth_method != "none" and client.client_secret:
             if not request_client_secret:
                 raise AuthenticationError("Client secret is required")
 
