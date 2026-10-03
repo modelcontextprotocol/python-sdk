@@ -3,7 +3,7 @@
 Co-hosts the SDK's authorization-server routes, protected-resource metadata route, and the
 bearer-gated MCP endpoint on one Starlette app via `Server.streamable_http_app(auth=...,
 token_verifier=..., auth_server_provider=...)`, drives that app through the streaming bridge
-on a single `httpx.AsyncClient` carrying `auth=OAuthClientProvider(...)`, and completes the
+on a single `httpx2.AsyncClient` carrying `auth=OAuthClientProvider(...)`, and completes the
 authorize redirect headlessly by GETing the URL through the same bridge and parsing the code
 from the 302 `Location`. The whole authorization-code flow runs in one event loop with no
 sockets, no threads, and no real time.
@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qs, parse_qsl, urlsplit
 
-import httpx
+import httpx2
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -38,15 +38,15 @@ AppShim = Callable[[ASGIApp], ASGIApp]
 
 @dataclass
 class RecordedRequest:
-    """A snapshot of an `httpx.Request` at the moment it was sent.
+    """A snapshot of an `httpx2.Request` at the moment it was sent.
 
-    The auth flow re-yields the same `httpx.Request` object after mutating its headers in
+    The auth flow re-yields the same `httpx2.Request` object after mutating its headers in
     place for the retry, so tests that need to assert on the first attempt's headers must
     capture a copy rather than a live reference. `record_requests` produces these.
     """
 
     method: str
-    url: httpx.URL
+    url: httpx2.URL
     headers: dict[str, str]
     content: bytes
 
@@ -55,11 +55,11 @@ class RecordedRequest:
         return self.url.path
 
 
-def record_requests() -> tuple[list[RecordedRequest], Callable[[httpx.Request], None]]:
+def record_requests() -> tuple[list[RecordedRequest], Callable[[httpx2.Request], None]]:
     """Build an `on_request` callback that snapshots each request, and the list it appends to."""
     recorded: list[RecordedRequest] = []
 
-    def on_request(request: httpx.Request) -> None:
+    def on_request(request: httpx2.Request) -> None:
         recorded.append(
             RecordedRequest(
                 method=request.method,
@@ -147,12 +147,12 @@ class HeadlessOAuth:
         self.error: str | None = None
         self._state_override = state_override
         self._iss_override = iss_override
-        self._http: httpx.AsyncClient | None = None
+        self._http: httpx2.AsyncClient | None = None
         self._code: str = ""
         self._state: str | None = None
         self._iss: str | None = None
 
-    def bind(self, http_client: httpx.AsyncClient) -> None:
+    def bind(self, http_client: httpx2.AsyncClient) -> None:
         self._http = http_client
 
     async def redirect_handler(self, authorization_url: str) -> None:
@@ -182,6 +182,7 @@ def auth_settings(
     required_scopes: Sequence[str] = ("mcp",),
     valid_scopes: Sequence[str] | None = None,
     identity_assertion_enabled: bool = False,
+    validate_token_resource: bool = False,
 ) -> AuthSettings:
     """Build `AuthSettings` for the co-hosted authorization + resource server.
 
@@ -194,7 +195,8 @@ def auth_settings(
 
     `identity_assertion_enabled` advertises and accepts the SEP-990 ID-JAG grant (RFC 7523
     jwt-bearer); the provider must implement `exchange_identity_assertion` for the endpoint to
-    issue tokens.
+    issue tokens. `validate_token_resource` makes the bearer gate refuse tokens whose verifier
+    does not report them as issued for the resource URL.
     """
     required = list(required_scopes)
     valid = list(valid_scopes) if valid_scopes is not None else required
@@ -202,6 +204,7 @@ def auth_settings(
         issuer_url=AnyHttpUrl(BASE_URL),
         resource_server_url=AnyHttpUrl(f"{BASE_URL}/mcp"),
         required_scopes=required,
+        validate_token_resource=validate_token_resource,
         client_registration_options=ClientRegistrationOptions(
             enabled=True, valid_scopes=valid, default_scopes=required
         ),
@@ -411,16 +414,19 @@ async def connect_with_oauth(
     client_metadata: OAuthClientMetadata | None = None,
     client_metadata_url: str | None = None,
     headless: HeadlessOAuth | None = None,
-    auth: httpx.Auth | None = None,
+    auth: httpx2.Auth | None = None,
     verify_tokens: bool = True,
     app_shim: Callable[[ASGIApp], ASGIApp] | None = None,
-    on_request: Callable[[httpx.Request], None] | None = None,
+    on_request: Callable[[httpx2.Request], None] | None = None,
+    mode: str = "legacy",
+    read_timeout_seconds: float | None = None,
+    json_response: bool = False,
 ) -> AsyncIterator[tuple[Client, HeadlessOAuth]]:
     """Connect a `Client` to a server's bearer-gated streamable-HTTP app, completing OAuth in process.
 
     Yields the connected `Client` and the `HeadlessOAuth` whose `authorize_url` records what the
     SDK put on the authorize request. `on_request` records every HTTP request the underlying
-    `httpx.AsyncClient` issues, including those yielded from inside the auth flow.
+    `httpx2.AsyncClient` issues, including those yielded from inside the auth flow.
 
     `headless`: supply a pre-configured `HeadlessOAuth` to override the callback behaviour
     (state mismatch, error redirects). `verify_tokens=False` mounts the MCP endpoint without
@@ -428,7 +434,7 @@ async def connect_with_oauth(
     scopes. `app_shim` wraps the built Starlette app before it reaches the bridge transport,
     for tests that need to intercept or rewrite specific server responses.
 
-    `auth`: supply a pre-built `httpx.Auth` (such as `ClientCredentialsOAuthProvider`) to use
+    `auth`: supply a pre-built `httpx2.Auth` (such as `ClientCredentialsOAuthProvider`) to use
     instead of constructing the default `OAuthClientProvider`; in that case `storage`,
     `client_metadata`, `client_metadata_url`, and `headless` are unused (the yielded
     `HeadlessOAuth` is never invoked and its `authorize_url` stays None).
@@ -452,6 +458,7 @@ async def connect_with_oauth(
     )
 
     app: ASGIApp = server.streamable_http_app(
+        json_response=json_response,
         auth=settings,
         token_verifier=ProviderTokenVerifier(provider) if verify_tokens else None,
         auth_server_provider=provider,
@@ -464,7 +471,7 @@ async def connect_with_oauth(
     if on_request is not None:
         record = on_request
 
-        async def hook(request: httpx.Request) -> None:
+        async def hook(request: httpx2.Request) -> None:
             record(request)
 
         event_hooks = {"request": [hook]}
@@ -472,13 +479,17 @@ async def connect_with_oauth(
     async with AsyncExitStack() as stack:
         await stack.enter_async_context(server.session_manager.run())
         http_client = await stack.enter_async_context(
-            httpx.AsyncClient(
+            httpx2.AsyncClient(
                 transport=StreamingASGITransport(app), base_url=BASE_URL, auth=oauth, event_hooks=event_hooks
             )
         )
         headless.bind(http_client)
         client = await stack.enter_async_context(
-            # The auth flow tests snapshot the legacy initialize-handshake HTTP shape.
-            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client), mode="legacy")
+            # The auth flow tests snapshot the legacy initialize-handshake HTTP shape, hence the default mode.
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client),
+                mode=mode,
+                read_timeout_seconds=read_timeout_seconds,
+            )
         )
         yield client, headless

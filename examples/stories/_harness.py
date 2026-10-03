@@ -18,28 +18,28 @@ from typing import Any, TypeAlias
 from urllib.parse import urlsplit
 
 import anyio
-import httpx
-from mcp_types.version import LATEST_MODERN_VERSION
+import httpx2
 
-from mcp import StdioServerParameters, stdio_client
+from mcp import StdioServerParameters
 from mcp.client import Transport
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
+from mcp.types.version import LATEST_MODERN_VERSION
 
 if sys.version_info >= (3, 11):
     import tomllib
 else:
     import tomli as tomllib
 
-Target: TypeAlias = "Server[Any] | MCPServer | Transport | str"
-"""Anything ``Client(...)`` accepts: an in-process server, a ``Transport``, or an HTTP URL."""
+Target: TypeAlias = "Server[Any] | MCPServer | Transport | StdioServerParameters | str"
+"""Anything ``Client(...)`` accepts: an HTTP URL, stdio launch parameters, a ``Transport``, or an in-process server."""
 
 TargetFactory = Callable[[], Target]
 """Yields a FRESH target against the same server/app on every call (``multi_connection`` stories)."""
 
-AuthBuilder = Callable[[httpx.AsyncClient], httpx.Auth]
-"""Builds an ``httpx.Auth`` bound to the in-process HTTP client (auth-story harness seam)."""
+AuthBuilder = Callable[[httpx2.AsyncClient], httpx2.Auth]
+"""Builds an ``httpx2.Auth`` bound to the in-process HTTP client (auth-story harness seam)."""
 
 
 def argv_after(flag: str, *, default: str | None = None) -> str:
@@ -63,7 +63,7 @@ def target_from_args(file: str, url: str | None) -> TargetFactory:
     # stdio is legacy-only until serve_stdio() lands; the modern arm is --http only for now.
     server = Path(file).parent / f"{argv_after('--server', default='server')}.py"
     params = StdioServerParameters(command=sys.executable, args=[str(server)])
-    return lambda: stdio_client(params)  # becomes Client(params) once that overload lands
+    return lambda: params
 
 
 def _explicit_http_url() -> str | None:
@@ -123,12 +123,12 @@ async def _self_hosted(name: str, cfg: dict[str, Any]) -> AsyncIterator[str]:
 
 def _story_cfg(name: str) -> dict[str, Any]:
     """The manifest entry for the story ``name`` with ``[defaults]`` applied."""
-    manifest: dict[str, Any] = tomllib.loads((Path(__file__).parent / "manifest.toml").read_text())
+    manifest: dict[str, Any] = tomllib.loads((Path(__file__).parent / "manifest.toml").read_text(encoding="utf-8"))
     return manifest["defaults"] | manifest["story"].get(name, {})
 
 
-def _authed_targets(url: str, http: httpx.AsyncClient) -> TargetFactory:
-    """Fresh streamable-HTTP transports over an already-authed ``httpx`` client."""
+def _authed_targets(url: str, http: httpx2.AsyncClient) -> TargetFactory:
+    """Fresh streamable-HTTP transports over an already-authed ``httpx2`` client."""
     return lambda: streamable_http_client(url, http_client=http)
 
 
@@ -162,7 +162,7 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
     if cfg["era"] == "dual-in-body":
         # The story pins its connection modes inside ``main`` itself, so hand it "auto"
         # (the ``Client`` default) and let those in-body pins decide. A hard version pin
-        # here would skip the discover probe and leave ``server_info`` blank.
+        # here would skip the discover probe and leave `server_info` None.
         era = "in-body"
     mode = {"modern": LATEST_MODERN_VERSION, "legacy": "legacy", "in-body": "auto"}[era]
 
@@ -176,13 +176,15 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
                 if url is None or (build_auth is None and not cfg["needs_http"]):
                     await main(targets if cfg["multi_connection"] else targets(), mode=mode)
                     return
-                # Auth and needs_http stories want the raw httpx client underneath the transport:
-                # build_auth threads an httpx.Auth onto it (Client(url, auth=...) doesn't exist
+                # Auth and needs_http stories want the raw httpx2 client underneath the transport:
+                # build_auth threads an httpx2.Auth onto it (Client(url, auth=...) doesn't exist
                 # yet), and needs_http stories assert on raw responses, so root the client at the
                 # server origin and relative paths like "/mcp" resolve.
                 parts = urlsplit(url)
                 base = f"{parts.scheme}://{parts.netloc}"
-                http = await stack.enter_async_context(httpx.AsyncClient(base_url=base))
+                http = await stack.enter_async_context(
+                    httpx2.AsyncClient(base_url=base, timeout=httpx2.Timeout(30.0, read=300.0))
+                )
                 make = targets
                 if build_auth is not None:
                     http.auth = build_auth(http)

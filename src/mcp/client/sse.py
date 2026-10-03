@@ -5,14 +5,19 @@ from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import anyio
-import httpx
+import httpx2
 import mcp_types as types
 from anyio.abc import TaskStatus
-from httpx_sse import SSEError, aconnect_sse
+from httpx2 import SSEError
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
-from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared._httpx_utils import (
+    McpHttpClientFactory,
+    create_mcp_http_client,
+    request_within_origin,
+    sse_within_origin,
+)
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -34,7 +39,7 @@ async def sse_client(
     timeout: float = 5.0,
     sse_read_timeout: float = 300.0,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
-    auth: httpx.Auth | None = None,
+    auth: httpx2.Auth | None = None,
     on_session_created: Callable[[str], None] | None = None,
 ):
     """Client transport for SSE.
@@ -47,15 +52,22 @@ async def sse_client(
         headers: Optional headers to include in requests.
         timeout: HTTP timeout for regular operations (in seconds).
         sse_read_timeout: Timeout for SSE read operations (in seconds).
-        httpx_client_factory: Factory function for creating the HTTPX client.
-        auth: Optional HTTPX authentication handler.
+        httpx_client_factory: Factory function for creating the httpx2 client. Whichever client it
+            returns, MCP requests follow a redirect only when it stays on the endpoint's origin
+            (same scheme, host and port, or http to https on the same host with default ports) and
+            keeps the request method (any status for the SSE GET, 307/308 for a message POST); any
+            other redirect is not followed, so connecting fails with
+            `httpx2.HTTPStatusError` for the redirect response. The client's `follow_redirects`
+            setting is not consulted; the SDK's OAuth providers apply the same rule to the requests
+            they make.
+        auth: Optional httpx2 authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
     logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
     async with httpx_client_factory(
-        headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
+        headers=headers, auth=auth, timeout=httpx2.Timeout(timeout, read=sse_read_timeout)
     ) as client:
-        async with aconnect_sse(client, "GET", url) as event_source:
+        async with sse_within_origin(client, url) as event_source:
             event_source.response.raise_for_status()
             logger.debug("SSE connection established")
 
@@ -64,7 +76,7 @@ async def sse_client(
 
             async def sse_reader(task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED):
                 try:
-                    async for sse in event_source.aiter_sse():  # pragma: no branch
+                    async for sse in event_source:  # pragma: no branch
                         logger.debug(f"Received SSE event: {sse.event}")
                         match sse.event:
                             case "endpoint":
@@ -121,13 +133,11 @@ async def sse_client(
 
                         async def _send_message(session_message: SessionMessage) -> None:
                             logger.debug(f"Sending client message: {session_message}")
-                            response = await client.post(
+                            response = await request_within_origin(
+                                client,
+                                "POST",
                                 endpoint_url,
-                                json=session_message.message.model_dump(
-                                    by_alias=True,
-                                    mode="json",
-                                    exclude_unset=True,
-                                ),
+                                json=session_message.message.model_dump(by_alias=True, mode="json", exclude_unset=True),
                             )
                             response.raise_for_status()
                             logger.debug(f"Client message sent successfully: {response.status_code}")

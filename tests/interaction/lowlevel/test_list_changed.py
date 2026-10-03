@@ -26,9 +26,9 @@ from mcp_types import (
     ToolListChangedNotification,
 )
 
+from mcp.client import IncomingMessage
 from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import Connect
-from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio

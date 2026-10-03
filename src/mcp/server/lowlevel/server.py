@@ -36,12 +36,13 @@ handler callables by method string.
 
 from __future__ import annotations
 
+import copy
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
-from importlib.metadata import version as importlib_version
+from functools import cached_property
 from typing import Any, Generic, overload
 
 import mcp_types as types
@@ -64,8 +65,13 @@ from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestCon
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import serve_dual_era_loop
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.streamable_http_manager import (
+    DEFAULT_MAX_SESSIONS,
+    DEFAULT_SESSION_IDLE_TIMEOUT,
+    StreamableHTTPASGIApp,
+    StreamableHTTPSessionManager,
+)
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import SessionMessage
@@ -120,22 +126,13 @@ async def _ping_handler(ctx: ServerRequestContext[Any], params: types.RequestPar
     return types.EmptyResult()
 
 
-def _package_version(package: str) -> str:
-    try:
-        return importlib_version(package)
-    except Exception:  # pragma: no cover
-        pass
-
-    return "unknown"  # pragma: no cover
-
-
 class Server(Generic[LifespanResultT]):
     @overload
     def __init__(
         self,
         name: str,
         *,
-        version: str | None = None,
+        version: str = "",
         title: str | None = None,
         description: str | None = None,
         instructions: str | None = None,
@@ -146,6 +143,7 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        get_tool_input_schema: Callable[[str], Mapping[str, Any] | None] | None = None,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -218,7 +216,7 @@ class Server(Generic[LifespanResultT]):
         self,
         name: str,
         *,
-        version: str | None = None,
+        version: str = "",
         title: str | None = None,
         description: str | None = None,
         instructions: str | None = None,
@@ -229,6 +227,7 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        get_tool_input_schema: Callable[[str], Mapping[str, Any] | None] | None = None,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -310,7 +309,7 @@ class Server(Generic[LifespanResultT]):
         self,
         name: str,
         *,
-        version: str | None = None,
+        version: str = "",
         title: str | None = None,
         description: str | None = None,
         instructions: str | None = None,
@@ -321,6 +320,7 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        get_tool_input_schema: Callable[[str], Mapping[str, Any] | None] | None = None,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -428,6 +428,14 @@ class Server(Generic[LifespanResultT]):
         # after the handler returns; fields the handler set explicitly win.
         self.cache_hints: dict[str, CacheHint] = validate_cache_hints(cache_hints)
         self.lifespan = lifespan
+        self.get_tool_input_schema = get_tool_input_schema
+        """Returns a tool's input schema by name, or `None` when there is nothing to validate.
+
+        When set, `Mcp-Param-*` header validation on the 2026-07-28 Streamable HTTP
+        path calls this instead of running the `tools/list` handler. It is called
+        before middleware runs, so it is not scoped to the caller. If it raises,
+        the error is logged and the call is served unvalidated.
+        """
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._session_manager: StreamableHTTPSessionManager | None = None
@@ -437,9 +445,9 @@ class Server(Generic[LifespanResultT]):
         # `OpenTelemetryMiddleware` ships on by default so every server emits a
         # SERVER span per message; it is a no-op until an OTel exporter is
         # installed. Drop it from this list to opt out.
-        # TODO(L54): provisional - signature and semantics change with the
-        # Context/middleware rework (covariant `Context[L]`, outbound seam) before
-        # v2 final.
+        # TODO(L54): provisional - signature and semantics may change in a 2.x
+        # minor release with the Context/middleware rework (covariant
+        # `Context[L]`, outbound seam).
         self.middleware: list[ServerMiddleware[LifespanResultT]] = [OpenTelemetryMiddleware()]
         # SEP-2133 extension settings advertised under `ServerCapabilities.extensions`
         # (identifier -> settings). Higher layers (e.g. `MCPServer(extensions=...)`)
@@ -543,12 +551,12 @@ class Server(Generic[LifespanResultT]):
         """
         return InitializationOptions(
             server_name=self.name,
-            server_version=self.version if self.version else _package_version("mcp"),
+            server_version=self.version,
             title=self.title,
             description=self.description,
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
-                experimental_capabilities or {},
+                experimental_capabilities,
                 extensions if extensions is not None else self.extensions,
             ),
             instructions=self.instructions,
@@ -632,17 +640,34 @@ class Server(Generic[LifespanResultT]):
     def server_info(self) -> types.Implementation:
         """The `serverInfo` block describing this implementation.
 
-        Derived from the constructor's identity fields. `version` falls back to
-        the installed `mcp` package version when not supplied explicitly.
+        Derived from the constructor's identity fields. An unversioned server
+        reports an empty `version`; the SDK never substitutes its own.
         """
         return types.Implementation(
             name=self.name,
-            version=self.version if self.version else _package_version("mcp"),
+            version=self.version,
             title=self.title,
             description=self.description,
             website_url=self.website_url,
             icons=self.icons,
         )
+
+    @cached_property
+    def _server_info_stamp_source(self) -> dict[str, Any]:
+        # Identity is fixed at construction, so the dump is computed once per
+        # server instead of per request. Never handed out directly: nested
+        # values (`icons`) would alias the cache into stamped responses.
+        return self.server_info.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+    @property
+    def server_info_stamp(self) -> dict[str, Any]:
+        """A fresh wire dump of `server_info`; callers own the returned dict.
+
+        Each access materializes a deep copy of the once-per-server dump, so
+        a caller mutating a stamped response can never corrupt the identity
+        stamped into later responses.
+        """
+        return copy.deepcopy(self._server_info_stamp_source)
 
     async def _handle_discover(
         self, ctx: ServerRequestContext[LifespanResultT], params: types.RequestParams | None
@@ -658,7 +683,6 @@ class Server(Generic[LifespanResultT]):
         return types.DiscoverResult(
             supported_versions=list(MODERN_PROTOCOL_VERSIONS),
             capabilities=self.get_capabilities(protocol_version=ctx.protocol_version),
-            server_info=self.server_info,
             instructions=self.instructions,
         )
 
@@ -691,9 +715,9 @@ class Server(Generic[LifespanResultT]):
 
         Thin wrapper over `serve_dual_era_loop`: enters the server lifespan,
         then drives the loop, serving the legacy handshake era and the modern
-        per-request-envelope era (the first era-distinctive message to succeed
-        locks the connection). Transports with their own lifespan owner (the
-        streamable-HTTP manager) call `serve_loop` directly instead.
+        per-request-envelope era (the client's first request decides which).
+        Transports with their own lifespan owner (the streamable-HTTP manager)
+        call `serve_loop` directly instead.
         """
         async with self.lifespan(self) as lifespan_context:
             await serve_dual_era_loop(
@@ -713,6 +737,9 @@ class Server(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
+        session_idle_timeout: float | None = DEFAULT_SESSION_IDLE_TIMEOUT,
+        max_sessions: int | None = DEFAULT_MAX_SESSIONS,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
         auth: AuthSettings | None = None,
@@ -737,6 +764,9 @@ class Server(Generic[LifespanResultT]):
             json_response=json_response,
             stateless=stateless_http,
             security_settings=transport_security,
+            max_request_body_size=max_request_body_size,
+            session_idle_timeout=session_idle_timeout,
+            max_sessions=max_sessions,
         )
         self._session_manager = session_manager
 
@@ -757,7 +787,10 @@ class Server(Generic[LifespanResultT]):
                 middleware = [
                     Middleware(
                         AuthenticationMiddleware,
-                        backend=BearerAuthBackend(token_verifier),
+                        backend=BearerAuthBackend(
+                            token_verifier,
+                            resource_server_url=auth.resource_server_url if auth.validate_token_resource else None,
+                        ),
                     ),
                     Middleware(AuthContextMiddleware),
                 ]

@@ -12,7 +12,7 @@ The canonical safe pattern::
 
     @mcp.resource("file://docs/{+path}")
     def read_doc(path: str) -> str:
-        return safe_join("/data/docs", path).read_text()
+        return safe_join("/data/docs", path).read_text(encoding="utf-8")
 """
 
 import string

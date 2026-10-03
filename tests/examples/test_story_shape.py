@@ -27,7 +27,7 @@ _LOWLEVEL_STORIES = [name for name in sorted(STORIES) if story_cfg(name)["lowlev
 
 def _parse(path: Path) -> ast.Module:
     """Parse ``path`` into an AST module."""
-    return ast.parse(path.read_text(), filename=str(path))
+    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
 
 def _resolve(node: ast.ImportFrom, package: str) -> str:

@@ -20,8 +20,9 @@ uv run python -m stories.schema_validators.client --http --server server_lowleve
 ## What to look at
 
 - `client.py` `main` — the body opens with `async with Client(target, mode=mode)
-  as client:`. `target` is anything `Client` accepts (an in-process server, a
-  transport, or an HTTP URL); the entry point picks it, the story constructs it.
+  as client:`. `target` is anything `Client` accepts (an HTTP URL,
+  `StdioServerParameters`, a transport, or, in tests, an in-process server);
+  the entry point picks it, the story constructs it.
 - `server.py` — `who.name` vs `who["name"]`: pydantic and dataclass parameters
   arrive as **instances** (attribute access); TypedDict and `dict[str, Any]`
   arrive as plain dicts.

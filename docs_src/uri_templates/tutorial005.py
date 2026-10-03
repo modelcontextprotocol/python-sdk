@@ -1,4 +1,7 @@
-from mcp_types import (
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.path_security import contains_path_traversal, is_absolute_path
+from mcp.shared.uri_template import UriTemplate
+from mcp.types import (
     ListResourceTemplatesResult,
     PaginatedRequestParams,
     ReadResourceRequestParams,
@@ -6,10 +9,6 @@ from mcp_types import (
     ResourceTemplate,
     TextResourceContents,
 )
-
-from mcp.server import Server, ServerRequestContext
-from mcp.shared.path_security import contains_path_traversal, is_absolute_path
-from mcp.shared.uri_template import UriTemplate
 
 TEMPLATES = {
     "manuals": UriTemplate.parse("manuals://{+path}"),

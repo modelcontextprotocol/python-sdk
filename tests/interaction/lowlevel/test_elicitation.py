@@ -28,12 +28,11 @@ from mcp_types import (
 )
 
 from mcp import MCPError, UrlElicitationRequiredError
-from mcp.client import ClientRequestContext, ClientSession
+from mcp.client import ClientRequestContext, ClientSession, IncomingMessage
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from tests.interaction._connect import Connect
-from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -83,7 +82,6 @@ async def test_elicit_form_accepted_content_returns_to_handler(connect: Connect)
     assert received == snapshot(
         [
             ElicitRequestFormParams(
-                _meta={},
                 message="Choose a username.",
                 requested_schema={
                     "type": "object",
@@ -230,7 +228,6 @@ async def test_elicit_url_delivers_url_and_returns_accept_without_content(connec
     assert received == snapshot(
         [
             ElicitRequestURLParams(
-                _meta={},
                 message="Authorize access to your calendar.",
                 url="https://example.com/oauth/authorize",
                 elicitation_id="auth-001",

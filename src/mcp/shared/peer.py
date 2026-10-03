@@ -98,7 +98,7 @@ class ClientPeer:
         metadata: dict[str, Any] | None = None,
         model_preferences: ModelPreferences | None = None,
         tools: None = None,
-        tool_choice: ToolChoice | None = None,
+        tool_choice: None = None,
         meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> CreateMessageResult: ...
@@ -117,6 +117,24 @@ class ClientPeer:
         model_preferences: ModelPreferences | None = None,
         tools: list[Tool],
         tool_choice: ToolChoice | None = None,
+        meta: Meta | None = None,
+        opts: CallOptions | None = None,
+    ) -> CreateMessageResultWithTools: ...
+    @overload
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    async def sample(
+        self,
+        messages: list[SamplingMessage],
+        *,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        include_context: IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: ModelPreferences | None = None,
+        tools: list[Tool] | None = None,
+        tool_choice: ToolChoice,
         meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> CreateMessageResultWithTools: ...
@@ -157,7 +175,7 @@ class ClientPeer:
             tool_choice=tool_choice,
         )
         result = await self.send_raw_request("sampling/createMessage", dump_params(params, meta), opts)
-        if tools is not None:
+        if tools is not None or tool_choice is not None:
             return CreateMessageResultWithTools.model_validate(result, by_name=False)
         return CreateMessageResult.model_validate(result, by_name=False)
 

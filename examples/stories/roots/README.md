@@ -3,7 +3,6 @@
 > **Deprecated** in the 2026-07-28 protocol (SEP-2577); functional through the
 > deprecation window. Migration: accept directory paths as ordinary tool
 > parameters or resource URIs instead of relying on `roots/list`.
-> TODO(maxisbey): revisit before beta.
 
 The client passes a `list_roots_callback` returning the filesystem locations it
 is willing to expose; a server tool calls `ctx.session.list_roots()` mid-request

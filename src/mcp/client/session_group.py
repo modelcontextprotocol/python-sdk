@@ -14,7 +14,7 @@ from types import TracebackType
 from typing import Any, Literal, TypeAlias, overload
 
 import anyio
-import httpx
+import httpx2
 import mcp_types as types
 from pydantic import BaseModel, Field
 from typing_extensions import Self
@@ -23,10 +23,10 @@ import mcp
 from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
-from mcp.client.streamable_http import streamable_http_client
+from mcp.client.streamable_http import DEFAULT_MAX_SSE_EVENT_SIZE, streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared.dispatcher import ProgressFnT
 from mcp.shared.exceptions import MCPError
-from mcp.shared.session import ProgressFnT
 
 
 class SseServerParameters(BaseModel):
@@ -62,6 +62,9 @@ class StreamableHttpParameters(BaseModel):
 
     # Close the client session when the transport closes.
     terminate_on_close: bool = True
+
+    # Maximum bytes in one server-sent event. None disables the limit.
+    max_sse_event_size: int | None = Field(default=DEFAULT_MAX_SSE_EVENT_SIZE, gt=0)
 
 
 ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
@@ -324,7 +327,7 @@ class ClientSessionGroup:
             else:
                 httpx_client = create_mcp_http_client(
                     headers=server_params.headers,
-                    timeout=httpx.Timeout(
+                    timeout=httpx2.Timeout(
                         server_params.timeout,
                         read=server_params.sse_read_timeout,
                     ),
@@ -335,6 +338,7 @@ class ClientSessionGroup:
                     url=server_params.url,
                     http_client=httpx_client,
                     terminate_on_close=server_params.terminate_on_close,
+                    max_sse_event_size=server_params.max_sse_event_size,
                 )
                 read, write = await session_stack.enter_async_context(client)
 

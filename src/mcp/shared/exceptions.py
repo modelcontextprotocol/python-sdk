@@ -53,12 +53,12 @@ class MCPError(Exception):
 
 
 class NoBackChannelError(MCPError):
-    """Raised when sending a server-initiated request over a transport that cannot deliver it.
+    """Raised when a server-initiated request has no channel that can deliver it.
 
-    Stateless HTTP and JSON-response-mode HTTP have no channel for the server to
-    push requests (sampling, elicitation, roots/list) to the client. This is
-    raised by `DispatchContext.send_raw_request` when `can_send_request` is
-    `False`, and serializes to an `INVALID_REQUEST` error response.
+    Raised by `DispatchContext.send_raw_request` when its request-scoped channel
+    reports `TransportContext.can_send_request` as `False` (the cases are
+    documented on that field), and by a connection's standalone channel when it
+    has none; serializes to an `INVALID_REQUEST` error response.
     """
 
     def __init__(self, method: str):

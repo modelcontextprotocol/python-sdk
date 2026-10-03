@@ -6,30 +6,15 @@ You never configure one separately. `Client` takes a single positional argument 
 
 The *server* side of each (what `mcp.run()` does and what you deploy) is **[Running your server](../run/index.md)**.
 
-## In memory
-
-Pass the server object itself:
-
-```python title="client.py" hl_lines="14"
---8<-- "docs_src/client_transports/tutorial001.py"
-```
-
-No subprocess, no port, no bytes on a wire. The client and the server are two objects in the same process, and the call still goes through the real protocol layer: `search_books` is listed, validated and invoked exactly as it would be over HTTP.
-
-That makes it two things at once:
-
-* **A test harness.** Every example in this documentation is exercised this way, and the **[Testing](../get-started/testing.md)** page builds the whole pattern around it.
-* **An embedding API.** An application that constructs the server doesn't need a network hop to call its tools.
-
 ## Streamable HTTP
 
-Pass a URL string and you get **Streamable HTTP**, the transport you deploy behind:
+Pass a URL string and you get **Streamable HTTP**, the transport you deploy behind and the one to reach for first:
 
 ```python title="client.py" hl_lines="5"
 --8<-- "docs_src/client_transports/tutorial002.py"
 ```
 
-That is the whole production client. `Client` wraps the URL in `streamable_http_client(...)` for you, on top of an `httpx.AsyncClient` configured the way MCP needs: `follow_redirects=True`, a 30-second timeout for connect/write/pool, and a 300-second read timeout because the server may hold a response stream open.
+That is the whole production client. `Client` wraps the URL in `streamable_http_client(...)` for you, on top of an `httpx2.AsyncClient` configured the way MCP needs: a 30-second timeout for connect/write/pool, and a 300-second read timeout because the server may hold a response stream open.
 
 !!! check
     A `Client` you have constructed is **not** connected. Construction only picks the transport;
@@ -41,48 +26,95 @@ That is the whole production client. `Client` wraps the URL in `streamable_http_
 
     Nothing was resolved, fetched or spawned when you wrote `Client("http://...")`. That line is free.
 
-### Bring your own `httpx.AsyncClient`
+### Bring your own `httpx2.AsyncClient`
 
-The moment you need an `Authorization` header, a cookie, a proxy, mTLS, or a different timeout, build the `httpx.AsyncClient` yourself and hand it to `streamable_http_client`:
+The moment you need an `Authorization` header, a cookie, a proxy, mTLS, or a different timeout, build the `httpx2.AsyncClient` yourself and hand it to `streamable_http_client`:
 
-```python title="client.py" hl_lines="8-14"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client_transports/tutorial003.py"
 ```
 
 Two things to notice:
 
-* You own the `httpx.AsyncClient`, so **you** enter and exit it. The SDK never closes a client it didn't create.
+* You own the `httpx2.AsyncClient`, so **you** enter and exit it. The SDK never closes a client it didn't create.
 * `streamable_http_client(url, http_client=...)` returns a transport, and `Client(transport)` accepts it like anything else.
+
+Keep the `timeout=`. It is the one the SDK's own client uses (30 seconds, 300 for reads); an `httpx2.AsyncClient` built without one gets `httpx2`'s 5-second default, and a tool call that runs longer than that fails with a read timeout.
+
+One TLS note: `httpx2` verifies certificates against the operating system trust store (via
+[`truststore`](https://pypi.org/project/truststore/)), not a bundled CA list. In an environment with
+no usable system CA store (some minimal containers), set the standard `SSL_CERT_FILE`/`SSL_CERT_DIR`
+environment variables or pass an explicit `verify=ssl_context` to your `httpx2.AsyncClient`
+(background in
+[`httpx` and `httpx-sse` replaced by `httpx2`](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)).
+
+### Larger SSE events
+
+Pass `max_sse_event_size` when a server sends a large tool result or notification in one SSE event:
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+The default is 1 MiB per event, measured in bytes before the event is parsed. The limit applies to
+POST responses, the GET stream, and resumed streams. An oversized event in a POST response or resumed
+stream fails that request with an SSE error. On the background GET stream, the client logs
+the error and retries the stream. Set `max_sse_event_size=None` to disable the cap when you trust the
+server and need larger events. JSON responses are unaffected. If you use `ClientSessionGroup`, set the
+same option on `StreamableHttpParameters`.
 
 !!! warning
     `streamable_http_client` used to take `headers=` and `timeout=` directly. It does not any more:
-    its only parameters are `url`, `http_client` and `terminate_on_close`. Reach for `headers=` out
+    its parameters are `url`, `http_client`, `terminate_on_close`, and `max_sse_event_size`. Reach for `headers=` out
     of habit and you get:
 
     ```text
     TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
     ```
 
-    Everything HTTP-shaped now lives on the one `httpx.AsyncClient` you pass in.
+    Headers, authentication, proxies, and timeouts live on the one `httpx2.AsyncClient` you pass in.
+    `max_sse_event_size` applies to the MCP transport's SSE readers instead.
 
 !!! info
-    If you know `httpx`, you already know how to do auth, proxies, event hooks, retries and connection
-    limits here. The SDK adds nothing on top and takes nothing away. It is also where OAuth plugs in:
-    `httpx.AsyncClient(auth=OAuthClientProvider(...))`. That whole flow is **[OAuth clients](oauth-clients.md)**.
+    `httpx2` keeps the familiar `httpx` API, so if you know `httpx` you already know how to do auth,
+    proxies, event hooks, retries and connection limits here. The SDK adds nothing on top and takes
+    nothing away, except [redirect handling](#redirects). It is also where OAuth plugs in:
+    `httpx2.AsyncClient(auth=OAuthClientProvider(...))`. That whole flow is **[OAuth clients](oauth-clients.md)**.
+
+### Redirects
+
+The transport connects to the URL you gave it, and only that origin.
+
+* A `307`/`308` redirect that stays on the same scheme, host and port is followed, and so is `http://` → `https://` on the same host. That covers the usual `/mcp` → `/mcp/` trailing-slash redirect.
+* A redirect anywhere else is **not** followed. The call fails with:
+
+    ```text
+    MCPError: Redirect to https://other.example.com/mcp not followed; use that URL as the endpoint if it is the intended server
+    ```
+
+    If that URL is the server you meant, put it in your config. If it isn't, the server or a proxy in front of it is misconfigured.
+
+This holds for any `httpx2.AsyncClient` you pass in: its `follow_redirects` setting is not consulted for MCP requests, in either direction. The SDK's OAuth providers apply the same rule to their own requests.
+
+!!! tip
+    `Redirect to http://… not followed: it would downgrade this HTTPS endpoint to plain HTTP` means the
+    server sits behind a TLS-terminating proxy it doesn't know about and is issuing `http://` redirects.
+    That is fixed on the server (**[Deploy & scale](../run/deploy.md#behind-a-tls-terminating-proxy)**),
+    or by using the exact `https://…/` URL the message suggests.
 
 ## stdio
 
 A **stdio** server is a subprocess. The client launches it, writes JSON-RPC to its stdin and reads JSON-RPC from its stdout. It is how a desktop host runs a server on your machine: a host *is* this code plus a UI, and **[Connect to a real host](../get-started/real-host.md)** is the same relationship seen from the host's side, as a config file.
 
-Describe the process with `StdioServerParameters`, turn it into a transport with `stdio_client`, and hand *that* to `Client`:
+Describe the process with `StdioServerParameters` and hand it to `Client`:
 
-```python title="client.py" hl_lines="4-8 12"
+```python title="client.py" hl_lines="3-7 11"
 --8<-- "docs_src/client_transports/tutorial004.py"
 ```
 
-`Client` does not accept the parameters object on its own. `StdioServerParameters` is configuration; `stdio_client(server)` is the transport that knows how to spawn a process from it. Always wrap.
+Entering the block spawns the process. Leaving it shuts the subprocess down: close stdin, wait, kill if it lingers. You never clean it up yourself.
 
-Leaving the `async with` block also shuts the subprocess down: close stdin, wait, kill if it lingers. You never clean it up yourself.
+The child's stderr goes to yours. To send it somewhere else, build the transport yourself with `stdio_client` (from `mcp`) and pass that instead: `Client(stdio_client(server, errlog=log_file))`.
 
 !!! warning
     The child does **not** inherit your environment. It gets a minimal allow-list (`HOME`, `LOGNAME`,
@@ -92,6 +124,18 @@ Leaving the `async with` block also shuts the subprocess down: close stdin, wait
     A server that needs an API key won't find it there. Pass it explicitly with `env=`; those
     variables are merged on top of the allow-list. That is what `BOOKSHOP_API_KEY` is doing above.
 
+## In memory
+
+In a test there is nothing to deploy and nothing to launch. Pass the server object itself:
+
+```python hl_lines="14"
+--8<-- "docs_src/client_transports/tutorial001.py"
+```
+
+No subprocess, no port, no bytes on a wire. The client and the server are two objects in the same process, and the call still goes through the real protocol layer: `search_books` is listed, validated and invoked exactly as it would be over HTTP. **[Testing](../get-started/testing.md)** builds the whole pattern around it.
+
+The same form doubles as an embedding API: an application that constructs the server itself can call its tools without a network hop.
+
 ## SSE
 
 `sse_client(url)`, from `mcp.client.sse`, is the HTTP transport that Streamable HTTP superseded. Wrap it the same way, `Client(sse_client("http://localhost:8000/sse"))`, to talk to a server that still speaks it, and don't build anything new on it.
@@ -100,16 +144,18 @@ Leaving the `async with` block also shuts the subprocess down: close stdin, wait
 
 To `Client`, all of the above are the same thing.
 
-A **transport** is any async context manager that yields a `(read, write)` pair of message streams: formally, the `Transport` protocol in `mcp.client`. `Client` resolves its argument by type: a server object connects in-process, a `str` becomes `streamable_http_client(url)`, and anything else is entered as a transport directly. That last rule is why `stdio_client(...)`, `streamable_http_client(...)` and `sse_client(...)` all drop into the same slot, and why you can write your own.
+A **transport** is any async context manager that yields a `(read, write)` pair of message streams: formally, the `Transport` protocol in `mcp.client`. `Client` resolves its argument by type: a `str` becomes `streamable_http_client(url)`, a `StdioServerParameters` becomes `stdio_client(params)`, a server object connects in-process, and anything else is entered as a transport directly. That last rule is why `stdio_client(...)`, `streamable_http_client(...)` and `sse_client(...)` all drop into the same slot, and why you can write your own.
 
 ## Recap
 
-* `Client(mcp)` (the server object) connects in memory. Use it for tests and for embedding.
 * `Client("http://.../mcp")` (a URL) connects over Streamable HTTP, the production transport.
-* Headers, auth, proxies and timeouts belong on an `httpx.AsyncClient` you pass to `streamable_http_client(url, http_client=...)`. There is no `headers=` keyword.
-* stdio is `Client(stdio_client(StdioServerParameters(...)))`, never the parameters object alone.
+* Headers, auth, proxies and timeouts belong on an `httpx2.AsyncClient` you pass to `streamable_http_client(url, http_client=...)`. There is no `headers=` keyword.
+* Use `streamable_http_client(url, max_sse_event_size=...)` to change the byte limit for each SSE event.
+* Redirects are followed only within the URL's own origin (a trailing-slash `307`/`308`), plus `http`→`https` on the same host. Anything else fails with `Redirect to … not followed`; configure the final URL.
+* stdio is `Client(StdioServerParameters(...))`. Wrap it in `stdio_client(...)` yourself only to redirect the child's stderr.
 * The subprocess gets an allow-listed environment, not yours; `env=` adds to it.
-* A transport is anything you can `async with x as (read, write)`. `Client` hands anything that isn't a server object or a URL straight to that protocol.
+* `Client(mcp)` (the server object) connects in memory. Use it in tests, or to embed a server in the application that built it.
+* A transport is anything you can `async with x as (read, write)`. `Client` hands anything that isn't a server object, a URL or `StdioServerParameters` straight to that protocol.
 * Constructing a `Client` picks the transport. `async with` opens it.
 
 Once the transport is open the two sides have to agree on a protocol version. You normally never think about it; when you do, **[Protocol versions](../protocol-versions.md)** is the page.

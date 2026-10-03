@@ -4,22 +4,64 @@ Provides OAuth providers for machine-to-machine authentication flows:
 - ClientCredentialsOAuthProvider: For client_credentials with client_id + client_secret
 - PrivateKeyJWTOAuthProvider: For client_credentials with private_key_jwt authentication
   (typically using a pre-built JWT from workload identity federation)
-- RFC7523OAuthClientProvider: For jwt-bearer grant (RFC 7523 Section 2.1)
 """
 
 import time
 import warnings
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
+from urllib.parse import urlparse
 from uuid import uuid4
 
-import httpx
+import httpx2
 import jwt
 from pydantic import BaseModel, Field
 
-from mcp.client.auth import OAuthClientProvider, OAuthFlowError, OAuthTokenError, TokenStorage
-from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata
+from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
+from mcp.client.auth.oauth2 import OAuthContext
+from mcp.client.auth.utils import issuers_match
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 from mcp.shared.exceptions import MCPDeprecationWarning
+
+
+def _checked_issuer(issuer: str | None) -> str | None:
+    if issuer is None:
+        warnings.warn(
+            "Omitting `issuer` is deprecated and it will be required in 3.0. Without it, the MCP server "
+            "decides which authorization server receives this client's credentials; pass "
+            "issuer=<your authorization server's issuer URL> so they are only ever sent there.",
+            MCPDeprecationWarning,
+            stacklevel=3,
+        )
+        return None
+    if urlparse(issuer).scheme not in ("http", "https"):
+        raise ValueError(f"issuer must be the authorization server's http(s) issuer URL, got {issuer!r}")
+    return issuer
+
+
+def _preferred_authorization_server(advertised: list[str], issuer: str | None) -> str:
+    """The advertised server matching the configured issuer if there is one, else the first."""
+    return next(
+        (server for server in advertised if issuer is not None and issuers_match(server, issuer)), advertised[0]
+    )
+
+
+def _require_metadata_for_configured_issuer(context: OAuthContext, issuer: str | None) -> None:
+    """With an issuer configured, a token request is only built from metadata discovered for that issuer.
+
+    Anything else held is dropped along with the tokens, so the next request starts discovery afresh
+    rather than refreshing against it.
+    """
+    if issuer is None:
+        return
+    metadata = context.oauth_metadata
+    if metadata is not None and issuers_match(str(metadata.issuer), issuer):
+        return
+    context.oauth_metadata = None
+    context.clear_tokens()
+    if metadata is None:
+        raise OAuthFlowError(f"No authorization server metadata discovered for configured issuer {issuer}")
+    raise OAuthFlowError(f"Authorization server metadata issuer mismatch: {metadata.issuer} != {issuer}")
 
 
 class ClientCredentialsOAuthProvider(OAuthClientProvider):
@@ -27,6 +69,9 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
 
     This provider sets client_info directly, bypassing dynamic client registration.
     Use this when you already have client credentials (client_id and client_secret).
+    Pass `issuer` to name the authorization server those credentials belong to: token
+    requests are then only built from authorization server metadata for that issuer, and
+    the flow stops if the MCP server leads anywhere else.
 
     Example:
         ```python
@@ -35,6 +80,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             storage=my_token_storage,
             client_id="my-client-id",
             client_secret="my-client-secret",
+            issuer="https://auth.example.com",
         )
         ```
     """
@@ -46,7 +92,8 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
         client_id: str,
         client_secret: str,
         token_endpoint_auth_method: Literal["client_secret_basic", "client_secret_post"] = "client_secret_basic",
-        scopes: str | None = None,
+        scope: str | None = None,
+        issuer: str | None = None,
     ) -> None:
         """Initialize client_credentials OAuth provider.
 
@@ -57,16 +104,23 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             client_secret: The OAuth client secret.
             token_endpoint_auth_method: Authentication method for token endpoint.
                 Either "client_secret_basic" (default) or "client_secret_post".
-            scopes: Optional space-separated list of scopes to request.
+            scope: Optional space-separated list of scopes to request.
+            issuer: The issuer identifier of the authorization server that issued
+                `client_id` and `client_secret`. When set, token requests are only built from
+                discovered authorization server metadata whose `issuer` is exactly this string;
+                otherwise the flow stops with `OAuthFlowError`. Omitting it is deprecated
+                (`MCPDeprecationWarning`) and it will be required in 3.0; until then, whichever
+                authorization server discovery yields is used.
         """
         # Build minimal client_metadata for the base class
         client_metadata = OAuthClientMetadata(
             redirect_uris=None,
             grant_types=["client_credentials"],
             token_endpoint_auth_method=token_endpoint_auth_method,
-            scope=scopes,
+            scope=scope,
         )
-        super().__init__(server_url, client_metadata, storage, None, None, 300.0)
+        super().__init__(server_url, client_metadata, storage, None, None)
+        self._issuer = _checked_issuer(issuer)
         # Store client_info to be set during _initialize - no dynamic registration needed
         self._fixed_client_info = OAuthClientInformationFull(
             redirect_uris=None,
@@ -74,7 +128,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             client_secret=client_secret,
             grant_types=["client_credentials"],
             token_endpoint_auth_method=token_endpoint_auth_method,
-            scope=scopes,
+            scope=scope,
         )
 
     async def _initialize(self) -> None:
@@ -83,12 +137,17 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
         self.context.client_info = self._fixed_client_info
         self._initialized = True
 
-    async def _perform_authorization(self) -> httpx.Request:
+    def _select_authorization_server(self, advertised: list[str]) -> str:
+        return _preferred_authorization_server(advertised, self._issuer)
+
+    async def _perform_authorization(self) -> httpx2.Request:
         """Perform client_credentials authorization."""
         return await self._exchange_token_client_credentials()
 
-    async def _exchange_token_client_credentials(self) -> httpx.Request:
+    async def _exchange_token_client_credentials(self) -> httpx2.Request:
         """Build token exchange request for client_credentials grant."""
+        _require_metadata_for_configured_issuer(self.context, self._issuer)
+
         token_data: dict[str, Any] = {
             "grant_type": "client_credentials",
         }
@@ -105,7 +164,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             token_data["scope"] = self.context.client_metadata.scope
 
         token_url = self._get_token_endpoint()
-        return httpx.Request("POST", token_url, data=token_data, headers=headers)
+        return httpx2.Request("POST", token_url, data=token_data, headers=headers)
 
 
 def static_assertion_provider(token: str) -> Callable[[str], Awaitable[str]]:
@@ -121,6 +180,7 @@ def static_assertion_provider(token: str) -> Callable[[str], Awaitable[str]]:
             storage=my_token_storage,
             client_id="my-client-id",
             assertion_provider=static_assertion_provider(my_prebuilt_jwt),
+            issuer="https://auth.example.com",
         )
         ```
 
@@ -155,6 +215,7 @@ class SignedJWTParameters(BaseModel):
             storage=my_token_storage,
             client_id="my-client-id",
             assertion_provider=jwt_params.create_assertion_provider(),
+            issuer="https://auth.example.com",
         )
         ```
     """
@@ -199,7 +260,10 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
 
     The JWT assertion's audience MUST be the authorization server's issuer identifier
     (per RFC 7523bis security updates). The `assertion_provider` callback receives
-    this audience value and must return a JWT with that audience.
+    this audience value and must return a JWT with that audience. Pass `issuer` to name
+    the authorization server this client is registered with: an assertion is then only
+    minted once metadata for that issuer has been discovered, and token requests are only
+    built from that metadata.
 
     **Option 1: Pre-built JWT via Workload Identity Federation**
 
@@ -217,6 +281,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             storage=my_token_storage,
             client_id="my-client-id",
             assertion_provider=get_workload_identity_token,
+            issuer="https://auth.example.com",
         )
         ```
 
@@ -230,6 +295,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             storage=my_token_storage,
             client_id="my-client-id",
             assertion_provider=static_assertion_provider(my_prebuilt_jwt),
+            issuer="https://auth.example.com",
         )
         ```
 
@@ -248,6 +314,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             storage=my_token_storage,
             client_id="my-client-id",
             assertion_provider=jwt_params.create_assertion_provider(),
+            issuer="https://auth.example.com",
         )
         ```
     """
@@ -258,7 +325,8 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         storage: TokenStorage,
         client_id: str,
         assertion_provider: Callable[[str], Awaitable[str]],
-        scopes: str | None = None,
+        scope: str | None = None,
+        issuer: str | None = None,
     ) -> None:
         """Initialize private_key_jwt OAuth provider.
 
@@ -271,24 +339,31 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
                 `SignedJWTParameters.create_assertion_provider()` for SDK-signed JWTs,
                 `static_assertion_provider()` for pre-built JWTs, or provide your own
                 callback for workload identity federation.
-            scopes: Optional space-separated list of scopes to request.
+            scope: Optional space-separated list of scopes to request.
+            issuer: The issuer identifier of the authorization server `client_id` is
+                registered with. When set, an assertion is only minted, and token requests
+                are only built, once authorization server metadata whose `issuer` is exactly this
+                string has been discovered; otherwise the flow stops with `OAuthFlowError`.
+                Omitting it is deprecated (`MCPDeprecationWarning`) and it will be required in
+                3.0; until then, whichever authorization server discovery yields is used.
         """
         # Build minimal client_metadata for the base class
         client_metadata = OAuthClientMetadata(
             redirect_uris=None,
             grant_types=["client_credentials"],
             token_endpoint_auth_method="private_key_jwt",
-            scope=scopes,
+            scope=scope,
         )
-        super().__init__(server_url, client_metadata, storage, None, None, 300.0)
+        super().__init__(server_url, client_metadata, storage, None, None)
         self._assertion_provider = assertion_provider
+        self._issuer = _checked_issuer(issuer)
         # Store client_info to be set during _initialize - no dynamic registration needed
         self._fixed_client_info = OAuthClientInformationFull(
             redirect_uris=None,
             client_id=client_id,
             grant_types=["client_credentials"],
             token_endpoint_auth_method="private_key_jwt",
-            scope=scopes,
+            scope=scope,
         )
 
     async def _initialize(self) -> None:
@@ -297,7 +372,10 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         self.context.client_info = self._fixed_client_info
         self._initialized = True
 
-    async def _perform_authorization(self) -> httpx.Request:
+    def _select_authorization_server(self, advertised: list[str]) -> str:
+        return _preferred_authorization_server(advertised, self._issuer)
+
+    async def _perform_authorization(self) -> httpx2.Request:
         """Perform client_credentials authorization with private_key_jwt."""
         return await self._exchange_token_client_credentials()
 
@@ -315,8 +393,10 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         token_data["client_assertion"] = assertion
         token_data["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
-    async def _exchange_token_client_credentials(self) -> httpx.Request:
+    async def _exchange_token_client_credentials(self) -> httpx2.Request:
         """Build token exchange request for client_credentials grant with private_key_jwt."""
+        _require_metadata_for_configured_issuer(self.context, self._issuer)
+
         token_data: dict[str, Any] = {
             "grant_type": "client_credentials",
         }
@@ -333,154 +413,4 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             token_data["scope"] = self.context.client_metadata.scope
 
         token_url = self._get_token_endpoint()
-        return httpx.Request("POST", token_url, data=token_data, headers=headers)
-
-
-class JWTParameters(BaseModel):
-    """JWT parameters."""
-
-    assertion: str | None = Field(
-        default=None,
-        description="JWT assertion for JWT authentication. "
-        "Will be used instead of generating a new assertion if provided.",
-    )
-
-    issuer: str | None = Field(default=None, description="Issuer for JWT assertions.")
-    subject: str | None = Field(default=None, description="Subject identifier for JWT assertions.")
-    audience: str | None = Field(default=None, description="Audience for JWT assertions.")
-    claims: dict[str, Any] | None = Field(default=None, description="Additional claims for JWT assertions.")
-    jwt_signing_algorithm: str | None = Field(default="RS256", description="Algorithm for signing JWT assertions.")
-    jwt_signing_key: str | None = Field(default=None, description="Private key for JWT signing.")
-    jwt_lifetime_seconds: int = Field(default=300, description="Lifetime of generated JWT in seconds.")
-
-    def to_assertion(self, with_audience_fallback: str | None = None) -> str:
-        if self.assertion is not None:
-            # Prebuilt JWT (e.g. acquired out-of-band)
-            assertion = self.assertion
-        else:
-            if not self.jwt_signing_key:
-                raise OAuthFlowError("Missing signing key for JWT bearer grant")  # pragma: no cover
-            if not self.issuer:
-                raise OAuthFlowError("Missing issuer for JWT bearer grant")  # pragma: no cover
-            if not self.subject:
-                raise OAuthFlowError("Missing subject for JWT bearer grant")  # pragma: no cover
-
-            audience = self.audience if self.audience else with_audience_fallback
-            if not audience:
-                raise OAuthFlowError("Missing audience for JWT bearer grant")  # pragma: no cover
-
-            now = int(time.time())
-            claims: dict[str, Any] = {
-                "iss": self.issuer,
-                "sub": self.subject,
-                "aud": audience,
-                "exp": now + self.jwt_lifetime_seconds,
-                "iat": now,
-                "jti": str(uuid4()),
-            }
-            claims.update(self.claims or {})
-
-            assertion = jwt.encode(
-                claims,
-                self.jwt_signing_key,
-                algorithm=self.jwt_signing_algorithm or "RS256",
-            )
-        return assertion
-
-
-class RFC7523OAuthClientProvider(OAuthClientProvider):
-    """OAuth client provider for RFC 7523 jwt-bearer grant.
-
-    .. deprecated::
-        Use :class:`ClientCredentialsOAuthProvider` for client_credentials with
-        client_id + client_secret, or :class:`PrivateKeyJWTOAuthProvider` for
-        client_credentials with private_key_jwt authentication instead.
-
-    This provider supports the jwt-bearer authorization grant (RFC 7523 Section 2.1)
-    where the JWT itself is the authorization grant.
-    """
-
-    def __init__(
-        self,
-        server_url: str,
-        client_metadata: OAuthClientMetadata,
-        storage: TokenStorage,
-        redirect_handler: Callable[[str], Awaitable[None]] | None = None,
-        callback_handler: Callable[[], Awaitable[AuthorizationCodeResult]] | None = None,
-        timeout: float = 300.0,
-        jwt_parameters: JWTParameters | None = None,
-    ) -> None:
-        warnings.warn(
-            "RFC7523OAuthClientProvider is deprecated. Use ClientCredentialsOAuthProvider "
-            "or PrivateKeyJWTOAuthProvider instead.",
-            MCPDeprecationWarning,
-            stacklevel=2,
-        )
-        super().__init__(server_url, client_metadata, storage, redirect_handler, callback_handler, timeout)
-        self.jwt_parameters = jwt_parameters
-
-    async def _exchange_token_authorization_code(
-        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = None
-    ) -> httpx.Request:  # pragma: no cover
-        """Build token exchange request for authorization_code flow."""
-        token_data = token_data or {}
-        if self.context.client_metadata.token_endpoint_auth_method == "private_key_jwt":
-            self._add_client_authentication_jwt(token_data=token_data)
-        return await super()._exchange_token_authorization_code(auth_code, code_verifier, token_data=token_data)
-
-    async def _perform_authorization(self) -> httpx.Request:  # pragma: no cover
-        """Perform the authorization flow."""
-        if "urn:ietf:params:oauth:grant-type:jwt-bearer" in self.context.client_metadata.grant_types:
-            token_request = await self._exchange_token_jwt_bearer()
-            return token_request
-        else:
-            return await super()._perform_authorization()
-
-    def _add_client_authentication_jwt(self, *, token_data: dict[str, Any]):  # pragma: no cover
-        """Add JWT assertion for client authentication to token endpoint parameters."""
-        if not self.jwt_parameters:
-            raise OAuthTokenError("Missing JWT parameters for private_key_jwt flow")
-        if not self.context.oauth_metadata:
-            raise OAuthTokenError("Missing OAuth metadata for private_key_jwt flow")
-
-        # We need to set the audience to the issuer identifier of the authorization server
-        # https://datatracker.ietf.org/doc/html/draft-ietf-oauth-rfc7523bis-01#name-updates-to-rfc-7523
-        issuer = str(self.context.oauth_metadata.issuer)
-        assertion = self.jwt_parameters.to_assertion(with_audience_fallback=issuer)
-
-        # When using private_key_jwt, in a client_credentials flow, we use RFC 7523 Section 2.2
-        token_data["client_assertion"] = assertion
-        token_data["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
-        # We need to set the audience to the resource server, the audience is different from the one in claims
-        # it represents the resource server that will validate the token
-        token_data["audience"] = self.context.get_resource_url()
-
-    async def _exchange_token_jwt_bearer(self) -> httpx.Request:
-        """Build token exchange request for JWT bearer grant."""
-        if not self.context.client_info:
-            raise OAuthFlowError("Missing client info")  # pragma: no cover
-        if not self.jwt_parameters:
-            raise OAuthFlowError("Missing JWT parameters")  # pragma: no cover
-        if not self.context.oauth_metadata:
-            raise OAuthTokenError("Missing OAuth metadata")  # pragma: no cover
-
-        # We need to set the audience to the issuer identifier of the authorization server
-        # https://datatracker.ietf.org/doc/html/draft-ietf-oauth-rfc7523bis-01#name-updates-to-rfc-7523
-        issuer = str(self.context.oauth_metadata.issuer)
-        assertion = self.jwt_parameters.to_assertion(with_audience_fallback=issuer)
-
-        token_data = {
-            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            "assertion": assertion,
-        }
-
-        if self.context.should_include_resource_param(self.context.protocol_version):  # pragma: no branch
-            token_data["resource"] = self.context.get_resource_url()
-
-        if self.context.client_metadata.scope:  # pragma: no branch
-            token_data["scope"] = self.context.client_metadata.scope
-
-        token_url = self._get_token_endpoint()
-        return httpx.Request(
-            "POST", token_url, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
+        return httpx2.Request("POST", token_url, data=token_data, headers=headers)

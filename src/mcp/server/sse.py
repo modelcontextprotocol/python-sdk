@@ -52,6 +52,8 @@ from starlette.types import Receive, Scope, Send
 
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.transport_security import (
+    DEFAULT_MAX_REQUEST_BODY_SIZE,
+    RequestBodyLimitMiddleware,
     TransportSecurityMiddleware,
     TransportSecuritySettings,
 )
@@ -79,7 +81,12 @@ class SseServerTransport:
     _session_owners: dict[UUID, AuthorizationContext]
     _security: TransportSecurityMiddleware
 
-    def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        security_settings: TransportSecuritySettings | None = None,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
+    ) -> None:
         """Creates a new SSE server transport, which will direct the client to POST
         messages to the relative path given.
 
@@ -87,6 +94,9 @@ class SseServerTransport:
             endpoint: A relative path where messages should be posted
                     (e.g., "/messages/").
             security_settings: Optional security settings for DNS rebinding protection.
+            max_request_body_size: Maximum size in bytes for POSTed message bodies. Requests that
+                declare or stream a larger body receive HTTP 413. Defaults to 4 MiB, matching
+                `StreamableHTTPSessionManager`.
 
         Note:
             We use relative paths instead of full URLs for several reasons:
@@ -103,6 +113,9 @@ class SseServerTransport:
 
         super().__init__()
 
+        if max_request_body_size <= 0:
+            raise ValueError("max_request_body_size must be a positive number of bytes")
+
         # Validate that endpoint is a relative path and not a full URL
         if "://" in endpoint or endpoint.startswith("//") or "?" in endpoint or "#" in endpoint:
             raise ValueError(
@@ -118,6 +131,7 @@ class SseServerTransport:
         self._read_stream_writers = {}
         self._session_owners = {}
         self._security = TransportSecurityMiddleware(security_settings)
+        self._post_message_app = RequestBodyLimitMiddleware(self._handle_post_message, max_request_body_size)
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
@@ -203,6 +217,17 @@ class SseServerTransport:
             self._session_owners.pop(session_id, None)
 
     async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """ASGI application for the message endpoint.
+
+        Only POST is accepted (other methods get 405), and bodies larger than
+        `max_request_body_size` are answered with 413 before the message is handled.
+        """
+        if scope["method"] != "POST":
+            response = Response(status_code=405, headers={"Allow": "POST"})
+            return await response(scope, receive, send)
+        await self._post_message_app(scope, receive, send)
+
+    async def _handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.debug("Handling POST message")
         request = Request(scope, receive)
 

@@ -129,14 +129,27 @@ def test_dotdot_is_a_component_check_not_a_substring_scan() -> None:
 async def test_safe_join_serves_a_file_inside_the_base_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """tutorial002: `safe_join(DOCS_ROOT, path).read_text()` returns the file under the base."""
+    """tutorial002: `safe_join(DOCS_ROOT, path).read_text(encoding="utf-8")` returns the file under the base."""
     (tmp_path / "printing").mkdir()
-    (tmp_path / "printing" / "setup.md").write_text("# Printer setup")
+    (tmp_path / "printing" / "setup.md").write_text("# Printer setup", encoding="utf-8")
     monkeypatch.setattr(tutorial002, "DOCS_ROOT", tmp_path)
     async with Client(tutorial002.mcp) as client:
         (content,) = (await client.read_resource("manuals://printing/setup.md")).contents
         assert isinstance(content, TextResourceContents)
         assert content.text == "# Printer setup"
+
+
+async def test_a_missing_manual_is_resource_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """tutorial002 and the closing tip: a path with no file behind it is `-32602` with the handler's message."""
+    monkeypatch.setattr(tutorial002, "DOCS_ROOT", tmp_path)
+    async with Client(tutorial002.mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("manuals://printing/missing.md")
+    assert exc.value.error == ErrorData(
+        code=INVALID_PARAMS,
+        message="No manual at 'printing/missing.md'.",
+        data={"uri": "manuals://printing/missing.md"},
+    )
 
 
 def test_safe_join_raises_when_the_resolved_path_escapes_the_base(tmp_path: Path) -> None:

@@ -45,7 +45,7 @@ kill "$SERVER_PID"
 ## Caveats
 
 - DNS-rebinding protection is disabled via `transport_security=NO_DNS_REBIND`
-  because the in-process httpx client sends no `Origin` header. Drop the kwarg
+  because the in-process httpx2 client sends no `Origin` header. Drop the kwarg
   for a real deployment.
 - Neither `MCPServer` nor lowlevel `Server` auto-advertises
   `resources.listChanged: true` in capabilities, and `MCPServer` exposes no knob

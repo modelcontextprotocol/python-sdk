@@ -41,7 +41,7 @@ kill "$SERVER_PID"
 ## Caveats
 
 - `transport_security=NO_DNS_REBIND` — DNS-rebinding protection is on by default
-  for localhost binds; the harness disables it because the in-process httpx
+  for localhost binds; the harness disables it because the in-process httpx2
   client sends no `Origin` header. Drop the kwarg for a real deployment.
 - `streamable_http_app()` reshapes in a later release; the call is isolated in
   `build_app()` so the change touches one line per server file.

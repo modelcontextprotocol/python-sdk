@@ -3,16 +3,17 @@
 import base64
 import json
 import time
+from collections.abc import AsyncGenerator
 from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
-from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -24,6 +25,7 @@ from mcp.client.auth.utils import (
     extract_resource_metadata_from_www_auth,
     extract_scope_from_www_auth,
     get_client_metadata_scopes,
+    handle_auth_metadata_response,
     handle_registration_response,
     is_valid_client_metadata_url,
     should_use_client_metadata_url,
@@ -111,7 +113,7 @@ def oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: MockToken
 @pytest.fixture
 def prm_metadata_response():
     """PRM metadata response with scopes."""
-    return httpx.Response(
+    return httpx2.Response(
         200,
         content=(
             b'{"resource": "https://api.example.com/v1/mcp", '
@@ -124,7 +126,7 @@ def prm_metadata_response():
 @pytest.fixture
 def prm_metadata_without_scopes_response():
     """PRM metadata response without scopes."""
-    return httpx.Response(
+    return httpx2.Response(
         200,
         content=(
             b'{"resource": "https://api.example.com/v1/mcp", '
@@ -137,20 +139,20 @@ def prm_metadata_without_scopes_response():
 @pytest.fixture
 def init_response_with_www_auth_scope():
     """Initial 401 response with WWW-Authenticate header containing scope."""
-    return httpx.Response(
+    return httpx2.Response(
         401,
         headers={"WWW-Authenticate": 'Bearer scope="special:scope from:www-authenticate"'},
-        request=httpx.Request("GET", "https://api.example.com/test"),
+        request=httpx2.Request("GET", "https://api.example.com/test"),
     )
 
 
 @pytest.fixture
 def init_response_without_www_auth_scope():
     """Initial 401 response without WWW-Authenticate scope."""
-    return httpx.Response(
+    return httpx2.Response(
         401,
         headers={},
-        request=httpx.Request("GET", "https://api.example.com/test"),
+        request=httpx2.Request("GET", "https://api.example.com/test"),
     )
 
 
@@ -192,7 +194,6 @@ class TestOAuthContext:
         assert oauth_provider.context.server_url == "https://api.example.com/v1/mcp"
         assert oauth_provider.context.client_metadata == client_metadata
         assert oauth_provider.context.storage == mock_storage
-        assert oauth_provider.context.timeout == 300.0
         assert oauth_provider.context is not None
 
     def test_context_url_parsing(self, oauth_provider: OAuthClientProvider):
@@ -290,8 +291,8 @@ class TestOAuthFlow:
         )
 
         # Test without WWW-Authenticate (fallback)
-        init_response = httpx.Response(
-            status_code=401, headers={}, request=httpx.Request("GET", "https://request-api.example.com")
+        init_response = httpx2.Response(
+            status_code=401, headers={}, request=httpx2.Request("GET", "https://request-api.example.com")
         )
 
         urls = build_protected_resource_metadata_discovery_urls(
@@ -408,7 +409,7 @@ class TestOAuthFallback:
         )
 
         # Create a test request
-        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
 
         # Mock the auth flow
         auth_flow = oauth_provider.async_auth_flow(test_request)
@@ -418,7 +419,7 @@ class TestOAuthFallback:
         assert "Authorization" not in request.headers
 
         # Send a 401 response to trigger the OAuth flow
-        response = httpx.Response(
+        response = httpx2.Response(
             401,
             headers={
                 "WWW-Authenticate": 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
@@ -433,7 +434,7 @@ class TestOAuthFallback:
 
         # Send a successful discovery response with minimal protected resource metadata
         # Note: auth server URL has a path (/v1/mcp), so only path-based URLs will be tried
-        discovery_response = httpx.Response(
+        discovery_response = httpx2.Response(
             200,
             content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com/v1/mcp"]}',
             request=discovery_request,
@@ -448,7 +449,7 @@ class TestOAuthFallback:
         assert oauth_metadata_request_1.method == "GET"
 
         # Send a 404 response
-        oauth_metadata_response_1 = httpx.Response(
+        oauth_metadata_response_1 = httpx2.Response(
             404,
             content=b"Not Found",
             request=oauth_metadata_request_1,
@@ -460,7 +461,7 @@ class TestOAuthFallback:
         assert oauth_metadata_request_2.method == "GET"
 
         # Send a 400 response
-        oauth_metadata_response_2 = httpx.Response(
+        oauth_metadata_response_2 = httpx2.Response(
             400,
             content=b"Bad Request",
             request=oauth_metadata_request_2,
@@ -472,7 +473,7 @@ class TestOAuthFallback:
         assert oauth_metadata_request_3.method == "GET"
 
         # Send a 500 response
-        oauth_metadata_response_3 = httpx.Response(
+        oauth_metadata_response_3 = httpx2.Response(
             500,
             content=b"Internal Server Error",
             request=oauth_metadata_request_3,
@@ -490,7 +491,7 @@ class TestOAuthFallback:
         assert token_request.method == "POST"
 
         # Send a successful token response
-        token_response = httpx.Response(
+        token_response = httpx2.Response(
             200,
             content=(
                 b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600, '
@@ -506,7 +507,7 @@ class TestOAuthFallback:
         assert str(final_request.url) == "https://api.example.com/v1/mcp"
 
         # Send final success response to properly close the generator
-        final_response = httpx.Response(200, request=final_request)
+        final_response = httpx2.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
@@ -521,7 +522,7 @@ class TestOAuthFallback:
             "authorization_endpoint": "https://auth.example.com/authorize",
             "token_endpoint": "https://auth.example.com/token"
         }"""
-        response = httpx.Response(200, content=content)
+        response = httpx2.Response(200, content=content)
 
         # Should set metadata; the empty path is preserved (no trailing slash added)
         await oauth_provider._handle_oauth_metadata_response(response)
@@ -532,8 +533,8 @@ class TestOAuthFallback:
     async def test_prioritize_www_auth_scope_over_prm(
         self,
         oauth_provider: OAuthClientProvider,
-        prm_metadata_response: httpx.Response,
-        init_response_with_www_auth_scope: httpx.Response,
+        prm_metadata_response: httpx2.Response,
+        init_response_with_www_auth_scope: httpx2.Response,
     ):
         """Test that WWW-Authenticate scope is prioritized over PRM scopes."""
         # First, process PRM metadata to set protected_resource_metadata with scopes
@@ -552,8 +553,8 @@ class TestOAuthFallback:
     async def test_prioritize_prm_scopes_when_no_www_auth_scope(
         self,
         oauth_provider: OAuthClientProvider,
-        prm_metadata_response: httpx.Response,
-        init_response_without_www_auth_scope: httpx.Response,
+        prm_metadata_response: httpx2.Response,
+        init_response_without_www_auth_scope: httpx2.Response,
     ):
         """Test that PRM scopes are prioritized when WWW-Authenticate header has no scopes."""
         # Process the PRM metadata to set protected_resource_metadata with scopes
@@ -572,8 +573,8 @@ class TestOAuthFallback:
     async def test_omit_scope_when_no_prm_scopes_or_www_auth(
         self,
         oauth_provider: OAuthClientProvider,
-        prm_metadata_without_scopes_response: httpx.Response,
-        init_response_without_www_auth_scope: httpx.Response,
+        prm_metadata_without_scopes_response: httpx2.Response,
+        init_response_without_www_auth_scope: httpx2.Response,
     ):
         """Test that scope is omitted when PRM has no scopes and WWW-Authenticate doesn't specify scope."""
         # Process the PRM metadata without scopes
@@ -825,6 +826,97 @@ class TestProtectedResourceMetadata:
         assert "resource=" in content
 
 
+async def _start_discovery(
+    provider: OAuthClientProvider,
+) -> tuple[AsyncGenerator[httpx2.Request, httpx2.Response], httpx2.Request]:
+    """Drive `provider`'s auth flow to the point where it has sent the MCP request, seen a 401 and
+    issued its first protected-resource-metadata request; returns (flow, that request)."""
+    provider.context.current_tokens = None
+    provider.context.token_expiry_time = None
+    provider._initialized = True
+    mcp_request = httpx2.Request("POST", "https://api.example.com/v1/mcp")
+    flow = provider.async_auth_flow(mcp_request)
+    sent = await flow.__anext__()
+    assert sent is mcp_request
+    # No resource_metadata hint, so discovery tries the path-based well-known URL, then the root one.
+    unauthorized = httpx2.Response(401, request=mcp_request)
+    prm_request = await flow.asend(unauthorized)
+    assert (prm_request.method, str(prm_request.url)) == (
+        "GET",
+        "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp",
+    )
+    return flow, prm_request
+
+
+async def _redirect(request: httpx2.Request, status: int, location: str) -> httpx2.Response:
+    """A redirect answer to `request`, as httpx2 hands it back when it does not follow it."""
+    transport = httpx2.MockTransport(lambda r: httpx2.Response(status, headers={"location": location}))
+    async with httpx2.AsyncClient(transport=transport) as client:
+        return await client.send(request)
+
+
+@pytest.mark.anyio
+async def test_auth_flow_follows_a_same_origin_redirect_of_its_own_request(oauth_provider: OAuthClientProvider):
+    """SDK-defined: a request the OAuth flow makes (here protected-resource metadata discovery)
+    follows a redirect that stays within its origin and keeps its method, like an MCP request."""
+    flow, prm_request = await _start_discovery(oauth_provider)
+
+    follow_up = await flow.asend(await _redirect(prm_request, 307, "/.well-known/oauth-protected-resource/v1/mcp/"))
+
+    assert (follow_up.method, str(follow_up.url)) == (
+        "GET",
+        "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp/",
+    )
+    await flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_auth_flow_does_not_follow_a_redirect_of_its_own_request_to_another_origin(
+    oauth_provider: OAuthClientProvider,
+):
+    """SDK-defined: a redirect of a flow request to another origin is handed to the flow unfollowed,
+    which treats it as "not served here" and moves to its next discovery URL."""
+    flow, prm_request = await _start_discovery(oauth_provider)
+
+    next_request = await flow.asend(await _redirect(prm_request, 307, "https://elsewhere.example/prm"))
+
+    assert (next_request.method, str(next_request.url)) == (
+        "GET",
+        "https://api.example.com/.well-known/oauth-protected-resource",
+    )
+    await flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_auth_flow_stops_following_a_redirecting_request_after_a_few_hops(
+    oauth_provider: OAuthClientProvider,
+):
+    """SDK-defined: a flow request that keeps redirecting within its origin is followed a bounded
+    number of times; the redirect after that is handed to the flow unfollowed."""
+    flow, request = await _start_discovery(oauth_provider)
+
+    hops = 0
+    while str(request.url) != "https://api.example.com/.well-known/oauth-protected-resource":
+        request = await flow.asend(
+            await _redirect(request, 307, f"/.well-known/oauth-protected-resource/v1/mcp/{hops}")
+        )
+        hops += 1
+
+    assert hops == 6  # five followed, the sixth handed back and taken as "try the next URL"
+    await flow.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("status", "keep_trying"), [(404, True), (307, True), (500, False)])
+async def test_auth_metadata_response_says_whether_to_try_the_next_discovery_url(
+    status: int, keep_trying: bool
+) -> None:
+    """SDK-defined: a 4xx or a 3xx (redirects are not followed on these requests) from a discovery
+    candidate means the metadata is not served there and the next well-known URL is tried; a 5xx
+    stops discovery."""
+    assert await handle_auth_metadata_response(httpx2.Response(status)) == (keep_trying, None)
+
+
 @pytest.mark.parametrize(
     ("protocol_version", "expected"),
     [
@@ -978,35 +1070,118 @@ class TestRegistrationResponse:
 
     @pytest.mark.anyio
     async def test_handle_registration_response_reads_before_accessing_text(self):
-        """Test that response.aread() is called before accessing response.text."""
+        """The registration error carries the response text, which for a streamed response means
+        reading it first (a streamed httpx2 response raises ResponseNotRead otherwise)."""
+        response = httpx2.Response(400, stream=httpx2.ByteStream(b"Registration failed with error"))
 
-        # Track if aread() was called
-        class MockResponse(httpx.Response):
-            def __init__(self):
-                self.status_code = 400
-                self._aread_called = False
-                self._text = "Registration failed with error"
+        with pytest.raises(OAuthRegistrationError) as exc_info:
+            await handle_registration_response(response)
 
-            async def aread(self):
-                self._aread_called = True
-                return b"test content"
+        assert str(exc_info.value) == snapshot("Registration failed: 400 Registration failed with error")
 
-            @property
-            def text(self):
-                if not self._aread_called:
-                    raise RuntimeError("Response.text accessed before response.aread()")  # pragma: no cover
-                return self._text
+    @pytest.mark.anyio
+    async def test_registration_error_names_an_unfollowed_redirect(self):
+        """SDK-defined: when the registration endpoint answered with a redirect that was not followed,
+        the error says where it pointed (without userinfo or query) instead of only the bare status."""
+        request = httpx2.Request("POST", "https://as.example/register")
+        async with httpx2.AsyncClient(
+            transport=httpx2.MockTransport(
+                lambda r: httpx2.Response(307, headers={"location": "https://u:p@elsewhere.example/register?state=x"})
+            )
+        ) as client:
+            response = await client.send(request)
 
-        mock_response = MockResponse()
+        with pytest.raises(OAuthRegistrationError) as exc_info:
+            await handle_registration_response(response)
 
-        # This should call aread() before accessing text
-        with pytest.raises(Exception) as exc_info:
-            await handle_registration_response(mock_response)
+        assert str(exc_info.value) == snapshot(
+            "Registration failed: 307 (redirected to https://elsewhere.example/register; not followed) "
+        )
 
-        # Verify aread() was called
-        assert mock_response._aread_called
-        # Verify the error message includes the response text
-        assert "Registration failed: 400" in str(exc_info.value)
+
+@pytest.mark.anyio
+async def test_registration_response_with_substituted_metadata_yields_the_credentials():
+    """A 201 whose echoed metadata differs from the request still registers the client.
+
+    The authorization server returned an application_type outside OIDC Registration's set,
+    a null redirect_uris, and an auth method the SDK does not implement. RFC 7591 §3.2.1
+    permits the server to substitute values; the client keeps the credentials it minted.
+    """
+    body = (
+        b'{"client_id": "issued-id", "client_secret": "issued-secret", '
+        b'"application_type": "confidential", "redirect_uris": null, '
+        b'"token_endpoint_auth_method": "client_secret_jwt"}'
+    )
+    response = httpx2.Response(201, content=body)
+
+    client_info = await handle_registration_response(response)
+
+    assert client_info.client_id == "issued-id"
+    assert client_info.client_secret == "issued-secret"
+    assert client_info.application_type == "confidential"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("echoed_issuer", ["https://not-the-flow.example", 12345], ids=["string", "not-a-string"])
+async def test_registration_response_does_not_seed_the_issuer_binding_from_the_body(echoed_issuer: object):
+    """The issuer binding (SEP-2352) is the SDK's record of which server it registered with,
+    stamped by the auth flow; an "issuer" member in the untrusted response body is dropped
+    before parsing - never populating the binding, and never failing the parse either, so a
+    mismatched or malformed value cannot discard the credentials on every 401."""
+    body = json.dumps({"client_id": "issued-id", "issuer": echoed_issuer}).encode()
+
+    client_info = await handle_registration_response(httpx2.Response(201, content=body))
+
+    assert client_info.client_id == "issued-id"
+    assert client_info.issuer is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "content",
+    [b"<html>not json</html>", b'["json", "but", "not", "an", "object"]', '{"client_id": "café"}'.encode("latin-1")],
+    ids=["not-json", "not-an-object", "not-utf8"],
+)
+async def test_a_2xx_body_that_is_not_client_information_is_an_oauth_registration_error(content: bytes):
+    """A success status whose body is not client information - unparseable, not an object, or
+    not valid UTF-8 - surfaces as OAuthRegistrationError rather than a raw parse failure, so a
+    single OAuthFlowError handler still covers registration."""
+    response = httpx2.Response(201, content=content)
+
+    with pytest.raises(OAuthRegistrationError):
+        await handle_registration_response(response)
+
+
+@pytest.mark.anyio
+async def test_token_exchange_reports_an_unimplemented_registered_auth_method(oauth_provider: OAuthClientProvider):
+    """A server-assigned auth method the SDK cannot apply (RFC 7591 §3.2.1 lets the server
+    substitute one) is reported at the token exchange rather than sending the request
+    unauthenticated for the server to reject as invalid_client."""
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="registered-id",
+        client_secret="registered-secret",
+        token_endpoint_auth_method="client_secret_jwt",
+    )
+
+    with pytest.raises(OAuthTokenError):
+        await oauth_provider._exchange_token_authorization_code("test_auth_code", "test_verifier")
+
+
+def test_prepare_token_auth_leaves_a_private_key_jwt_client_to_its_provider(oauth_provider: OAuthClientProvider):
+    """private_key_jwt is recognized, so the base leaves the request untouched rather than
+    raising - PrivateKeyJWTOAuthProvider's inherited refresh path passes through here, and a
+    refresh the server then rejects (no assertion is signed on it) falls back to a fresh,
+    signed client-credentials exchange instead of aborting the flow."""
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="registered-id",
+        client_secret="registered-secret",
+        token_endpoint_auth_method="private_key_jwt",
+    )
+
+    data, headers = oauth_provider.context.prepare_token_auth({"grant_type": "refresh_token"}, {})
+
+    assert data == {"grant_type": "refresh_token"}
+    assert headers == {}
 
 
 class TestCreateClientRegistrationRequest:
@@ -1068,7 +1243,7 @@ def test_registration_request_sends_application_type():
 
 
 class TestAuthFlow:
-    """Test the auth flow in httpx."""
+    """Test the auth flow in httpx2."""
 
     @pytest.mark.anyio
     async def test_auth_flow_with_valid_tokens(
@@ -1082,7 +1257,7 @@ class TestAuthFlow:
         oauth_provider._initialized = True
 
         # Create a test request
-        test_request = httpx.Request("GET", "https://api.example.com/test")
+        test_request = httpx2.Request("GET", "https://api.example.com/test")
 
         # Mock the auth flow
         auth_flow = oauth_provider.async_auth_flow(test_request)
@@ -1092,7 +1267,7 @@ class TestAuthFlow:
         assert request.headers["Authorization"] == "Bearer test_access_token"
 
         # Send a successful response
-        response = httpx.Response(200)
+        response = httpx2.Response(200)
         try:
             await auth_flow.asend(response)
         except StopAsyncIteration:
@@ -1107,7 +1282,7 @@ class TestAuthFlow:
         oauth_provider._initialized = True
 
         # Create a test request
-        test_request = httpx.Request("GET", "https://api.example.com/mcp")
+        test_request = httpx2.Request("GET", "https://api.example.com/mcp")
 
         # Mock the auth flow
         auth_flow = oauth_provider.async_auth_flow(test_request)
@@ -1117,7 +1292,7 @@ class TestAuthFlow:
         assert "Authorization" not in request.headers
 
         # Send a 401 response to trigger the OAuth flow
-        response = httpx.Response(
+        response = httpx2.Response(
             401,
             headers={
                 "WWW-Authenticate": 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
@@ -1131,7 +1306,7 @@ class TestAuthFlow:
         assert str(discovery_request.url) == "https://api.example.com/.well-known/oauth-protected-resource"
 
         # Send a successful discovery response with minimal protected resource metadata
-        discovery_response = httpx.Response(
+        discovery_response = httpx2.Response(
             200,
             content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
             request=discovery_request,
@@ -1144,7 +1319,7 @@ class TestAuthFlow:
         assert "mcp-protocol-version" in oauth_metadata_request.headers
 
         # Send a successful OAuth metadata response
-        oauth_metadata_response = httpx.Response(
+        oauth_metadata_response = httpx2.Response(
             200,
             content=(
                 b'{"issuer": "https://auth.example.com", '
@@ -1161,7 +1336,7 @@ class TestAuthFlow:
         assert str(registration_request.url) == "https://auth.example.com/register"
 
         # Send a successful registration response
-        registration_response = httpx.Response(
+        registration_response = httpx2.Response(
             201,
             content=b'{"client_id": "test_client_id", "client_secret": "test_client_secret", "redirect_uris": ["http://localhost:3030/callback"]}',
             request=registration_request,
@@ -1179,7 +1354,7 @@ class TestAuthFlow:
         assert "code=test_auth_code" in token_request.content.decode()
 
         # Send a successful token response
-        token_response = httpx.Response(
+        token_response = httpx2.Response(
             200,
             content=(
                 b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600, '
@@ -1195,7 +1370,7 @@ class TestAuthFlow:
         assert str(final_request.url) == "https://api.example.com/mcp"
 
         # Send final success response to properly close the generator
-        final_response = httpx.Response(200, request=final_request)
+        final_response = httpx2.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
@@ -1217,7 +1392,7 @@ class TestAuthFlow:
         oauth_provider.context.token_expiry_time = time.time() + 1800
         oauth_provider._initialized = True
 
-        test_request = httpx.Request("GET", "https://api.example.com/mcp")
+        test_request = httpx2.Request("GET", "https://api.example.com/mcp")
         auth_flow = oauth_provider.async_auth_flow(test_request)
 
         # Count how many times the request is yielded
@@ -1229,7 +1404,7 @@ class TestAuthFlow:
         assert request.headers["Authorization"] == "Bearer test_access_token"
 
         # Send a successful 200 response
-        response = httpx.Response(200, request=request)
+        response = httpx2.Response(200, request=request)
 
         # In the buggy version, this would yield the request AGAIN unconditionally
         # In the fixed version, this should end the generator
@@ -1260,7 +1435,7 @@ class TestAuthFlow:
         oauth_provider._initialized = True
 
         # Create a test request
-        test_request = httpx.Request("GET", "https://api.example.com/mcp")
+        test_request = httpx2.Request("GET", "https://api.example.com/mcp")
 
         # Mock the auth flow
         auth_flow = oauth_provider.async_auth_flow(test_request)
@@ -1270,7 +1445,7 @@ class TestAuthFlow:
         assert "Authorization" not in request.headers
 
         # Send a 401 response to trigger the OAuth flow
-        response = httpx.Response(
+        response = httpx2.Response(
             401,
             headers={
                 "WWW-Authenticate": 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
@@ -1284,7 +1459,7 @@ class TestAuthFlow:
         assert str(discovery_request.url) == "https://api.example.com/.well-known/oauth-protected-resource"
 
         # Send a successful discovery response with minimal protected resource metadata
-        discovery_response = httpx.Response(
+        discovery_response = httpx2.Response(
             200,
             content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
             request=discovery_request,
@@ -1297,7 +1472,7 @@ class TestAuthFlow:
         assert "mcp-protocol-version" in oauth_metadata_request.headers
 
         # Send a successful OAuth metadata response
-        oauth_metadata_response = httpx.Response(
+        oauth_metadata_response = httpx2.Response(
             200,
             content=(
                 b'{"issuer": "https://auth.example.com", '
@@ -1314,7 +1489,7 @@ class TestAuthFlow:
         assert str(registration_request.url) == "https://auth.example.com/register"
 
         # Send a successful registration response with 201 status
-        registration_response = httpx.Response(
+        registration_response = httpx2.Response(
             201,
             content=b'{"client_id": "test_client_id", "client_secret": "test_client_secret", "redirect_uris": ["http://localhost:3030/callback"]}',
             request=registration_request,
@@ -1332,7 +1507,7 @@ class TestAuthFlow:
         assert "code=test_auth_code" in token_request.content.decode()
 
         # Send a successful token response with 201 status code (test both 200 and 201 are accepted)
-        token_response = httpx.Response(
+        token_response = httpx2.Response(
             201,
             content=(
                 b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600, '
@@ -1348,7 +1523,7 @@ class TestAuthFlow:
         assert str(final_request.url) == "https://api.example.com/mcp"
 
         # Send final success response to properly close the generator
-        final_response = httpx.Response(200, request=final_request)
+        final_response = httpx2.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
@@ -1405,28 +1580,31 @@ class TestAuthFlow:
 
         oauth_provider.context.callback_handler = mock_callback
 
-        test_request = httpx.Request("GET", "https://api.example.com/mcp")
+        test_request = httpx2.Request("GET", "https://api.example.com/mcp")
         auth_flow = oauth_provider.async_auth_flow(test_request)
 
         # First request
         request = await auth_flow.__anext__()
 
         # Send 403 with new scope requirement
-        response_403 = httpx.Response(
+        response_403 = httpx2.Response(
             403,
             headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="admin:write admin:delete"'},
             request=request,
         )
 
-        # Trigger step-up - should get token exchange request
-        token_exchange_request = await auth_flow.asend(response_403)
+        # Trigger step-up - discovery runs first (nothing published here), then the token exchange
+        prm_request = await auth_flow.asend(response_403)
+        prm_request = await auth_flow.asend(httpx2.Response(404, request=prm_request))
+        asm_request = await auth_flow.asend(httpx2.Response(404, request=prm_request))
+        token_exchange_request = await auth_flow.asend(httpx2.Response(404, request=asm_request))
 
         # Verify scope was updated to the union of prior and challenged scopes (SEP-2350)
         assert oauth_provider.context.client_metadata.scope == "read write admin:write admin:delete"
         assert redirect_captured
 
         # Complete the flow with successful token response
-        token_response = httpx.Response(
+        token_response = httpx2.Response(
             200,
             json={
                 "access_token": "new_token_with_new_scope",
@@ -1441,7 +1619,7 @@ class TestAuthFlow:
         final_request = await auth_flow.asend(token_response)
 
         # Send success response - flow should complete
-        success_response = httpx.Response(200, request=final_request)
+        success_response = httpx2.Response(200, request=final_request)
         try:
             await auth_flow.asend(success_response)
             pytest.fail("Should have stopped after successful response")  # pragma: no cover
@@ -1485,28 +1663,126 @@ async def test_403_step_up_preserves_scope_from_stored_token(
     oauth_provider.context.redirect_handler = capture_redirect
     oauth_provider.context.callback_handler = mock_callback
 
-    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/mcp"))
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/mcp"))
     request = await auth_flow.__anext__()
-    response_403 = httpx.Response(
+    response_403 = httpx2.Response(
         403,
         headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="write"'},
         request=request,
     )
-    token_exchange_request = await auth_flow.asend(response_403)
+    prm_request = await auth_flow.asend(response_403)
+    prm_request = await auth_flow.asend(httpx2.Response(404, request=prm_request))
+    asm_request = await auth_flow.asend(httpx2.Response(404, request=prm_request))
+    token_exchange_request = await auth_flow.asend(httpx2.Response(404, request=asm_request))
 
     assert reauthorize_scope == "read write"
 
     # Drive the flow to completion so the context lock is released cleanly
-    token_response = httpx.Response(
+    token_response = httpx2.Response(
         200,
         json={"access_token": "new", "token_type": "Bearer", "expires_in": 3600, "scope": "read write"},
         request=token_exchange_request,
     )
     final_request = await auth_flow.asend(token_response)
     try:
-        await auth_flow.asend(httpx.Response(200, request=final_request))
+        await auth_flow.asend(httpx2.Response(200, request=final_request))
     except StopAsyncIteration:
         pass
+
+
+@pytest.mark.anyio
+async def test_scope_step_up_discovers_the_authorization_server_before_reauthorizing(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+):
+    """SDK-defined: a 403 scope challenge runs discovery first when no metadata is held, so
+    re-authorization targets the advertised server.
+
+    Steps:
+    1. A restarted client holds a token and a registration but no authorization server metadata.
+    2. The first response is 403 insufficient_scope -> the next requests are PRM (at the challenge's
+       `resource_metadata` URL) then ASM discovery.
+    3. The authorization redirect and the token request use the discovered server's endpoints, and
+       the requested scope is the SEP-2350 union.
+    """
+    await mock_storage.set_tokens(valid_tokens)
+    await mock_storage.set_client_info(
+        OAuthClientInformationFull(
+            client_id="registered-client", redirect_uris=[AnyUrl("http://localhost:3030/callback")]
+        )
+    )
+    redirects: list[str] = []
+
+    async def record_redirect(url: str) -> None:
+        redirects.append(url)
+
+    async def echo_callback() -> AuthorizationCodeResult:
+        state = parse_qs(urlparse(redirects[-1]).query)["state"][0]
+        return AuthorizationCodeResult(code="auth_code", state=state)
+
+    oauth_provider.context.redirect_handler = record_redirect
+    oauth_provider.context.callback_handler = echo_callback
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    response_403 = httpx2.Response(
+        403,
+        headers={
+            "WWW-Authenticate": 'Bearer error="insufficient_scope", scope="admin",'
+            ' resource_metadata="https://api.example.com/v1/mcp/resource-metadata"'
+        },
+        request=request,
+    )
+
+    prm_request = await auth_flow.asend(response_403)
+    assert prm_request.method == "GET"
+    assert str(prm_request.url) == "https://api.example.com/v1/mcp/resource-metadata"
+    prm_response = httpx2.Response(
+        200,
+        content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
+        request=prm_request,
+    )
+    asm_request = await auth_flow.asend(prm_response)
+    assert str(asm_request.url) == "https://auth.example.com/.well-known/oauth-authorization-server"
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://auth.example.com",'
+            b' "authorization_endpoint": "https://auth.example.com/authorize",'
+            b' "token_endpoint": "https://auth.example.com/token"}'
+        ),
+        request=asm_request,
+    )
+
+    token_request = await auth_flow.asend(asm_response)
+    assert redirects[-1].startswith("https://auth.example.com/authorize?")
+    assert parse_qs(urlparse(redirects[-1]).query)["scope"] == ["read write admin"]
+    assert token_request.method == "POST"
+    assert str(token_request.url) == "https://auth.example.com/token"
+
+    final_request = await auth_flow.asend(
+        httpx2.Response(
+            200, json={"access_token": "stepped_up", "token_type": "Bearer", "expires_in": 3600}, request=token_request
+        )
+    )
+    assert final_request.headers["Authorization"] == "Bearer stepped_up"
+    with pytest.raises(StopAsyncIteration):
+        await auth_flow.asend(httpx2.Response(200, request=final_request))
+
+
+@pytest.mark.anyio
+async def test_403_without_a_scope_challenge_is_returned_to_the_caller(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+):
+    """SDK-defined: a 403 that is not an insufficient_scope challenge ends the flow; the request is
+    not retried."""
+    await mock_storage.set_tokens(valid_tokens)
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    response_403 = httpx2.Response(403, headers={"WWW-Authenticate": 'Bearer error="access_denied"'}, request=request)
+
+    with pytest.raises(StopAsyncIteration):
+        await auth_flow.asend(response_403)
 
 
 @pytest.mark.parametrize(
@@ -1619,7 +1895,7 @@ class TestLegacyServerFallback:
             redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         )
 
-        test_request = httpx.Request("GET", "https://mcp.linear.app/sse")
+        test_request = httpx2.Request("GET", "https://mcp.linear.app/sse")
         auth_flow = provider.async_auth_flow(test_request)
 
         # First request
@@ -1627,21 +1903,21 @@ class TestLegacyServerFallback:
         assert "Authorization" not in request.headers
 
         # Send 401 without WWW-Authenticate header (typical legacy server)
-        response = httpx.Response(401, headers={}, request=test_request)
+        response = httpx2.Response(401, headers={}, request=test_request)
 
         # Should try path-based PRM first
         prm_request_1 = await auth_flow.asend(response)
         assert str(prm_request_1.url) == "https://mcp.linear.app/.well-known/oauth-protected-resource/sse"
 
         # PRM returns 404
-        prm_response_1 = httpx.Response(404, request=prm_request_1)
+        prm_response_1 = httpx2.Response(404, request=prm_request_1)
 
         # Should try root-based PRM
         prm_request_2 = await auth_flow.asend(prm_response_1)
         assert str(prm_request_2.url) == "https://mcp.linear.app/.well-known/oauth-protected-resource"
 
         # PRM returns 404 again - all PRM URLs failed
-        prm_response_2 = httpx.Response(404, request=prm_request_2)
+        prm_response_2 = httpx2.Response(404, request=prm_request_2)
 
         # Should fall back to root OAuth discovery (March 2025 spec behavior)
         oauth_metadata_request = await auth_flow.asend(prm_response_2)
@@ -1649,7 +1925,7 @@ class TestLegacyServerFallback:
         assert oauth_metadata_request.method == "GET"
 
         # Send successful OAuth metadata response
-        oauth_metadata_response = httpx.Response(
+        oauth_metadata_response = httpx2.Response(
             200,
             content=(
                 b'{"issuer": "https://mcp.linear.app", '
@@ -1669,7 +1945,7 @@ class TestLegacyServerFallback:
         assert str(token_request.url) == "https://mcp.linear.app/token"
 
         # Send successful token response
-        token_response = httpx.Response(
+        token_response = httpx2.Response(
             200,
             content=b'{"access_token": "linear_token", "token_type": "Bearer", "expires_in": 3600}',
             request=token_request,
@@ -1681,7 +1957,7 @@ class TestLegacyServerFallback:
         assert str(final_request.url) == "https://mcp.linear.app/sse"
 
         # Complete flow
-        final_response = httpx.Response(200, request=final_request)
+        final_response = httpx2.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
@@ -1716,13 +1992,13 @@ class TestLegacyServerFallback:
             redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         )
 
-        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
         auth_flow = provider.async_auth_flow(test_request)
 
         await auth_flow.__anext__()
 
         # 401 with custom WWW-Authenticate PRM URL
-        response = httpx.Response(
+        response = httpx2.Response(
             401,
             headers={
                 "WWW-Authenticate": 'Bearer resource_metadata="https://custom.prm.com/.well-known/oauth-protected-resource"'
@@ -1734,29 +2010,29 @@ class TestLegacyServerFallback:
         prm_request_1 = await auth_flow.asend(response)
         assert str(prm_request_1.url) == "https://custom.prm.com/.well-known/oauth-protected-resource"
 
-        # Returns 500
-        prm_response_1 = httpx.Response(500, request=prm_request_1)
+        # Not served there
+        prm_response_1 = httpx2.Response(404, request=prm_request_1)
 
         # Try path-based fallback
         prm_request_2 = await auth_flow.asend(prm_response_1)
         assert str(prm_request_2.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
 
         # Returns 404
-        prm_response_2 = httpx.Response(404, request=prm_request_2)
+        prm_response_2 = httpx2.Response(404, request=prm_request_2)
 
         # Try root fallback
         prm_request_3 = await auth_flow.asend(prm_response_2)
         assert str(prm_request_3.url) == "https://api.example.com/.well-known/oauth-protected-resource"
 
         # Also returns 404 - all PRM URLs failed
-        prm_response_3 = httpx.Response(404, request=prm_request_3)
+        prm_response_3 = httpx2.Response(404, request=prm_request_3)
 
         # Should fall back to root OAuth discovery
         oauth_metadata_request = await auth_flow.asend(prm_response_3)
         assert str(oauth_metadata_request.url) == "https://api.example.com/.well-known/oauth-authorization-server"
 
         # Complete the flow
-        oauth_metadata_response = httpx.Response(
+        oauth_metadata_response = httpx2.Response(
             200,
             content=(
                 b'{"issuer": "https://api.example.com", '
@@ -1773,7 +2049,7 @@ class TestLegacyServerFallback:
         token_request = await auth_flow.asend(oauth_metadata_response)
         assert str(token_request.url) == "https://api.example.com/token"
 
-        token_response = httpx.Response(
+        token_response = httpx2.Response(
             200,
             content=b'{"access_token": "test_token", "token_type": "Bearer", "expires_in": 3600}',
             request=token_request,
@@ -1782,7 +2058,7 @@ class TestLegacyServerFallback:
         final_request = await auth_flow.asend(token_response)
         assert final_request.headers["Authorization"] == "Bearer test_token"
 
-        final_response = httpx.Response(200, request=final_request)
+        final_response = httpx2.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
@@ -1813,8 +2089,8 @@ class TestSEP985Discovery:
         )
 
         # Test with 401 response without WWW-Authenticate header
-        init_response = httpx.Response(
-            status_code=401, headers={}, request=httpx.Request("GET", "https://api.example.com/v1/mcp")
+        init_response = httpx2.Response(
+            status_code=401, headers={}, request=httpx2.Request("GET", "https://api.example.com/v1/mcp")
         )
 
         # Build discovery URLs
@@ -1859,7 +2135,7 @@ class TestSEP985Discovery:
         )
 
         # Create a test request
-        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
 
         # Mock the auth flow
         auth_flow = provider.async_auth_flow(test_request)
@@ -1869,7 +2145,7 @@ class TestSEP985Discovery:
         assert "Authorization" not in request.headers
 
         # Send a 401 response without WWW-Authenticate header
-        response = httpx.Response(401, headers={}, request=test_request)
+        response = httpx2.Response(401, headers={}, request=test_request)
 
         # Next request should be to discover protected resource metadata (path-based)
         discovery_request_1 = await auth_flow.asend(response)
@@ -1877,7 +2153,7 @@ class TestSEP985Discovery:
         assert discovery_request_1.method == "GET"
 
         # Send 404 response for path-based discovery
-        discovery_response_1 = httpx.Response(404, request=discovery_request_1)
+        discovery_response_1 = httpx2.Response(404, request=discovery_request_1)
 
         # Next request should be to root-based well-known URI
         discovery_request_2 = await auth_flow.asend(discovery_response_1)
@@ -1885,7 +2161,7 @@ class TestSEP985Discovery:
         assert discovery_request_2.method == "GET"
 
         # Send successful discovery response
-        discovery_response_2 = httpx.Response(
+        discovery_response_2 = httpx2.Response(
             200,
             content=(
                 b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}'
@@ -1901,7 +2177,7 @@ class TestSEP985Discovery:
         assert oauth_metadata_request.method == "GET"
 
         # Complete the flow
-        oauth_metadata_response = httpx.Response(
+        oauth_metadata_response = httpx2.Response(
             200,
             content=(
                 b'{"issuer": "https://auth.example.com", '
@@ -1912,7 +2188,7 @@ class TestSEP985Discovery:
         )
 
         token_request = await auth_flow.asend(oauth_metadata_response)
-        token_response = httpx.Response(
+        token_response = httpx2.Response(
             200,
             content=(
                 b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600, '
@@ -1922,7 +2198,7 @@ class TestSEP985Discovery:
         )
 
         final_request = await auth_flow.asend(token_response)
-        final_response = httpx.Response(200, request=final_request)
+        final_response = httpx2.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
@@ -1949,12 +2225,12 @@ class TestSEP985Discovery:
         )
 
         # Test with 401 response with WWW-Authenticate header
-        init_response = httpx.Response(
+        init_response = httpx2.Response(
             status_code=401,
             headers={
                 "WWW-Authenticate": 'Bearer resource_metadata="https://custom.example.com/.well-known/oauth-protected-resource"'
             },
-            request=httpx.Request("GET", "https://api.example.com/v1/mcp"),
+            request=httpx2.Request("GET", "https://api.example.com/v1/mcp"),
         )
 
         # Build discovery URLs
@@ -2028,10 +2304,10 @@ class TestWWWAuthenticate:
     ):
         """Test extraction of various fields from valid WWW-Authenticate headers."""
 
-        init_response = httpx.Response(
+        init_response = httpx2.Response(
             status_code=401,
             headers={"WWW-Authenticate": www_auth_header},
-            request=httpx.Request("GET", "https://api.example.com/test"),
+            request=httpx2.Request("GET", "https://api.example.com/test"),
         )
 
         result = extract_field_from_www_auth(init_response, field_name)
@@ -2063,8 +2339,8 @@ class TestWWWAuthenticate:
         """Test extraction returns None for invalid cases."""
 
         headers = {"WWW-Authenticate": www_auth_header} if www_auth_header is not None else {}
-        init_response = httpx.Response(
-            status_code=401, headers=headers, request=httpx.Request("GET", "https://api.example.com/test")
+        init_response = httpx2.Response(
+            status_code=401, headers=headers, request=httpx2.Request("GET", "https://api.example.com/test")
         )
 
         result = extract_field_from_www_auth(init_response, field_name)
@@ -2211,7 +2487,7 @@ class TestCIMD:
         provider.context.token_expiry_time = None
         provider._initialized = True
 
-        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
         auth_flow = provider.async_auth_flow(test_request)
 
         # First request
@@ -2219,11 +2495,11 @@ class TestCIMD:
         assert "Authorization" not in request.headers
 
         # Send 401 response
-        response = httpx.Response(401, headers={}, request=test_request)
+        response = httpx2.Response(401, headers={}, request=test_request)
 
         # PRM discovery
         prm_request = await auth_flow.asend(response)
-        prm_response = httpx.Response(
+        prm_response = httpx2.Response(
             200,
             content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
             request=prm_request,
@@ -2231,7 +2507,7 @@ class TestCIMD:
 
         # OAuth metadata discovery
         oauth_request = await auth_flow.asend(prm_response)
-        oauth_response = httpx.Response(
+        oauth_response = httpx2.Response(
             200,
             content=(
                 b'{"issuer": "https://auth.example.com", '
@@ -2262,7 +2538,7 @@ class TestCIMD:
         assert provider.context.client_info.token_endpoint_auth_method == "none"
 
         # Complete the flow
-        token_response = httpx.Response(
+        token_response = httpx2.Response(
             200,
             content=b'{"access_token": "test_token", "token_type": "Bearer", "expires_in": 3600}',
             request=token_request,
@@ -2271,7 +2547,7 @@ class TestCIMD:
         final_request = await auth_flow.asend(token_response)
         assert final_request.headers["Authorization"] == "Bearer test_token"
 
-        final_response = httpx.Response(200, request=final_request)
+        final_response = httpx2.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
@@ -2302,18 +2578,18 @@ class TestCIMD:
         provider.context.token_expiry_time = None
         provider._initialized = True
 
-        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
         auth_flow = provider.async_auth_flow(test_request)
 
         # First request
         await auth_flow.__anext__()
 
         # Send 401 response
-        response = httpx.Response(401, headers={}, request=test_request)
+        response = httpx2.Response(401, headers={}, request=test_request)
 
         # PRM discovery
         prm_request = await auth_flow.asend(response)
-        prm_response = httpx.Response(
+        prm_response = httpx2.Response(
             200,
             content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
             request=prm_request,
@@ -2321,7 +2597,7 @@ class TestCIMD:
 
         # OAuth metadata discovery - server does NOT support CIMD
         oauth_request = await auth_flow.asend(prm_response)
-        oauth_response = httpx.Response(
+        oauth_response = httpx2.Response(
             200,
             content=(
                 b'{"issuer": "https://auth.example.com", '
@@ -2338,7 +2614,7 @@ class TestCIMD:
         assert str(registration_request.url) == "https://auth.example.com/register"
 
         # Complete the flow to avoid generator cleanup issues
-        registration_response = httpx.Response(
+        registration_response = httpx2.Response(
             201,
             content=b'{"client_id": "dcr_client_id", "redirect_uris": ["http://localhost:3030/callback"]}',
             request=registration_request,
@@ -2350,14 +2626,14 @@ class TestCIMD:
         )
 
         token_request = await auth_flow.asend(registration_response)
-        token_response = httpx.Response(
+        token_response = httpx2.Response(
             200,
             content=b'{"access_token": "test_token", "token_type": "Bearer", "expires_in": 3600}',
             request=token_request,
         )
 
         final_request = await auth_flow.asend(token_response)
-        final_response = httpx.Response(200, request=final_request)
+        final_response = httpx2.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
@@ -2541,7 +2817,7 @@ class TestSEP2207OfflineAccessScope:
             redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         )
 
-        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
         auth_flow = provider.async_auth_flow(test_request)
 
         # First request
@@ -2549,11 +2825,11 @@ class TestSEP2207OfflineAccessScope:
         assert "Authorization" not in request.headers
 
         # Send 401
-        response = httpx.Response(401, headers={}, request=test_request)
+        response = httpx2.Response(401, headers={}, request=test_request)
 
         # PRM discovery
         prm_request = await auth_flow.asend(response)
-        prm_response = httpx.Response(
+        prm_response = httpx2.Response(
             200,
             content=(
                 b'{"resource": "https://api.example.com/v1/mcp",'
@@ -2565,7 +2841,7 @@ class TestSEP2207OfflineAccessScope:
 
         # OAuth metadata discovery - AS advertises offline_access
         oauth_request = await auth_flow.asend(prm_response)
-        oauth_response = httpx.Response(
+        oauth_response = httpx2.Response(
             200,
             content=(
                 b'{"issuer": "https://auth.example.com",'
@@ -2593,7 +2869,7 @@ class TestSEP2207OfflineAccessScope:
         assert params["prompt"][0] == "consent"
 
         # Complete the token exchange
-        token_response = httpx.Response(
+        token_response = httpx2.Response(
             200,
             content=(
                 b'{"access_token": "new_access_token", "token_type": "Bearer",'
@@ -2606,7 +2882,7 @@ class TestSEP2207OfflineAccessScope:
         assert final_request.headers["Authorization"] == "Bearer new_access_token"
 
         # Close the generator
-        final_response = httpx.Response(200, request=final_request)
+        final_response = httpx2.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
@@ -2650,18 +2926,18 @@ class TestSEP2207OfflineAccessScope:
             redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         )
 
-        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
         auth_flow = provider.async_auth_flow(test_request)
 
         # First request
         await auth_flow.__anext__()
 
         # Send 401
-        response = httpx.Response(401, headers={}, request=test_request)
+        response = httpx2.Response(401, headers={}, request=test_request)
 
         # PRM discovery
         prm_request = await auth_flow.asend(response)
-        prm_response = httpx.Response(
+        prm_response = httpx2.Response(
             200,
             content=(
                 b'{"resource": "https://api.example.com/v1/mcp",'
@@ -2673,7 +2949,7 @@ class TestSEP2207OfflineAccessScope:
 
         # OAuth metadata discovery - AS does NOT advertise offline_access
         oauth_request = await auth_flow.asend(prm_response)
-        oauth_response = httpx.Response(
+        oauth_response = httpx2.Response(
             200,
             content=(
                 b'{"issuer": "https://auth.example.com",'
@@ -2701,7 +2977,7 @@ class TestSEP2207OfflineAccessScope:
         assert "prompt" not in params
 
         # Complete the token exchange
-        token_response = httpx.Response(
+        token_response = httpx2.Response(
             200,
             content=b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600}',
             request=token_request,
@@ -2711,7 +2987,7 @@ class TestSEP2207OfflineAccessScope:
         assert final_request.headers["Authorization"] == "Bearer new_access_token"
 
         # Close the generator
-        final_response = httpx.Response(200, request=final_request)
+        final_response = httpx2.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
@@ -2807,6 +3083,25 @@ def test_credentials_match_issuer_different_issuer():
     assert credentials_match_issuer(info, "https://other", None) is False
 
 
+@pytest.mark.parametrize(
+    ("recorded", "current"),
+    [("https://as.example.com", "https://as.example.com/"), ("https://as.example.com/", "https://as.example.com")],
+    ids=["current-has-root-slash", "recorded-has-root-slash"],
+)
+def test_credentials_match_issuer_treats_root_slash_as_the_same_issuer(recorded: str, current: str):
+    """SDK-defined: a root issuer recorded with and without its trailing slash names the same server."""
+    info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")], issuer=recorded)
+    assert credentials_match_issuer(info, current, None) is True
+
+
+def test_credentials_match_issuer_root_slash_tolerance_does_not_extend_to_other_paths():
+    """SDK-defined: a trailing slash on a non-root path is a different issuer."""
+    info = OAuthClientInformationFull(
+        client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")], issuer="https://as.example.com/tenant"
+    )
+    assert credentials_match_issuer(info, "https://as.example.com/tenant/", None) is False
+
+
 def test_credentials_match_issuer_no_recorded_issuer_is_left_alone():
     """Credentials with no bound issuer (pre-registered / legacy) carry no binding to enforce."""
     info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")])
@@ -2846,10 +3141,10 @@ async def test_handle_token_response_backfills_omitted_scope_from_request(
     has reverted to its constructor value.
     """
     oauth_provider.context.client_metadata.scope = "read admin"
-    response = httpx.Response(
+    response = httpx2.Response(
         200,
         json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600},
-        request=httpx.Request("POST", "https://auth.example.com/token"),
+        request=httpx2.Request("POST", "https://auth.example.com/token"),
     )
     await oauth_provider._handle_token_response(response)
 
@@ -2862,10 +3157,10 @@ async def test_handle_token_response_backfills_omitted_scope_from_request(
 
 @pytest.mark.anyio
 async def test_handle_token_response_raises_on_non_2xx_with_body(oauth_provider: OAuthClientProvider):
-    response = httpx.Response(
+    response = httpx2.Response(
         400,
         json={"error": "invalid_grant"},
-        request=httpx.Request("POST", "https://auth.example.com/token"),
+        request=httpx2.Request("POST", "https://auth.example.com/token"),
     )
     with pytest.raises(OAuthTokenError, match=r"Token exchange failed \(400\).*invalid_grant"):
         await oauth_provider._handle_token_response(response)
@@ -2884,10 +3179,10 @@ async def test_handle_refresh_response_carries_prior_scope_and_refresh_token_whe
     oauth_provider.context.current_tokens = OAuthToken(
         access_token="old", scope="read write", refresh_token="prior-refresh"
     )
-    response = httpx.Response(
+    response = httpx2.Response(
         200,
         json={"access_token": "new", "token_type": "Bearer", "expires_in": 3600},
-        request=httpx.Request("POST", "https://auth.example.com/token"),
+        request=httpx2.Request("POST", "https://auth.example.com/token"),
     )
     ok = await oauth_provider._handle_refresh_response(response)
 
@@ -2910,10 +3205,10 @@ async def test_handle_refresh_response_adopts_rotated_refresh_token_when_returne
     oauth_provider.context.current_tokens = OAuthToken(
         access_token="old", scope="read write", refresh_token="prior-refresh"
     )
-    response = httpx.Response(
+    response = httpx2.Response(
         200,
         json={"access_token": "new", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "rotated"},
-        request=httpx.Request("POST", "https://auth.example.com/token"),
+        request=httpx2.Request("POST", "https://auth.example.com/token"),
     )
     ok = await oauth_provider._handle_refresh_response(response)
 
@@ -2924,15 +3219,14 @@ async def test_handle_refresh_response_adopts_rotated_refresh_token_when_returne
 
 
 @pytest.mark.anyio
-async def test_issuer_binding_re_evaluated_after_asm_when_prm_discovery_failed(
+async def test_issuer_binding_evaluated_against_the_server_origin_when_prm_discovery_failed(
     oauth_provider: OAuthClientProvider,
 ):
-    """SEP-2352: on the legacy no-PRM path the binding check uses the ASM-discovered issuer.
+    """SEP-2352: on the legacy no-PRM path the binding check uses the resource server's origin.
 
-    PRM discovery fails (404) so ``auth_server_url`` stays ``None`` and the post-PRM check is
-    skipped; when ASM discovery then succeeds via the root well-known fallback, the discovered
-    metadata's issuer is compared against the stored credentials' bound issuer and a mismatch
-    triggers re-registration.
+    PRM discovery fails (404) so ``auth_server_url`` stays ``None``; the expected issuer is then the
+    origin the legacy well-known URL is built from, so stored credentials bound to another issuer are
+    discarded before ASM discovery runs, and re-registration follows.
     """
     oauth_provider.context.current_tokens = None
     oauth_provider.context.token_expiry_time = None
@@ -2943,20 +3237,22 @@ async def test_issuer_binding_re_evaluated_after_asm_when_prm_discovery_failed(
         issuer="https://old-as.example.com",
     )
 
-    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/v1/mcp"))
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
     request = await auth_flow.__anext__()
-    response_401 = httpx.Response(401, request=request)
+    response_401 = httpx2.Response(401, request=request)
 
     # PRM discovery: path-based then root, both 404.
     prm_req = await auth_flow.asend(response_401)
     assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
-    prm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
     assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource"
 
-    # ASM discovery via root fallback (no auth_server_url) succeeds with a different issuer.
-    asm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    # ASM discovery via root fallback (no auth_server_url): the stale credentials are already
+    # gone when the request is issued.
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
     assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
-    asm_response = httpx.Response(
+    assert oauth_provider.context.client_info is None
+    asm_response = httpx2.Response(
         200,
         content=(
             b'{"issuer": "https://api.example.com", '
@@ -2977,16 +3273,218 @@ async def test_issuer_binding_re_evaluated_after_asm_when_prm_discovery_failed(
 
 
 @pytest.mark.anyio
+async def test_legacy_fallback_metadata_naming_a_different_issuer_is_refused(oauth_provider: OAuthClientProvider):
+    """RFC 8414 section 3.3 on the legacy no-PRM path: metadata served from the resource server's
+    own well-known must name that origin as its issuer; anything else stops the flow before any
+    authorization or token request is built."""
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    # 401 without WWW-Authenticate; both PRM well-knowns 404; legacy root ASM discovery.
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://other-as.example.com", '
+            b'"authorization_endpoint": "https://other-as.example.com/authorize", '
+            b'"token_endpoint": "https://other-as.example.com/token"}'
+        ),
+        request=asm_req,
+    )
+    with pytest.raises(OAuthFlowError) as exc_info:
+        await auth_flow.asend(asm_response)
+
+    assert str(exc_info.value) == snapshot(
+        "Authorization server metadata issuer mismatch: https://other-as.example.com != https://api.example.com"
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "first_response",
+    [(401, {}), (403, {"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="admin"'})],
+    ids=["401", "403-insufficient-scope"],
+)
+async def test_legacy_fallback_without_metadata_re_registers_instead_of_presenting_credentials_bound_elsewhere(
+    oauth_provider: OAuthClientProvider,
+    mock_storage: MockTokenStorage,
+    valid_tokens: OAuthToken,
+    first_response: tuple[int, dict[str, str]],
+):
+    """SEP-2352 on the legacy no-PRM path when no metadata is served at all, whether the flow starts
+    from a 401 or from a 403 scope challenge with no metadata held.
+
+    Steps:
+    1. Storage holds a token and a confidential client bound to a different authorization server.
+    2. Both PRM well-knowns 404 -> the expected issuer is the resource server's origin, so the stored
+       client is discarded before ASM discovery.
+    3. The origin's ASM well-known 404s too -> the flow registers a fresh client at the
+       origin's default `/register` and authorizes with it; the token request to the origin's
+       default `/token` carries the new client and none of the discarded credentials.
+    """
+    await mock_storage.set_tokens(valid_tokens)
+    await mock_storage.set_client_info(
+        OAuthClientInformationFull(
+            client_id="confidential-client",
+            client_secret="stored-secret",
+            token_endpoint_auth_method="client_secret_post",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            issuer="https://other-as.example.com",
+        )
+    )
+    redirects: list[str] = []
+
+    async def record_redirect(url: str) -> None:
+        redirects.append(url)
+
+    async def echo_callback() -> AuthorizationCodeResult:
+        state = parse_qs(urlparse(redirects[-1]).query)["state"][0]
+        return AuthorizationCodeResult(code="auth_code", state=state)
+
+    oauth_provider.context.redirect_handler = record_redirect
+    oauth_provider.context.callback_handler = echo_callback
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    status, headers = first_response
+    prm_req = await auth_flow.asend(httpx2.Response(status, headers=headers, request=request))
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+
+    # No metadata at the origin either: register at the origin's default endpoint.
+    register_req = await auth_flow.asend(httpx2.Response(404, request=asm_req))
+    assert register_req.method == "POST"
+    assert str(register_req.url) == "https://api.example.com/register"
+    register_response = httpx2.Response(
+        201,
+        json={
+            "client_id": "origin-client",
+            "redirect_uris": ["http://localhost:3030/callback"],
+            "token_endpoint_auth_method": "none",
+        },
+        request=register_req,
+    )
+
+    token_req = await auth_flow.asend(register_response)
+    assert str(token_req.url) == "https://api.example.com/token"
+    assert redirects[-1].startswith("https://api.example.com/authorize?")
+    token_form = parse_qs(token_req.content.decode())
+    assert token_form["client_id"] == ["origin-client"]
+    assert "client_secret" not in token_form
+    await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", [500, 503, 429])
+async def test_a_failing_resource_metadata_request_stops_the_flow_and_keeps_stored_credentials(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken, status: int
+):
+    """SDK-defined: a server error (or 429) on a protected resource metadata request says nothing about
+    whether the server publishes that metadata. The remaining well-known locations are still tried, but
+    when none answers the flow stops instead of taking the legacy path, and a registration bound to the
+    advertised authorization server and its tokens stay as they were."""
+    bound = OAuthClientInformationFull(
+        client_id="registered-client",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        issuer="https://auth.example.com",
+    )
+    await mock_storage.set_client_info(bound)
+    await mock_storage.set_tokens(valid_tokens)
+    flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await flow.__anext__()
+    prm_request = await flow.asend(httpx2.Response(401, request=request))
+    root_prm_request = await flow.asend(httpx2.Response(status, request=prm_request))
+    assert str(root_prm_request.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+
+    with pytest.raises(OAuthFlowError) as exc_info:
+        await flow.asend(httpx2.Response(404, request=root_prm_request))
+
+    assert str(exc_info.value) == f"Protected resource metadata request failed: HTTP {status}"
+    assert oauth_provider.context.client_info == bound
+    assert oauth_provider.context.current_tokens == valid_tokens
+    assert await mock_storage.get_client_info() == bound
+
+
+@pytest.mark.anyio
+async def test_a_failing_resource_metadata_location_does_not_matter_when_another_one_answers(
+    oauth_provider: OAuthClientProvider,
+):
+    """SDK-defined: the well-known locations are tried in order; an error at one of them is forgotten
+    once a later one returns the metadata."""
+    flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await flow.__anext__()
+    prm_request = await flow.asend(httpx2.Response(401, request=request))
+    root_prm_request = await flow.asend(httpx2.Response(503, request=prm_request))
+    prm = b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}'
+
+    asm_request = await flow.asend(httpx2.Response(200, content=prm, request=root_prm_request))
+
+    assert str(asm_request.url) == "https://auth.example.com/.well-known/oauth-authorization-server"
+    await flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_legacy_fallback_accepts_a_root_slash_issuer_for_a_server_url_in_any_spelling(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+):
+    """SDK-defined: on the legacy no-PRM path the expected issuer is the resource server's origin; a
+    `server_url` written with an upper-case host and an explicit default port still matches metadata
+    naming that origin, with or without the trailing slash a root issuer is often rendered with, and
+    the flow proceeds to registration."""
+
+    async def redirect_handler(url: str) -> None:
+        raise NotImplementedError
+
+    async def callback_handler() -> AuthorizationCodeResult:
+        raise NotImplementedError
+
+    provider = OAuthClientProvider(
+        server_url="https://API.Example.com:443/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+        redirect_handler=redirect_handler,
+        callback_handler=callback_handler,
+    )
+    auth_flow = provider.async_auth_flow(httpx2.Request("GET", "https://API.Example.com:443/v1/mcp"))
+    request = await auth_flow.__anext__()
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com/", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"registration_endpoint": "https://api.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+
+    register_req = await auth_flow.asend(asm_response)
+
+    assert register_req.method == "POST"
+    assert str(register_req.url) == "https://api.example.com/register"
+    await auth_flow.aclose()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "asm_responses",
     [
         pytest.param(
-            [httpx.Response(404), httpx.Response(404)],
+            [httpx2.Response(404), httpx2.Response(404)],
             id="asm-discovery-failed",
         ),
         pytest.param(
             [
-                httpx.Response(
+                httpx2.Response(
                     200,
                     content=(
                         b'{"issuer": "https://new-as.example.com", '
@@ -3000,7 +3498,7 @@ async def test_issuer_binding_re_evaluated_after_asm_when_prm_discovery_failed(
     ],
 )
 async def test_issuer_is_not_stamped_when_registration_falls_back_to_the_resource_origin(
-    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, asm_responses: list[httpx.Response]
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, asm_responses: list[httpx2.Response]
 ):
     """SEP-2352: a fallback registration is not recorded as bound to the PRM-advertised AS.
 
@@ -3032,9 +3530,9 @@ async def test_issuer_is_not_stamped_when_registration_falls_back_to_the_resourc
     oauth_provider.context.redirect_handler = capture_redirect
     oauth_provider.context.callback_handler = echo_callback
 
-    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/v1/mcp"))
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
     request = await auth_flow.__anext__()
-    response_401 = httpx.Response(
+    response_401 = httpx2.Response(
         401,
         headers={
             "WWW-Authenticate": (
@@ -3047,7 +3545,7 @@ async def test_issuer_is_not_stamped_when_registration_falls_back_to_the_resourc
     # PRM succeeds and advertises a new AS — the discard block fires.
     prm_req = await auth_flow.asend(response_401)
     assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource"
-    prm_response = httpx.Response(
+    prm_response = httpx2.Response(
         200,
         content=(
             b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://new-as.example.com"]}'
@@ -3069,7 +3567,7 @@ async def test_issuer_is_not_stamped_when_registration_falls_back_to_the_resourc
     dcr_req = next_req
     assert dcr_req.method == "POST"
     assert str(dcr_req.url) == "https://api.example.com/register"
-    dcr_response = httpx.Response(
+    dcr_response = httpx2.Response(
         201,
         json={"client_id": "fallback-client", "redirect_uris": ["http://localhost:3030/callback"]},
         request=dcr_req,
@@ -3083,12 +3581,12 @@ async def test_issuer_is_not_stamped_when_registration_falls_back_to_the_resourc
     assert stored.issuer is None
 
     # Drive the flow to completion so the context lock is released cleanly.
-    token_response = httpx.Response(
+    token_response = httpx2.Response(
         200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600}, request=token_req
     )
     final_req = await auth_flow.asend(token_response)
     try:
-        await auth_flow.asend(httpx.Response(200, request=final_req))
+        await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
 
@@ -3121,19 +3619,19 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
     oauth_provider.context.redirect_handler = capture_redirect
     oauth_provider.context.callback_handler = echo_callback
 
-    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/v1/mcp"))
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
     request = await auth_flow.__anext__()
 
     # PRM discovery 404s on both well-known URLs.
-    prm_req = await auth_flow.asend(httpx.Response(401, request=request))
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
     assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
-    prm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
     assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource"
 
     # Root ASM discovery succeeds with the resource origin as issuer and no registration_endpoint.
-    asm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
     assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
-    asm_response = httpx.Response(
+    asm_response = httpx2.Response(
         200,
         content=(
             b'{"issuer": "https://api.example.com", '
@@ -3147,7 +3645,7 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
     dcr_req = await auth_flow.asend(asm_response)
     assert dcr_req.method == "POST"
     assert str(dcr_req.url) == "https://api.example.com/register"
-    dcr_response = httpx.Response(
+    dcr_response = httpx2.Response(
         201,
         json={"client_id": "embedded-client", "redirect_uris": ["http://localhost:3030/callback"]},
         request=dcr_req,
@@ -3161,11 +3659,11 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
     assert stored.issuer == str(oauth_provider.context.oauth_metadata.issuer)
     assert urlparse(stored.issuer).netloc == "api.example.com"
 
-    token_response = httpx.Response(
+    token_response = httpx2.Response(
         200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600}, request=token_req
     )
     final_req = await auth_flow.asend(token_response)
     try:
-        await auth_flow.asend(httpx.Response(200, request=final_req))
+        await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass

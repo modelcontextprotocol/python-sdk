@@ -1,0 +1,258 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "ツール",
+      "note": "MCP protocol noun (a server exposes tools). Standard rendering. Wire identifiers such as `tools/call` and `tools/list` are code and stay Latin."
+    },
+    {
+      "source": "resource",
+      "target": "リソース",
+      "note": "MCP protocol noun, and also the general noun (a pool acquired in a lifespan is still リソース). Standard rendering. Never 資源, which is the natural-resources sense; `resources/read` stays Latin.",
+      "avoid": ["資源"]
+    },
+    {
+      "source": "prompt",
+      "target": "プロンプト",
+      "note": "The MCP feature (a reusable prompt a server exposes) and the everyday word; プロンプト in both senses. Standard rendering. `prompts/get` stays Latin."
+    },
+    {
+      "source": "sampling",
+      "target": "サンプリング",
+      "note": "The (deprecated) client feature that lets a server borrow the client's model. Standard rendering. Never 標本抽出, which is statistical sampling and the wrong sense; the `sampling` capability key and `sampling/createMessage` stay Latin.",
+      "avoid": ["標本抽出"]
+    },
+    {
+      "source": "roots",
+      "target": "ルート",
+      "note": "The (deprecated) client feature listing workspace folders. Provisional pending native review: ルート also spells \"route\" and \"root path\", so gloss the English on first use per page — ルート（roots）. Never ルーツ (ancestry/origins). A `Root` object in code font stays Latin.",
+      "avoid": ["ルーツ"]
+    },
+    {
+      "source": "elicitation",
+      "target": "エリシテーション",
+      "note": "OPEN QUESTION for native review: there is no established Japanese term for the server asking the user a question mid-request. Provisionally pinned to the transliteration エリシテーション, glossed with the English on its first appearance per page — エリシテーション（elicitation）. Do not substitute 誘導 or 引き出し unless review settles on one. `elicitation/create` and the `Elicit` class stay Latin."
+    },
+    {
+      "source": "capability",
+      "target": "ケイパビリティ",
+      "note": "A negotiated protocol capability (what a client or server declared it supports). Provisional pending native review: ケイパビリティ rather than the general-purpose 機能 (feature) or 能力 (ability). The `capabilities` field and keys such as `sampling.tools` stay Latin."
+    },
+    {
+      "source": "transport",
+      "target": "トランスポート",
+      "note": "The connection mechanism (\"every standard transport\" → 標準のトランスポート). Standard rendering; never 輸送 (freight transport) or 輸送手段. The transport names stdio, Streamable HTTP and SSE stay in English.",
+      "avoid": ["輸送"]
+    },
+    {
+      "source": "session",
+      "target": "セッション",
+      "note": "An MCP session (the negotiated connection state). Standard rendering; never the coinage 会期. `session` objects in code font stay Latin.",
+      "avoid": ["会期"]
+    },
+    {
+      "source": "handler",
+      "target": "ハンドラー",
+      "note": "The tool, resource or prompt function you register (nav section \"Inside your handler\" → ハンドラーの中で). Standard word; the long-vowel spelling ハンドラー (not ハンドラ) follows the katakana rule in instructions.md and is provisional pending native review."
+    },
+    {
+      "source": "dependency",
+      "target": "依存関係",
+      "note": "The SDK's parameter-injection feature (the \"Dependencies\" page → 依存関係). Provisional pending native review: the pattern name \"dependency injection\" is customarily 依存性の注入, so a page may use that phrase for the pattern while individual dependencies are 依存関係. The `Resolve` marker class stays Latin."
+    },
+    {
+      "source": "client",
+      "target": "クライアント",
+      "note": "An MCP client, and the client side of a connection. Standard rendering; never 顧客 (a customer). The `Client` class name stays Latin in code font.",
+      "avoid": ["顧客"]
+    },
+    {
+      "source": "server",
+      "target": "サーバー",
+      "note": "An MCP server (the program you build). Standard rendering with the long-vowel mark — サーバー, never サーバ (see instructions.md). The low-level `Server` class stays Latin in code font."
+    },
+    {
+      "source": "host",
+      "target": "ホスト",
+      "note": "The MCP host: the application that embeds the client and drives the model, and also a network host. Standard rendering in both senses; never 宿主 (a biological host).",
+      "avoid": ["宿主"]
+    },
+    {
+      "source": "context",
+      "target": "コンテキスト",
+      "note": "The generic lower-case word (\"provide context to LLMs\" → LLM にコンテキストを提供する). Provisional pending native review: pin one spelling per corpus — コンテキスト, not コンテクスト. The capitalised `Context` is the SDK object injected as `ctx`; it is on the keep list and stays Latin in prose (\"The Context\" → Context)."
+    },
+    {
+      "source": "resolver",
+      "target": "リゾルバー",
+      "note": "The function attached to a parameter with `Resolve(...)` that computes or asks for its value. Provisional pending native review: the loanword リゾルバー, not 解決器. The `Resolve` class stays Latin.",
+      "avoid": ["解決器"]
+    },
+    {
+      "source": "lifespan",
+      "target": "ライフスパン",
+      "note": "The server's startup/shutdown scope (the \"Lifespan\" page, as in the ASGI lifespan). Provisional pending native review: the loanword ライフスパン, not 寿命 (the biological sense). 寿命 is not on the avoid list, because the neighbouring English word \"lifetime\" (\"for the lifetime of the host app\") can legitimately render as 寿命 in the same block. The `lifespan` parameter name stays Latin in code font."
+    },
+    {
+      "source": "deprecated",
+      "target": "非推奨",
+      "note": "Advisory status: still works, scheduled for removal later — 非推奨, not 廃止 (which reads as already removed); \"removed\" is 削除. \"Deprecation warning\" → 非推奨の警告; the `MCPDeprecationWarning` class stays Latin. Provisional pending native review."
+    },
+    {
+      "source": "back-channel",
+      "target": "バックチャネル",
+      "note": "The server-to-client request channel that exists only on legacy connections. Provisional coinage pending native review: gloss the English on first use per page — バックチャネル（back-channel）. Not the older spelling バックチャンネル."
+    },
+    {
+      "source": "wire",
+      "target": "通信路",
+      "note": "The corpus's light metaphor for the byte stream between client and server (\"stdout is the wire\" → stdout が通信路そのものです; \"invisible on the wire\" → 通信上には現れません; \"the JSON on the wire\" → 実際に送受信される JSON). Provisional pending native review. Never a literal 電線 or ワイヤー.",
+      "avoid": ["電線"]
+    },
+    {
+      "source": "era",
+      "target": "世代",
+      "note": "\"Protocol era\" (\"a 2025-era client\", \"whatever era the client speaks\") → プロトコルの世代, 2025 年世代のクライアント. Provisional pending native review; not the literal 時代."
+    },
+    {
+      "source": "legacy",
+      "target": "レガシー",
+      "note": "\"A legacy connection/client\" = one negotiated at spec version 2025-11-25 or earlier → レガシー接続, レガシークライアント (prenominal loanword). Provisional pending native review."
+    },
+    {
+      "source": "multi-round-trip",
+      "target": "マルチラウンドトリップ",
+      "note": "The 2026-07-28 request pattern (\"Multi-round-trip requests\" → マルチラウンドトリップリクエスト); a single \"round trip\" → ラウンドトリップ or 往復 by context. Provisional coinage pending native review: gloss the English on first use per page — マルチラウンドトリップ（multi-round-trip）. The abbreviation MRTR stays Latin."
+    },
+    {
+      "source": "handshake",
+      "target": "ハンドシェイク",
+      "note": "The initialization handshake (\"the classic handshake\" → 従来のハンドシェイク). The established loanword; never the literal 握手. Provisional pending native review.",
+      "avoid": ["握手"]
+    },
+    {
+      "source": "request",
+      "target": "リクエスト",
+      "note": "A JSON-RPC or HTTP request (\"the initialize request\" → 初期化リクエスト); the verb is リクエストする or 要求する by context. `Request` types in code font stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "response",
+      "target": "レスポンス",
+      "note": "A JSON-RPC or HTTP response; `Response` types in code font stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "callback",
+      "target": "コールバック",
+      "note": "Client callbacks and OAuth redirect callbacks alike; parameter names such as `sampling_callback` stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "decorator",
+      "target": "デコレーター",
+      "note": "The Python decorators the SDK is built on; `@mcp.tool()` and its siblings are code and stay untouched. Long-vowel spelling per instructions.md. Provisional pending native review."
+    },
+    {
+      "source": "type hint",
+      "target": "型ヒント",
+      "note": "Python type hints (\"from your type hints\" → 型ヒントから). Provisional pending native review."
+    },
+    {
+      "source": "argument",
+      "target": "引数",
+      "note": "A call argument; the declared parameter is パラメーター (see the katakana rule in instructions.md). Provisional pending native review."
+    },
+    {
+      "source": "return value",
+      "target": "戻り値",
+      "note": "A function's return value; the `return` keyword and return annotations are code. Provisional pending native review."
+    },
+    {
+      "source": "exception",
+      "target": "例外",
+      "note": "A raised Python exception (\"raises an exception\" → 例外を送出する); exception class names stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "async",
+      "target": "非同期",
+      "note": "The prose adjective (\"the async runtime\" → 非同期ランタイム, \"an async callback\" → 非同期コールバック); the `async` and `await` keywords in code font stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "Get started",
+      "target": "はじめに",
+      "note": "The nav section that opens the guide, and the title of its index page. \"First steps\" is a separate page inside that section (最初のステップ), so the two need distinct renderings or the sidebar shows the same title twice. Provisional pending native review."
+    },
+    {
+      "source": "First steps",
+      "target": "最初のステップ",
+      "note": "The tutorial page inside the \"Get started\" section; never reuse this rendering for the section itself (see that entry). Provisional pending native review."
+    },
+    {
+      "source": "Recap",
+      "target": "まとめ",
+      "note": "Recurring section heading that closes most pages; one rendering everywhere. Provisional pending native review."
+    },
+    {
+      "source": "Try it",
+      "target": "試してみる",
+      "note": "Recurring section heading above a runnable example; one rendering everywhere, not 試す on some pages and 試してみる on others. Provisional pending native review."
+    }
+  ]
+}

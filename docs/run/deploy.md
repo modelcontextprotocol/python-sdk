@@ -42,6 +42,22 @@ Deployed behind a real hostname, that same default rejects **every request** unt
     deployed server that refuses every connection is a Host allowlist until proven otherwise.
     **[Troubleshooting](../troubleshooting.md)** starts here too.
 
+## Behind a TLS-terminating proxy
+
+If TLS ends at a proxy (an ingress, a load balancer, Caddy, nginx) and uvicorn serves plain HTTP behind it, tell uvicorn to trust the proxy's `X-Forwarded-*` headers:
+
+```console
+uvicorn server:app --proxy-headers --forwarded-allow-ips='<proxy address>'
+```
+
+Without that, the app believes it is being served over `http://`, and any redirect it issues (the usual one is `/mcp` → `/mcp/`) points at `http://…`. The Python client refuses to follow an HTTPS endpoint to plain HTTP and says so:
+
+```text
+MCPError: Redirect to http://mcp.example.com/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+```
+
+The client-side stopgap is to configure the exact URL the server serves (`https://mcp.example.com/mcp/`, slash included) so no redirect happens. The fix is the flag above. `FORWARDED_ALLOW_IPS` is the environment-variable spelling; `*` trusts every hop, which is only right when nothing but the proxy can reach uvicorn.
+
 ## Workers, and who has to be sticky
 
 Once the hostname answers, put more than one worker behind it. There is no SDK knob for that; you scale a Starlette app the way you scale any ASGI app, by handing the object to something that knows how to fork:
@@ -76,7 +92,7 @@ A **[multi-round-trip](../handlers/multi-round-trip.md)** tool needs something t
 
 Here is a tool that asks before it acts, on a server that configures nothing:
 
-```python title="server.py" hl_lines="15 21"
+```python title="server.py" hl_lines="14 20"
 --8<-- "docs_src/deploy/tutorial002.py"
 ```
 
@@ -111,7 +127,7 @@ The two rounds are two independent HTTP requests, and several ordinary things se
 
 The fix is one argument. It has **two** halves.
 
-```python title="server.py" hl_lines="3 13 15"
+```python title="server.py" hl_lines="1 12 14"
 --8<-- "docs_src/deploy/tutorial003.py"
 ```
 
@@ -149,9 +165,10 @@ The seam between the two is the `SubscriptionBus`. Whatever bus you give a serve
 
 Nothing about the fan-out cares which server object a stream is attached to. Two servers holding one `InMemorySubscriptionBus` already behave this way: open a listen stream on one, `edit_note` on the other, and the stream hears about it. That in-memory bus only spans server objects inside one process, which makes it the model, not the deployment:
 
-* Across real processes, **the SDK ships no bus that can help you.** `SubscriptionBus` is a two-method `Protocol` (`publish` and `subscribe`) that you implement over your own pub/sub backend (Redis, NATS, whatever you already run) and pass as `MCPServer(subscriptions=...)`. **[Subscriptions](../handlers/subscriptions.md#one-process-is-the-default-more-takes-a-bus)** has the sketch and the contract.
+* Across real processes, **the SDK ships no bus that can help you.** `SubscriptionBus` is a two-method `Protocol` (`publish` and `subscribe`) that you implement over your own pub/sub backend (Redis, NATS, whatever you already run) and pass as `MCPServer(subscriptions=...)`. **[Subscriptions](../handlers/subscriptions.md#scaling-past-one-process)** has the sketch and the contract.
 * The bus carries four small typed events, never JSON-RPC. Acknowledgment, filtering, and stream lifecycle stay in the SDK, so your bus cannot break the protocol; it can only move events between processes.
 * Streams are **not** resumable and events are **not** replayed. Losing a replica drops its streams; the clients re-listen and re-fetch. There is no event store to share and nothing else to configure. This is the one place where scaling out is genuinely just more of the same.
+* A server that needs no change notifications skips the bus: **[turn them off](../handlers/subscriptions.md#turning-it-off)**.
 
 ## What the SDK does not give you
 
@@ -165,6 +182,7 @@ An `MCPServer` is a protocol implementation, not an application server. The depl
 ## Recap
 
 * Out of the box the app answers only requests addressed to localhost. `transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])` is the go-live gate: until you pass it, every request behind a real hostname is a `421` and the reason is only in the server's log.
+* Behind a TLS-terminating proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips=...`, or its redirects point at `http://` and the client refuses them.
 * On 2026-07-28 there is no session and nothing for a load balancer to be sticky on. `stateless_http=True` is a legacy-only knob because a modern request is routed and answered before that flag is ever read.
 * The default `requestState` key is `os.urandom(32)`, minted per process. A multi-round-trip retry that reaches a different worker fails with `-32602` *"Invalid or expired requestState"*.
 * The fix is `RequestStateSecurity(keys=[...])` **and** the same server name on every instance. The name is the token's default audience claim. Same keys, same name.

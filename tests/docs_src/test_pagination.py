@@ -1,7 +1,6 @@
 """`docs/advanced/pagination.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
-from mcp_types import Resource
 
 from docs_src.pagination import tutorial001, tutorial002
 from mcp import Client, MCPError
@@ -48,27 +47,20 @@ async def test_the_last_page_carries_no_cursor() -> None:
         assert page.next_cursor is None
 
 
-async def test_the_loop_collects_all_one_hundred() -> None:
-    """tutorial001: the `cursor=` loop visits ten pages and reassembles the whole catalog."""
+async def test_the_client_loop_collects_all_one_hundred_in_order() -> None:
+    """tutorial002's `list_all_resources()`, driven in-process against tutorial001's server: the `cursor=` loop
+    stitches the pages back into the whole catalog, in order, with no gaps and no repeats."""
     async with Client(tutorial001.server) as client:
-        resources: list[Resource] = []
-        cursor: str | None = None
-        pages = 0
-        while True:
-            page = await client.list_resources(cursor=cursor)
-            resources.extend(page.resources)
-            pages += 1
-            if page.next_cursor is None:
-                break
-            cursor = page.next_cursor
-        assert pages == 10
-        assert len({resource.uri for resource in resources}) == 100
+        resources = await tutorial002.list_all_resources(client)
+    assert [resource.name for resource in resources] == tutorial001.BOOKS
 
 
-async def test_the_client_program_on_the_page_runs(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial002: `main()` is the literal client program on the page and prints the stitched total."""
-    await tutorial002.main()
-    assert capsys.readouterr().out == "100 resources\n"
+async def test_the_client_loop_runs_once_against_a_server_that_does_not_page() -> None:
+    """tutorial002's loop against the `MCPServer` above: `next_cursor` is `None` on the first response, so one
+    pass returns the whole catalog."""
+    async with Client(mcp) as client:
+        resources = await tutorial002.list_all_resources(client)
+    assert [resource.name for resource in resources] == [f"book-{n}" for n in range(1, 101)]
 
 
 async def test_an_invented_cursor_is_an_error() -> None:

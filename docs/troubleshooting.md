@@ -8,6 +8,12 @@ Several entries run against this one server. One tool and one templated resource
 --8<-- "docs_src/troubleshooting/tutorial001.py"
 ```
 
+Those entries reach it at `http://localhost:8000/mcp`, so leave it running over HTTP:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
 The errors this page quotes are real: the SDK's own test suite reproduces every one of them.
 
 ## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)`
@@ -18,7 +24,7 @@ This is not an MCP error. It is anyio noise, and your real error is the **last l
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.read_resource("weather://Atlantis")
 ```
 
@@ -44,7 +50,7 @@ Two things to do with that:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         try:
             await client.read_resource("weather://Atlantis")
         except MCPError as e:
@@ -62,7 +68,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    client = Client(mcp)
+    client = Client("http://localhost:8000/mcp")
     tools = await client.list_tools()  # RuntimeError
 ```
 
@@ -70,17 +76,17 @@ Enter it. `__aenter__` is the connection:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         tools = await client.list_tools()
 ```
 
 `__aexit__` is the disconnection, which is why there is no `client.close()` to forget. **[Testing](get-started/testing.md)** is built on exactly this pattern.
 
-## `Error executing tool <name>: <message>` and `Unknown tool: <name>`
+## `Error executing tool <name>: <message>`, `Error executing tool <name>`, and `Unknown tool: <name>`
 
 You are reading a **result**, not an exception. `call_tool` did not raise, and it never will for a failing tool.
 
-Call `forecast` for a city the server doesn't know, and the exception it raises comes back with the request marked as *succeeded*:
+Call `forecast` for a city the server doesn't know, and the `ToolError` it raises comes back with the request marked as *succeeded*:
 
 ```python
 result.is_error  # True
@@ -91,6 +97,8 @@ result.structured_content  # None
 `Unknown tool: get_forecast` is the same shape for a name the server never registered, and a bad argument is rejected the same way, against the tool's input schema, before your function ever runs.
 
 The fix is in your client: **check `result.is_error`**. A `try/except` around `call_tool` catches none of these, because there is nothing to catch. This is deliberate, and it is the single most useful thing on this page to internalise: the *model* chose the call, so the model gets the message and a chance to try again. **[Handling errors](servers/handling-errors.md)** is the whole story, including the `MCPError` path that *does* raise.
+
+The bare form, `Error executing tool <name>` with no message, means the tool **crashed**: an exception it didn't anticipate escaped it (or its return value failed the output schema), and that exception's text is kept off the wire. The traceback is in the **server's log** at `ERROR`, as `Tool '<name>' raised an unexpected exception`.
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool`
 
@@ -115,6 +123,14 @@ Add the parentheses. `@mcp.resource(...)` and `@mcp.prompt()` say the same thing
     tools, has this shape: run `python server.py` yourself and read the traceback. A type checker
     also catches it: a function is not a valid `name=`.
 
+## `InvalidSignature: Tool '<name>' has an invalid x-mcp-header annotation: <reason>`
+
+A tool argument is marked with `x-mcp-header` in a way the spec doesn't allow, and `<reason>` says which rule it breaks. Clients on `2026-07-28` would leave such a tool out of their listing, so the SDK refuses to register it.
+
+Only `str`, `int` and `bool` arguments can be marked, and `str | None` is none of them. **[Header parameters](advanced/header-parameters.md)** has the spelling for an optional argument.
+
+Like the entry above, this raises when the module is **imported**, before any client connects.
+
 ## `Tool already exists: <name>`
 
 Two registrations used the same tool name. The **first** one wins, the second is silently dropped, and this warning in the *server log* is the only signal:
@@ -137,7 +153,7 @@ There is no error string for this, which is exactly why it is hard to search. Th
 * **Is the tool on the `mcp` the host is running?** A second `MCPServer(...)` in another module is a different, empty server. Check which object the host's command actually imports.
 * **Did two tools share a name?** Then one of them is gone. Look for `Tool already exists:` in the server log.
 * **Is the host's list stale?** Adding a tool after startup only reaches clients that handle `notifications/tools/list_changed`. Restarting the host is the blunt fix.
-* **Did something write to `stdout`?** On a stdio transport, stdout *is* the protocol: one stray `print()` and the host drops the connection, which some hosts render as a server with nothing in it. Log with the `logging` module instead. The rest of the host-side checklist is on **[Connect to a real host](get-started/real-host.md)**.
+* **Did something write to `stdout` outside the diverted window?** While serving, the SDK diverts *flushed* stray stdout to stderr (best-effort: an environment that replaces the standard streams is served as-is), but output flushed to stdout earlier (a wrapper script echoing, an import-time `print()` in an unbuffered process) or a buffered `print()` drained at interpreter exit lands on the protocol stream, and one junk line can make the host drop the connection, which some hosts render as a server with nothing in it. Log with the `logging` module instead. The rest of the host-side checklist is on **[Connect to a real host](get-started/real-host.md)**.
 
 An "invalid" tool name is *not* on that list: a non-conforming name logs a warning but the tool is registered and listed anyway.
 
@@ -244,7 +260,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ## `MCPError: Session not found`
 
-The server does not recognise the `Mcp-Session-Id` your client sent, almost always because the server **restarted** (or you were routed to a different instance). Sessions live in that one process's memory.
+The server does not recognise the `Mcp-Session-Id` your client sent. Either the server **restarted** (or you were routed to a different instance), or the session **expired** because nothing was in flight for `session_idle_timeout`, which is 30 minutes by default. See [Session lifetime and limits](run/legacy-clients.md#session-lifetime-and-limits). Sessions live in that one process's memory.
 
 There is no server bug to find. The HTTP response is a `404` whose body *is* JSON-RPC, so, unlike the `421` above, the python `Client` shows you this one verbatim:
 
@@ -254,9 +270,9 @@ There is no server bug to find. The HTTP response is a `404` whose body *is* JSO
 
 The fix is to reconnect: leave the `async with Client(...)` block and enter a new one, which negotiates a fresh session. For a long-lived client, that means catching `MCPError` around your calls and reconnecting on this message rather than retrying inside a dead session.
 
-If it happens *without* a restart, you are running more than one worker without sticky sessions: each worker holds its own session table, so a request routed to the wrong one lands here. **[Deploy & scale](run/deploy.md)** and **[Serving legacy clients](run/legacy-clients.md)** own that story and its two fixes (sticky routing, or `stateless_http=True`).
+If it happens *without* a restart and without the client having gone quiet that long, you are running more than one worker without sticky sessions: each worker holds its own session table, so a request routed to the wrong one lands here. **[Deploy & scale](run/deploy.md)** and **[Serving legacy clients](run/legacy-clients.md)** own that story and its two fixes (sticky routing, or `stateless_http=True`).
 
-For the server operator, the matching log line is `Rejected request with unknown or expired session ID: <id>`. It is logged at `INFO`, so it is invisible at the usual `WARNING` threshold. Seeing it in bursts right after a deploy is normal; every connected client is reconnecting.
+For the server operator, the matching log line is `Rejected request with unknown or expired session ID: <id>`. It is logged at `INFO`, so it is invisible at the usual `WARNING` threshold. Seeing it in bursts right after a deploy is normal; every connected client is reconnecting. When the session expired instead, that line is preceded by `Session <id> idle timeout`, also at `INFO`.
 
 ## `MCPError: Method not found`
 
@@ -268,7 +284,13 @@ One thing does **not** produce this error, despite being a request the modern pr
 
 Your server wants to ask the user something, and this client never said it can be asked.
 
-An elicitation resolver refuses up front when the connected client did not declare form elicitation, and `e.error.data` names exactly what is missing:
+This Bistro asks before it books, through a resolver:
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Serve it in place of the Weather server and call `book_table` from a client that passed no `elicitation_callback`. The resolver refuses up front, because the connected client never declared form elicitation, and `e.error.data` names exactly what is missing:
 
 ```json
 {
@@ -282,7 +304,7 @@ Pass `elicitation_callback=` to `Client(...)`. Registering the callback *is* the
 
 ```python
 async def main() -> None:
-    async with Client(mcp, elicitation_callback=handle_elicitation) as client:
+    async with Client("http://localhost:8000/mcp", elicitation_callback=handle_elicitation) as client:
         result = await client.call_tool("book_table", {"date": "Friday"})
 ```
 
@@ -291,7 +313,7 @@ async def main() -> None:
 !!! info
     `-32021` is `MISSING_REQUIRED_CLIENT_CAPABILITY`, one of three error codes the 2026-07-28
     spec adds. None of them is an exception class: they all arrive as `MCPError`, and
-    `e.error.code` is where to look. `mcp_types` exports the constants. The other two are
+    `e.error.code` is where to look. `mcp.types` exports the constants. The other two are
     `-32020` `HEADER_MISMATCH` (an HTTP header disagrees with the request body it accompanies)
     and `-32022` `UNSUPPORTED_PROTOCOL_VERSION` (the request named a version this server does not
     speak). A conforming SDK client cannot produce either, so if you see one, look at whatever is
@@ -305,16 +327,16 @@ You see this one from `ctx.elicit()` on a legacy connection, and on any connecti
 
 ## `MCPError: Cannot send 'elicitation/create': this transport context has no back-channel for server-initiated requests.`
 
-Your handler tried to reach the client mid-request, on a connection where nothing can carry a request from the server. There are exactly two ways to be on one.
+Your handler tried to reach the client mid-request, on a connection whose call has no channel that can carry a request from the server. There are three server configurations that put a call there.
 
-**A `2026-07-28` connection: any transport, always.** The modern protocol has no server-initiated requests at all, so the server refuses before anything is sent. `ctx.elicit()` inside a tool is the classic way to meet this (on the very first in-memory test, since `Client(server)` negotiates `2026-07-28` without being asked), and passing `elicitation_callback=` changes nothing, because no request ever reaches the client for it to answer:
+**A `2026-07-28` connection: any transport, always.** The modern protocol has no server-initiated requests at all, so the server refuses before anything is sent. `ctx.elicit()` inside a tool is the classic way to meet this, usually in that tool's very first in-memory **[test](get-started/testing.md)**, since `Client(mcp)` negotiates `2026-07-28` without being asked. Passing `elicitation_callback=` changes nothing, because no request ever reaches the client for it to answer:
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
 ```
 
 ```python
-async def main() -> None:
+async def test_book_table() -> None:
     async with Client(mcp) as client:
         await client.call_tool("book_table", {"date": "Friday"})
 ```
@@ -329,20 +351,23 @@ mcp.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport
 --8<-- "docs_src/troubleshooting/tutorial008.py"
 ```
 
+**A legacy connection on a `json_response=True` server.** The `POST` is answered with one JSON body, and one body carries only the response, so the request-scoped stream a mid-request `ctx.elicit()` needs does not exist here either. The session, its `Mcp-Session-Id`, and its standalone stream are all still there; only the request-scoped channel is gone.
+
 The message names the method it could not send. `NoBackChannelError` is the class the server raises, but the wire carries only the base `MCPError`, so the sentence above is your traceback's last line, not the class name.
 
-The fix is the same for both: don't reach back mid-call. Move the question into a **resolver** (or return an `InputRequiredResult` yourself) and it becomes part of the *response*, which every connection can carry:
+For a `2026-07-28` client the fix is the same on all three: don't reach back mid-call. Move the question into a **resolver** (or return an `InputRequiredResult` yourself) and it becomes part of the *response*, which every connection can carry:
 
 ```python title="server.py" hl_lines="15-17 21"
 --8<-- "docs_src/troubleshooting/tutorial007.py"
 ```
 
-Same question, same `elicitation_callback` on the client. The difference is under the hood: a resolver lets the server *return* the question from the call instead of pushing it, so nothing ever flows server-to-client. **[Elicitation](handlers/elicitation.md)** covers resolvers; **[Multi-round-trip requests](handlers/multi-round-trip.md)** covers what happens on the wire.
+Same question, same `elicitation_callback` on the client. The difference is under the hood: a resolver lets the server *return* the question from the call instead of pushing it, so nothing ever flows server-to-client. That rescues every `2026-07-28` client, whichever of the three configurations the server is in. A *legacy* client is not rescued by the rewrite alone: `2025-11-25` has no way to return a question, so on a legacy connection the resolver still sends `elicitation/create` down the request-scoped channel, and still needs a server that keeps it — neither `stateless_http=True` nor `json_response=True`. **[Elicitation](handlers/elicitation.md)** covers resolvers; **[Multi-round-trip requests](handlers/multi-round-trip.md)** covers what happens on the wire.
 
 !!! check
     The tool with `ctx.elicit()` is not wrong, it is *pre-2026*. Connect with `mode="legacy"`
-    (the classic `initialize` handshake, spec `2025-11-25` and earlier) to a server that is not
-    `stateless_http=True`, and it works, because the server-to-client channel exists there.
+    (the classic `initialize` handshake, spec `2025-11-25` and earlier) to a server that is neither
+    `stateless_http=True` nor `json_response=True`, and it works, because the server-to-client
+    channel exists there.
     **[Protocol versions](protocol-versions.md)** is the page on what each version has.
 
 ## `MCPError: Invalid or expired requestState`
@@ -353,7 +378,7 @@ The server could not verify the `requestState` token your client echoed back, so
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
 ```
 
@@ -401,12 +426,13 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## Recap
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` is never the error. Read the **last line**; catching `MCPError` *inside* the `async with Client(...)` block skips the wrapping entirely.
-* `call_tool` does not raise for a failing tool. `Error executing tool ...` and `Unknown tool: ...` are results: check `result.is_error`.
+* `call_tool` does not raise for a failing tool. `Error executing tool ...` and `Unknown tool: ...` are results: check `result.is_error`. No message after the tool name means it crashed, and the traceback is in the server log.
 * `Client must be used within an async context manager` -> use `async with`. `Use @tool() instead of @tool` -> add the parentheses.
+* `has an invalid x-mcp-header annotation` -> only `str`, `int` and `bool` arguments can be marked.
 * `Tool already exists:` in the server log is the only sign that two same-named tools collapsed into one.
 * One 421, three spellings: `Server returned an error response` (the python `Client`), `421 Misdirected Request` / `Invalid Host header` (everything else), `Invalid Host header: <host>` (the server log). Fix: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> a mounted app whose host lifespan never entered `mcp.session_manager.run()`.
-* `Session not found` -> the server restarted; reconnect.
-* `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` needs a server-to-client channel: a `2026-07-28` connection never has one, and `stateless_http=True` takes away the legacy one. Use a resolver. Its neighbour `Method not found` is a request for a method the other side's protocol revision doesn't have.
+* `Session not found` -> the server restarted or the session expired (`session_idle_timeout`); reconnect.
+* `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` needs a server-to-client channel: a `2026-07-28` connection never has one, `stateless_http=True` takes away the legacy one, and `json_response=True` takes away the request-scoped one. Use a resolver (a legacy client also needs a server that keeps the channel). Its neighbour `Method not found` is a request for a method the other side's protocol revision doesn't have.
 * `Client did not declare the form elicitation capability ...` and `Elicitation not supported` -> the client is missing `elicitation_callback=`.
 * `Invalid or expired requestState` never says why on the wire. The server log does; `unknown key` means share `RequestStateSecurity(keys=[...])` across workers.

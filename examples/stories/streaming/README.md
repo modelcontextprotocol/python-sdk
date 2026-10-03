@@ -55,11 +55,13 @@ uv run python -m stories.streaming.client --http --server server_lowlevel
   through the deprecation window. Migration: write to stderr or emit
   OpenTelemetry instead of `notifications/message`. It is shown here because
   servers still need to support 2025-era clients during that window. Progress
-  and cancellation are **not** deprecated. TODO(maxisbey): revisit before beta.
-- When a request is cancelled the server currently replies with
-  `ErrorData(code=0, message="Request cancelled")`; the spec says it should not
-  reply at all. The client never observes it (its awaiting task is already
-  cancelled), so this story does not assert on the reply.
+  and cancellation are **not** deprecated.
+- A cancelled request is not answered: no response follows
+  `notifications/cancelled`. (The 2025-era streamable HTTP transport is the one
+  exception - its wire ends a request only with a response, so it terminates
+  with a `-32800` `REQUEST_CANCELLED` error.) The client never observes any of
+  this - its awaiting task is already cancelled - so this story does not assert
+  on it.
 
 ## Spec
 
@@ -69,5 +71,6 @@ uv run python -m stories.streaming.client --http --server server_lowlevel
 
 ## See also
 
-`parallel_calls/` (concurrent in-flight calls), `error_handling/` (the
-cancellation error path), `tools/` (the basics this builds on).
+`parallel_calls/` (concurrent in-flight calls), `error_handling/` (error
+surfaces: `is_error` results vs protocol errors), `tools/` (the basics this
+builds on).

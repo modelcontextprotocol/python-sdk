@@ -6,9 +6,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TypedDict
 
-import mcp_types as types
-
 import mcp.server.stdio
+import mcp.types as types
 from mcp.server import Server, ServerRequestContext
 
 

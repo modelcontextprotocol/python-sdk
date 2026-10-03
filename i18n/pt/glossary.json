@@ -1,0 +1,210 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "ferramenta",
+      "note": "MCP protocol noun (a server exposes tools), feminine: a ferramenta / as ferramentas. Wire identifiers such as `tools/call` and the `@mcp.tool()` decorator are code and stay untouched. First mention on a page may read \"ferramenta (tool)\"."
+    },
+    {
+      "source": "resource",
+      "target": "recurso",
+      "note": "MCP protocol noun (data a server exposes for reading), masculine: o recurso / os recursos. `resources/read` and `@mcp.resource()` are code."
+    },
+    {
+      "source": "prompt",
+      "target": "prompt",
+      "note": "MCP protocol noun for the reusable message templates a server exposes, and the general AI sense; kept in English as Brazilian AI writing does. Masculine: o prompt / os prompts. `prompts/get` and `@mcp.prompt()` are code."
+    },
+    {
+      "source": "sampling",
+      "target": "amostragem",
+      "note": "MCP feature where the server asks the client for an LLM completion. First mention on a page reads \"amostragem (sampling)\" so the reader can map it to `sampling/createMessage`, which is code. Keeping the English word instead is the open alternative."
+    },
+    {
+      "source": "roots",
+      "target": "roots",
+      "note": "MCP client capability (the directories a client exposes to the server); kept in English because readers meet it as the identifier `roots/list`, so not raízes. Masculine plural: os roots. May take the gloss \"roots (diretórios raiz)\" on first mention. Translating it as raízes is the open alternative."
+    },
+    {
+      "source": "elicitation",
+      "target": "elicitação",
+      "note": "MCP feature where the server asks the user a question through the client (`elicitation/create`, `ctx.elicit()` are code). The Portuguese noun is rare but exact; first mention on a page reads \"elicitação (elicitation)\". Feminine: a elicitação."
+    },
+    {
+      "source": "capability",
+      "target": "capacidade",
+      "note": "What client and server declare during initialization (\"negociação de capacidades\"); not habilidade. Note that funcionalidade is the word for a feature, which is a different thing."
+    },
+    {
+      "source": "transport",
+      "target": "transporte",
+      "note": "The connection layer. The individual transports — stdio, Streamable HTTP, SSE — are names on the keep list and stay in English (\"o transporte stdio\")."
+    },
+    {
+      "source": "session",
+      "target": "sessão",
+      "note": "Feminine: a sessão / as sessões (\"ID de sessão\"). The `session` object, `ClientSession` and `ServerSession` are code and stay in English."
+    },
+    {
+      "source": "handler",
+      "target": "handler",
+      "note": "The functions you register on a server; kept in English as everyday Brazilian developer usage does, not manipulador, which reads dated in this audience. Masculine: o handler / os handlers."
+    },
+    {
+      "source": "dependency",
+      "target": "dependência",
+      "note": "Both package dependencies and the SDK's dependency injection — parameters declared with `Resolve(...)` (\"injeção de dependência\"). Feminine: a dependência."
+    },
+    {
+      "source": "resolver",
+      "target": "resolvedor",
+      "note": "The plain function that fills a `Resolve(...)`-annotated parameter before the tool runs. Rendered as the noun \"resolvedor\" (masculine: o resolvedor) because in Portuguese \"resolver\" is a verb; keeping the English noun is the open alternative."
+    },
+    {
+      "source": "client",
+      "target": "cliente",
+      "note": "Masculine: o cliente. The `Client` class and the `mcp.client` module are code and stay in English."
+    },
+    {
+      "source": "server",
+      "target": "servidor",
+      "note": "Masculine: o servidor. The `MCPServer`, `Server` and `ServerSession` classes are code and stay in English."
+    },
+    {
+      "source": "host",
+      "target": "host",
+      "note": "The MCP host — the application the user talks to (Claude Desktop, an IDE) — kept in English as Brazilian developers say it. Masculine: o host / os hosts.",
+      "avoid": ["anfitrião", "hospedeiro"]
+    },
+    {
+      "source": "request",
+      "target": "requisição",
+      "note": "HTTP and JSON-RPC requests (\"requisição HTTP\", \"a requisição de inicialização\"). Feminine: a requisição. solicitação is understood too, but use requisição throughout rather than alternating; never pedido."
+    },
+    {
+      "source": "token",
+      "target": "token",
+      "note": "Kept in English for both OAuth tokens (\"token de acesso\", \"refresh token\") and LLM tokens. Masculine: o token / os tokens."
+    },
+    {
+      "source": "lifespan",
+      "target": "lifespan",
+      "note": "The SDK feature and its `lifespan=` parameter; kept in English so the prose matches the parameter name, not vida útil. Masculine: o lifespan. May take the gloss \"lifespan (ciclo de vida do servidor)\" on first mention.",
+      "avoid": ["expectativa de vida"]
+    },
+    {
+      "source": "callback",
+      "target": "callback",
+      "note": "Kept in English, covering both OAuth redirect callbacks and function callbacks. Masculine: o callback / os callbacks.",
+      "avoid": ["retorno de chamada"]
+    },
+    {
+      "source": "deploy",
+      "target": "deploy",
+      "note": "Borrow the noun, not a verb: \"o deploy\", \"fazer o deploy\", \"depois do deploy\". Masculine. \"implantação\" is acceptable in formal contexts but pin \"deploy\" for consistency.",
+      "avoid": ["deployar", "deployado"]
+    },
+    {
+      "source": "library",
+      "target": "biblioteca",
+      "note": "Feminine: a biblioteca. The false friend \"livraria\" means a bookshop and is never right here.",
+      "avoid": ["livraria"]
+    },
+    {
+      "source": "back-channel",
+      "target": "canal de retorno",
+      "note": "This documentation's term for the server calling back into the client during a request. First mention on a page reads \"canal de retorno (back-channel)\" so the reader can connect it to the `NoBackChannelError` exception, which is code."
+    },
+    {
+      "source": "file",
+      "target": "arquivo",
+      "note": "Masculine: o arquivo. \"ficheiro\" is European Portuguese and is always an error in this Brazilian Portuguese target.",
+      "avoid": ["ficheiro"]
+    },
+    {
+      "source": "user",
+      "target": "usuário",
+      "note": "Masculine as the generic form: o usuário / os usuários. \"utilizador\" is European Portuguese and is always an error in this Brazilian Portuguese target.",
+      "avoid": ["utilizador"]
+    },
+    {
+      "source": "escape hatch",
+      "target": "saída de emergência",
+      "note": "The API-design metaphor for the lower-level mechanism you drop to when the convenience layer is in the way (`client.session`, `add_request_handler()`, the low-level `Server`). Feminine: a saída de emergência / as saídas de emergência. Pinned so every page uses one rendering; válvula de escape is the open alternative. Provisional pending native review."
+    },
+    {
+      "source": "type hint",
+      "target": "anotação de tipo",
+      "note": "Python type hints (\"from those type hints\" → a partir dessas anotações de tipo). Feminine: a anotação de tipo / as anotações de tipo — the plural goes on anotação, tipo stays singular. Translated on every page rather than left as \"type hints\" in the prose; `type hints` inside code font is code. Provisional pending native review."
+    },
+    {
+      "source": "Get started",
+      "target": "Comece por aqui",
+      "note": "The nav section that opens the guide, and the title of its index page. \"First steps\" is a separate page inside that section (Primeiros passos), so the two need distinct renderings or the sidebar shows the same title twice. Provisional pending native review. Introdução is the alternative for the section."
+    },
+    {
+      "source": "First steps",
+      "target": "Primeiros passos",
+      "note": "The tutorial page inside the \"Get started\" section; never reuse this rendering for the section itself (see that entry). Provisional pending native review."
+    }
+  ]
+}

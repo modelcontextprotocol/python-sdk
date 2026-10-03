@@ -1,6 +1,6 @@
 """HTTP-only OAuth authorization-code flow; `build_auth` supplies the provider, reconnecting needs `targets`."""
 
-import httpx
+import httpx2
 from pydantic import AnyUrl
 
 from mcp.client import Client
@@ -14,11 +14,11 @@ from stories._harness import TargetFactory, run_client
 from stories._shared.auth import MCP_URL, REDIRECT_URI, HeadlessOAuth, InMemoryTokenStorage
 
 
-def build_auth(http_client: httpx.AsyncClient) -> httpx.Auth:
+def build_auth(http_client: httpx2.AsyncClient) -> httpx2.Auth:
     """An `OAuthClientProvider` over fresh storage, completing the authorize redirect headlessly.
 
     `Client(url, auth=...)` doesn't exist yet, so the harness threads this onto the underlying
-    `httpx.AsyncClient` and every target `main` receives is already routed through it.
+    `httpx2.AsyncClient` and every target `main` receives is already routed through it.
     """
     headless = HeadlessOAuth()
     headless.bind(http_client)

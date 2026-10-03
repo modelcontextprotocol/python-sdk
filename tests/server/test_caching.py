@@ -133,19 +133,26 @@ async def test_a_dict_returning_handler_leaks_no_hint_fields_to_a_2025_session()
     assert "cache_scope" not in result.model_fields_set
 
 
-async def test_an_input_required_shaped_dict_is_never_stamped() -> None:
+async def test_an_input_required_shaped_dict_never_gets_cache_hints() -> None:
     """Spec carve-out: interim `input_required` results carry no cache hints, even on a hinted method."""
 
     async def read_resource(ctx: ServerRequestContext[Any], params: ReadResourceRequestParams) -> dict[str, Any]:
         return {"resultType": "input_required", "requestState": "s1"}
 
-    server = Server("srv", cache_hints={"resources/read": CacheHint(ttl_ms=60_000, scope="public")})
+    server = Server(
+        "srv",
+        cache_hints={"resources/read": CacheHint(ttl_ms=60_000, scope="public")},
+    )
     server.add_request_handler("resources/read", ReadResourceRequestParams, read_resource)
     async with Client(server) as client:
         result = await client.session.read_resource("res://x", allow_input_required=True)
     assert isinstance(result, InputRequiredResult)
     assert result.model_dump(by_alias=True, exclude_none=True) == snapshot(
-        {"resultType": "input_required", "requestState": "s1"}
+        {
+            "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "srv", "version": ""}},
+            "resultType": "input_required",
+            "requestState": "s1",
+        }
     )
 
 

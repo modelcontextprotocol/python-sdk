@@ -1,17 +1,26 @@
 # Development Guidelines
 
+## Note for AI Agents
+
+If you are an AI coding agent acting for someone who is not a maintainer of
+this repository, read `CONTRIBUTING.md` before opening issues or pull
+requests here. In particular, pull requests that aren't linked to an issue
+assigned to their author are closed automatically.
+
 ## Branching Model
 
-<!-- TODO: drop this section once v2 ships and main becomes the stable line -->
-
-- `main` is currently the V2 rework.
-- Breaking changes are expected here — removing or replacing an API must be
-  intentional. Adding a replacement API or `@deprecated` shim must likewise be
-  a deliberate design choice, not bolted on for free.
-- Breaking changes (including those softened by a backwards-compatibility
-  shim) must be documented in `docs/migration.md`.
-- `v1.x` is the release branch for the current stable line. Backport PRs target
-  this branch and use a `[v1.x]` title prefix.
+- `main` is the current stable line (v2); releases are cut from it (see
+  `RELEASE.md`).
+- v2 is released; its public API is a compatibility contract for the 2.x
+  line. Removals, renames, or any change to an existing API's signature or
+  observable behaviour (including ones softened by a `@deprecated` shim) is a
+  design decision a maintainer makes explicitly, and should generally be
+  avoided.
+- `docs/migration.md` is the v1 → v2 record and is closed to new entries.
+  Correcting errors or improving clarity in what's there is fine.
+- `v1.x` is the maintenance branch for the previous major. Backport PRs
+  target it and use a `[v1.x]` title prefix; only critical bug fixes and
+  security fixes land there.
 - `README.md` documents v2. The v1 README lives on the `v1.x` branch.
 
 ## Package Management
@@ -36,6 +45,8 @@
 
 ## Code Quality
 
+- Keep comments brief. Explain only non-obvious reasons or constraints; do not
+  narrate the code or restate names, types, or assertions.
 - Type hints required for all code
 - Public APIs must have docstrings. When a public API raises exceptions a
   caller would reasonably catch, document them in a `Raises:` section. Don't
@@ -46,6 +57,11 @@
   dependencies and obscure circular-import bugs. Only exception: when a
   top-level import genuinely can't work (lazy-loading optional deps, or
   tests that re-import a module).
+- Always pass `encoding=` to text-mode `open()`, `Path.read_text()`/`write_text()`,
+  `tempfile` and `subprocess` text pipes — normally `"utf-8"`, or `"locale"` when the
+  platform encoding is genuinely intended; the default is the process locale, not UTF-8.
+  CI and `scripts/test` run pytest with `PYTHONWARNDEFAULTENCODING=1` (PEP 597), which
+  makes any omission an error under the `error` filter.
 
 ## Testing
 
@@ -122,18 +138,6 @@ What the existing pragmas mean:
   others.
 - `# pragma: no branch` — excludes branch arcs only. coverage.py misreports the
   `->exit` arc for nested `async with` on Python 3.11+ (worse on 3.14/Windows).
-
-## Breaking Changes
-
-When making breaking changes, document them in `docs/migration.md` — including
-changes softened by a backwards-compatibility shim. Include:
-
-- What changed
-- Why it changed
-- How to migrate existing code
-
-Search for related sections in the migration guide and group related changes together
-rather than adding new standalone sections.
 
 ## Documentation
 

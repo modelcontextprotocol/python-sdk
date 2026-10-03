@@ -18,12 +18,12 @@ That's the whole triangle. Everything on this page is the middle bullet.
 
 The SDK has no opinion about what a valid token looks like. You tell it, by implementing **`TokenVerifier`**:
 
-```python title="server.py" hl_lines="12-14 19-24"
+```python title="server.py" hl_lines="14-16 21-27"
 --8<-- "docs_src/authorization/tutorial001.py"
 ```
 
 * `TokenVerifier` is a protocol with one async method. `verify_token` gets the raw token from the `Authorization` header and returns an **`AccessToken`** if it's valid, `None` if it isn't. There is nothing else to implement.
-* This one looks the token up in a table. A real one verifies a JWT signature or calls the authorization server's token-introspection endpoint. That code is yours; the SDK only calls it.
+* This one looks the token up in a table; each entry records the resource it was issued for. A real one verifies a JWT signature or calls the authorization server's token-introspection endpoint, and reports who the token was issued for (its `aud`) in `AccessToken.resource`. That code is yours; the SDK only calls it.
 * `token_verifier=` and `auth=` always travel together. Pass one without the other and `MCPServer(...)` raises a `ValueError` before it ever serves a request.
 
 `AuthSettings` is the public face of your resource server:
@@ -31,6 +31,10 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
 * `issuer_url`: the authorization server that issues your tokens.
 * `resource_server_url`: the public URL of this MCP endpoint. It names *which* resource a token is for, and it's where the discovery document lives.
 * `required_scopes`: every token must carry all of them.
+* `validate_token_resource`: refuse any token whose `AccessToken.resource` is not `resource_server_url`. Leaving it unset while `resource_server_url` is set warns (`MCPDeprecationWarning`) and behaves as `False`; 3.0 makes `True` the default for resource servers.
+  * Turn it on when your authorization server binds tokens to the `resource` the client requested, which MCP clients always send. Keep `resource_server_url` the exact URL clients connect to.
+  * Leave it off when your authorization server uses its own audience identifiers (an Auth0 API identifier, an Entra application ID) and check `aud` in your verifier instead, returning `None` for a token that isn't for this server.
+  * If `aud` is a list, put the entry that equals `resource_server_url` in `resource`.
 
 !!! tip
     `examples/servers/simple-auth/` in the SDK repository has an `IntrospectionTokenVerifier` that calls
@@ -86,7 +90,7 @@ This document is how a client that has never heard of your server finds its way 
 
 Inside any handler, **`get_access_token()`** is the `AccessToken` your verifier returned for the current request:
 
-```python title="server.py" hl_lines="4 32-35"
+```python title="server.py" hl_lines="4 35-38"
 --8<-- "docs_src/authorization/tutorial002.py"
 ```
 
@@ -120,6 +124,6 @@ An authorization server can also accept an enterprise identity provider's signed
 * `token_verifier=` and `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` always travel together.
 * The SDK publishes [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata at `/.well-known/oauth-protected-resource/...` and answers unauthenticated requests with a 401 whose `WWW-Authenticate` header points at it. That is the entire discovery story.
 * `get_access_token()` in any handler is who's calling.
-* Authorization is an HTTP concern. `stdio` and the in-memory client never see it.
+* Authorization is an HTTP concern. `stdio` and the in-memory test client never see it.
 
 The client half (discovering your authorization server and fetching the token for you) is **[OAuth clients](../client/oauth-clients.md)**. And a client that *asserts* an identity instead of asking a user for one is **[Identity assertion](../client/identity-assertion.md)**.

@@ -2,7 +2,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
-from mcp_types import (
+from mcp.server import Server, ServerRequestContext
+from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     ListToolsResult,
@@ -10,8 +11,6 @@ from mcp_types import (
     TextContent,
     Tool,
 )
-
-from mcp.server import Server, ServerRequestContext
 
 
 @dataclass

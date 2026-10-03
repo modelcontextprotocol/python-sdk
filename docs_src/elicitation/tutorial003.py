@@ -1,7 +1,6 @@
-from mcp_types import ElicitRequestParams, ElicitRequestURLParams, ElicitResult
-
 from mcp import Client
 from mcp.client import ClientRequestContext
+from mcp.types import ElicitRequestParams, ElicitRequestURLParams, ElicitResult
 
 
 async def handle_elicitation(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:

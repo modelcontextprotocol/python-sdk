@@ -7,8 +7,8 @@ from typing import Any, Generic, Literal, TypeVar
 from mcp_types import RequestId
 
 # Internal surface package; imported as the gate's source of truth for spec-valid property schemas.
-from mcp_types.v2025_11_25 import PrimitiveSchemaDefinition
-from pydantic import BaseModel, ValidationError
+from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
 from typing_extensions import TypeAliasType
@@ -16,6 +16,7 @@ from typing_extensions import TypeAliasType
 from mcp.server.session import ServerSession
 
 ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
+_PRIMITIVE_SCHEMA_ADAPTER = TypeAdapter[PrimitiveSchemaDefinition](PrimitiveSchemaDefinition)
 
 
 class AcceptedElicitation(BaseModel, Generic[ElicitSchemaModelT]):
@@ -79,7 +80,7 @@ def _validate_rendered_properties(json_schema: dict[str, Any]) -> None:
     """
     for field_name, prop in json_schema.get("properties", {}).items():
         try:
-            PrimitiveSchemaDefinition.model_validate(prop)
+            _PRIMITIVE_SCHEMA_ADAPTER.validate_python(prop)
         except ValidationError:
             raise TypeError(
                 f"Elicitation schema field {field_name!r} rendered as {prop!r}, "

@@ -8,6 +8,7 @@ from mcp_types import PromptArgument, PromptMessage, TextContent
 
 from docs_src.prompts import tutorial001, tutorial002, tutorial003
 from mcp import Client, MCPError
+from tests.docs_src._helpers import strip_server_info
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -30,6 +31,7 @@ async def test_returned_string_becomes_one_user_message() -> None:
     """tutorial001: a `str` return value is rendered as a single `user` message."""
     async with Client(tutorial001.mcp) as client:
         result = await client.get_prompt("review_code", {"code": "def add(a, b): return a + b"})
+        result = strip_server_info(result, tutorial001.mcp)
         assert result.model_dump(mode="json", by_alias=True, exclude_none=True) == snapshot(
             {
                 "description": "Review a piece of code.",

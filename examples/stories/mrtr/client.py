@@ -1,7 +1,6 @@
 """Drive the deploy tool both ways: the Client auto-loop, and a manual session-level loop."""
 
-import mcp_types as types
-
+import mcp.types as types
 from mcp import MCPError
 from mcp.client import Client, ClientRequestContext
 from stories._harness import Target, run_client

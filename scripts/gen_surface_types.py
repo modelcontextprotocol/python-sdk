@@ -1,16 +1,18 @@
 """Regenerate the per-version wire-shape surface packages from vendored schemas.
 
 Runs `datamodel-code-generator` over each `schema/PINNED.json` entry and
-writes the result to `src/mcp-types/mcp_types/v<version>/__init__.py` with only the
-fixes the raw output needs: a small JSON pre-patch for the known
+writes the result to `src/mcp-types/mcp_types/_v<version>/__init__.py` (the
+underscore marks these as internal validators, not public API) with only
+the fixes the raw output needs: a small JSON pre-patch for the known
 `number`-as-`integer` schema.json defect, a header, full URLs for the spec's
-site-absolute doc links, and per-version epilogue aliases. Run with
+site-absolute doc links, plain type aliases, and per-version epilogue aliases. Run with
 `uv run --frozen --group codegen python scripts/gen_surface_types.py [--check]`.
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
 import difflib
 import hashlib
 import json
@@ -24,6 +26,10 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_DIR = REPO_ROOT / "schema"
 TYPES_DIR = REPO_ROOT / "src" / "mcp-types" / "mcp_types"
+
+# The result-meta serverInfo stamp: every `$defs` entry carrying this property
+# gets its typed `$ref` stripped by `make_server_info_opaque` below.
+SERVER_INFO_META_PROPERTY = "io.modelcontextprotocol/serverInfo"
 
 # schema.ts -> schema.json renders TypeScript `number` as JSON Schema
 # `integer` at these sites; patch the JSON before codegen so floats validate.
@@ -49,6 +55,18 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
             "$defs/ElicitRequestFormParams/properties/requestedSchema/properties/properties/additionalProperties",
             {"$ref": "#/$defs/PrimitiveSchemaDefinition"},
             {},
+        ),
+        # JSON Schema 2020-12 allows a boolean wherever a sub-schema is expected, and
+        # 2026-07-28 already leaves these free-form; accept `true`/`false` property schemas.
+        (
+            "$defs/Tool/properties/inputSchema/properties/properties/additionalProperties",
+            {"additionalProperties": True, "properties": {}, "type": "object"},
+            {"anyOf": [{"additionalProperties": True, "properties": {}, "type": "object"}, {"type": "boolean"}]},
+        ),
+        (
+            "$defs/Tool/properties/outputSchema/properties/properties/additionalProperties",
+            {"additionalProperties": True, "properties": {}, "type": "object"},
+            {"anyOf": [{"additionalProperties": True, "properties": {}, "type": "object"}, {"type": "boolean"}]},
         ),
     ],
     "2026-07-28": [
@@ -89,6 +107,7 @@ OPEN_CLASSES: dict[str, frozenset[str]] = {
             "MetaObject",
             "NotificationMetaObject",
             "RequestMetaObject",
+            "ResultMetaObject",
             "SubscriptionsListenResultMeta",
             "InputSchema",
             "OutputSchema",
@@ -118,7 +137,7 @@ HEADER = (
 
 def load_pinned() -> list[dict[str, str]]:
     """Read `schema/PINNED.json` and verify each vendored file's sha256."""
-    entries: list[dict[str, str]] = json.loads((SCHEMA_DIR / "PINNED.json").read_text())
+    entries: list[dict[str, str]] = json.loads((SCHEMA_DIR / "PINNED.json").read_text(encoding="utf-8"))
     for entry in entries:
         path = SCHEMA_DIR / f"{entry['protocol_version']}.json"
         actual = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -128,15 +147,37 @@ def load_pinned() -> list[dict[str, str]]:
 
 
 def patch_schema(schema: dict[str, Any], patches: list[tuple[str, Any, Any]]) -> None:
-    """Apply `(path, old, new)` JSON-pointer-ish patches in place, asserting the old value."""
+    """Apply `(path, old, new)` JSON-pointer-ish patches in place, asserting the old value.
+
+    Path segments use JSON-pointer escaping (`~1` for `/`, `~0` for `~`) so keys
+    that themselves contain a slash (the reserved `io.modelcontextprotocol/*`
+    `_meta` keys) are addressable.
+    """
     for path, old, new in patches:
-        *parts, leaf = path.split("/")
+        *parts, leaf = (part.replace("~1", "/").replace("~0", "~") for part in path.split("/"))
         node: Any = schema
         for part in parts:
             node = node[int(part) if part.isdigit() else part]
         if node[leaf] != old:
             raise SystemExit(f"schema patch {path}: expected {old!r}, found {node[leaf]!r}")
         node[leaf] = new
+
+
+def make_server_info_opaque(schema: dict[str, Any]) -> None:
+    """Strip the typed `$ref` from every result-meta serverInfo property.
+
+    The stamp is display-only: the spec forbids acting on it, so a malformed
+    value must never fail a whole response (clients validate every inbound
+    result against this surface). Walking every `$defs` entry keeps future
+    result-meta definitions lenient by construction instead of relying on an
+    enumerated list; the typed, lenient parse happens at the read edge
+    (`ClientSession.server_info`). typescript-sdk does the same with a
+    schema-level catch-to-undefined.
+    """
+    for definition in schema.get("$defs", {}).values():
+        prop = definition.get("properties", {}).get(SERVER_INFO_META_PROPERTY)
+        if prop is not None and "$ref" in prop:
+            del prop["$ref"]
 
 
 def run_codegen(schema_path: Path, output_path: Path) -> None:
@@ -155,13 +196,14 @@ def run_codegen(schema_path: Path, output_path: Path) -> None:
             "--use-annotated", "--use-field-description", "--use-schema-description",
             "--enum-field-as-literal", "all",
             "--use-union-operator", "--use-double-quotes",
+            "--use-type-alias", "--skip-root-model",
             "--extra-fields", "ignore",
             # JSON Schema `format` is annotation-only; codegen's defaults
             # (Base64Str, AnyUrl) over-assert and reject valid wire data.
             "--type-mappings", "byte=string", "uri=string", "uri-template=string",
             "--disable-timestamp",
         ],
-        capture_output=True, text=True,
+        capture_output=True, encoding="utf-8", errors="replace",
     )
     # fmt: on
     if result.returncode != 0:
@@ -194,18 +236,43 @@ def allow_open_class_extras(source: str, open_classes: frozenset[str]) -> str:
 def build(entry: dict[str, str]) -> str:
     """Generate, post-process, and format one version's surface module text."""
     version = entry["protocol_version"]
-    schema = json.loads((SCHEMA_DIR / f"{version}.json").read_text())
+    schema = json.loads((SCHEMA_DIR / f"{version}.json").read_text(encoding="utf-8"))
     patch_schema(schema, SCHEMA_PATCHES.get(version, []))
+    make_server_info_opaque(schema)
+    if "JSONValue" in schema["$defs"]:
+        # A single recursive alias avoids mutually recursive alias evaluation in type checkers.
+        assert schema["$defs"]["JSONValue"]["anyOf"][0] == {"$ref": "#/$defs/JSONObject"}
+        schema["$defs"]["JSONValue"]["anyOf"][0] = schema["$defs"]["JSONObject"]
 
     with tempfile.TemporaryDirectory() as tmp:
         patched = Path(tmp) / "schema.json"
-        patched.write_text(json.dumps(schema))
+        patched.write_text(json.dumps(schema), encoding="utf-8")
         raw = Path(tmp) / "raw.py"
         run_codegen(patched, raw)
-        source = raw.read_text()
+        source = raw.read_text(encoding="utf-8")
 
     source = re.sub(r"\A# generated by datamodel-codegen:\n#[^\n]*\n", "", source)
-    source = re.sub(r"^class Model\(RootModel\[Any\]\):\n {4}root: Any\n+", "", source, count=1, flags=re.MULTILINE)
+    # Keep named aliases only for recursive types; other aliases remain ordinary Python types and unions.
+    for node in reversed(ast.parse(source).body):
+        if not (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "TypeAliasType"
+        ):
+            continue
+        value = node.value.args[1]
+        if any(
+            isinstance(part, ast.Constant) and isinstance(part.value, str) and part.value in schema["$defs"]
+            for part in ast.walk(value)
+        ):
+            continue
+        original = ast.get_source_segment(source, node.value)
+        replacement = ast.get_source_segment(source, value)
+        assert original is not None and replacement is not None
+        source = source.replace(original, f"({replacement})", 1)
+    if "= TypeAliasType(" not in source:
+        source = source.replace("from typing_extensions import TypeAliasType\n", "")
     # Codegen appends `| None` to forward refs of nullable models, which is a
     # runtime TypeError on a string ref and redundant since `JSONValue` includes None.
     source = source.replace('"JSONValue" | None', '"JSONValue"')
@@ -215,8 +282,7 @@ def build(entry: dict[str, str]) -> str:
     source = source.replace("](/", "](https://modelcontextprotocol.io/")
     source = allow_open_class_extras(source, OPEN_CLASSES[version])
     if epilogue := EPILOGUES.get(version, ""):
-        # Insert before the trailing model_rebuild() block: pyright's evaluation
-        # order for the recursive RootModel block is sensitive to placement.
+        # Resolve aliases before rebuilding models with forward references.
         match = re.search(r"^\w+\.model_rebuild\(\)$", source, flags=re.MULTILINE)
         cut = match.start() if match else len(source)
         source = f"{source[:cut]}{epilogue}\n\n{source[cut:]}"
@@ -224,12 +290,12 @@ def build(entry: dict[str, str]) -> str:
 
     staging = TYPES_DIR / f"_staging_{version}.py"
     try:
-        staging.write_text(source)
+        staging.write_text(source, encoding="utf-8")
         subprocess.run(
             ["uv", "run", "--frozen", "ruff", "format", "--no-cache", str(staging)],
             cwd=REPO_ROOT, capture_output=True, check=True,
         )  # fmt: skip
-        return staging.read_text()
+        return staging.read_text(encoding="utf-8")
     finally:
         staging.unlink(missing_ok=True)
 
@@ -242,14 +308,14 @@ def main(argv: list[str] | None = None) -> int:
 
     drift = False
     for entry in load_pinned():
-        target = TYPES_DIR / ("v" + entry["protocol_version"].replace("-", "_")) / "__init__.py"
+        target = TYPES_DIR / ("_v" + entry["protocol_version"].replace("-", "_")) / "__init__.py"
         candidate = build(entry)
         if not args.check:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(candidate)
+            target.write_text(candidate, encoding="utf-8")
             print(f"{entry['protocol_version']}: wrote {target.relative_to(REPO_ROOT)} ({len(candidate)} bytes)")
             continue
-        committed = target.read_text() if target.is_file() else ""
+        committed = target.read_text(encoding="utf-8") if target.is_file() else ""
         if committed != candidate:
             drift = True
             sys.stderr.writelines(

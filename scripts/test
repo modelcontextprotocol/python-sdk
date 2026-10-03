@@ -3,7 +3,8 @@
 set -ex
 
 uv run --frozen coverage erase
-uv run --frozen coverage run -m pytest -n auto $@
+# PYTHONWARNDEFAULTENCODING=1 mirrors CI: text I/O without encoding= fails under pytest's "error" filter.
+PYTHONWARNDEFAULTENCODING=1 uv run --frozen coverage run -m pytest -n auto "$@"
 uv run --frozen coverage combine
 uv run --frozen coverage report
 # strict-no-cover spawns `uv run coverage json` internally without --frozen;

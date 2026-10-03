@@ -311,7 +311,7 @@ def run(
         typer.Option(
             "--transport",
             "-t",
-            help="Transport protocol to use (stdio or sse)",
+            help="Transport protocol to use (stdio, sse, or streamable-http)",
         ),
     ] = None,
 ) -> None:  # pragma: no cover

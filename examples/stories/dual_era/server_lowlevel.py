@@ -2,11 +2,10 @@
 
 from typing import Any
 
-import mcp_types as types
-from mcp_types.version import MODERN_PROTOCOL_VERSIONS
-
+import mcp.types as types
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
+from mcp.types.version import MODERN_PROTOCOL_VERSIONS
 from stories._hosting import run_server_from_args
 
 GREET_INPUT_SCHEMA: dict[str, Any] = {

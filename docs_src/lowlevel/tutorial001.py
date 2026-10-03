@@ -1,4 +1,5 @@
-from mcp_types import (
+from mcp.server import Server, ServerRequestContext
+from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     ListToolsResult,
@@ -6,8 +7,6 @@ from mcp_types import (
     TextContent,
     Tool,
 )
-
-from mcp.server import Server, ServerRequestContext
 
 SEARCH_BOOKS = Tool(
     name="search_books",
@@ -31,3 +30,4 @@ async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) ->
 
 
 server = Server("Bookshop", on_list_tools=list_tools, on_call_tool=call_tool)
+app = server.streamable_http_app()

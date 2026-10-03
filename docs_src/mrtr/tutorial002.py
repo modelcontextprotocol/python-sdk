@@ -1,6 +1,5 @@
-from mcp_types import CallToolResult, ElicitRequest, ElicitResult, InputRequest, InputRequiredResult, InputResponse
-
 from mcp import Client
+from mcp.types import CallToolResult, ElicitRequest, ElicitResult, InputRequest, InputRequiredResult, InputResponse
 
 
 def fulfil(request: InputRequest) -> InputResponse:

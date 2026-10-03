@@ -4,8 +4,8 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, cast
 
 from mcp_types import ClientCapabilities, InputRequiredResult, InputResponseRequestParams, InputResponses, LoggingLevel
-from pydantic import AnyUrl, BaseModel
-from typing_extensions import deprecated
+from pydantic import AnyUrl, BaseModel, ModelWrapValidatorHandler, model_validator
+from typing_extensions import Self, deprecated
 
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import (
@@ -16,14 +16,14 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.subscriptions import (
+from mcp.server.subscriptions import SubscriptionBus
+from mcp.shared.exceptions import MCPDeprecationWarning
+from mcp.shared.subscriptions import (
     PromptsListChanged,
     ResourcesListChanged,
     ResourceUpdated,
-    SubscriptionBus,
     ToolsListChanged,
 )
-from mcp.shared.exceptions import MCPDeprecationWarning
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer
@@ -54,7 +54,6 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
         # Get request info
         request_id = ctx.request_id
-        client_id = ctx.client_id
 
         return str(x)
     ```
@@ -84,6 +83,13 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         self._mcp_server = mcp_server
         self._input_params = input_params
         self._subscriptions = subscriptions
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _keep_instance(cls, value: Any, handler: ModelWrapValidatorHandler[Self]) -> Self:
+        """Validate an existing `Context` to itself. `Context[T]` is a separate class at runtime, so
+        pydantic would otherwise rebuild an instance of plain `Context` without its request state."""
+        return cast(Self, value) if isinstance(value, Context) else handler(value)
 
     @property
     def mcp_server(self) -> MCPServer:
@@ -170,8 +176,12 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             The resource content as either text or bytes
 
         Raises:
-            ResourceNotFoundError: If no resource or template matches the URI.
-            ResourceError: If template creation or resource reading fails.
+            ResourceNotFoundError: If no resource or template matches the URI, or the
+                handler raised it.
+            ResourceError: If the resource or template function raises `ResourceError`.
+            UnexpectedResourceError: If the resource or template function raises anything
+                else. `__cause__` is the original exception. Left uncaught in a tool, this
+                is logged as the tool's crash, while the two above are not.
             RuntimeError: If the resource returned an `InputRequiredResult`.
         """
         assert self._mcp_server is not None, "Context is not available outside of a request"
@@ -275,16 +285,6 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             related_request_id=self.request_id,
         )
 
-    # TODO(maxisbey): see if this is needed otherwise remove
-    @property
-    def client_id(self) -> str | None:
-        """Get the client ID if available.
-
-        Note: this reads from the MCP request's `_meta` params, not the OAuth
-        bearer token. For that, use `get_access_token().client_id`.
-        """
-        return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
-
     @property
     def headers(self) -> Mapping[str, str] | None:
         """Request headers carried by this message, when the transport has them.
@@ -326,11 +326,11 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     def client_capabilities(self) -> ClientCapabilities | None:
         """The client's declared capabilities for this connection.
 
-        `None` when the client supplied no client info (e.g. an anonymous
-        stateless request without the reserved `_meta` keys).
+        `None` when the client declared none (e.g. an anonymous stateless
+        request without the reserved `_meta` keys). Client info is not
+        required for capabilities to be recorded.
         """
-        client_params = self.request_context.session.client_params
-        return client_params.capabilities if client_params else None
+        return self.request_context.session.client_capabilities
 
     @property
     def session(self):

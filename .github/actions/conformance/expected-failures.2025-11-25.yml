@@ -1,0 +1,26 @@
+# Expected failures at the 2025-11-25 wire, read by the `--suite all
+# --spec-version 2025-11-25` server and client legs: every scenario the pinned
+# harness marks applicable at 2025-11-25, run over the stateful handshake.
+#
+# That selection is a superset of the frozen 2025-11-25 requirement set (`npx
+# $CONFORMANCE_PKG list --requirements 2025-11-25`), so an entry here for a
+# scenario in that set means `conformance tier-check` scores the SDK below 100%
+# for 2025-11-25 even though CI is green; link the tracking issue next to any
+# such entry.
+#
+# Kept separate from expected-failures.yml even though the bare `--suite all`
+# legs currently run these same scenarios at 2025-11-25 too: the harness's
+# default wire is due to move (modelcontextprotocol/conformance#426) and this
+# file must keep meaning 2025-11-25. Until then a failure here also needs an
+# entry there. The file is passed even while empty: run-client.sh keys its solo
+# re-verification off the harness's baseline output.
+#
+# Baseline established against the harness pinned via CONFORMANCE_PKG in
+# .github/workflows/conformance.yml. New conformance releases are adopted by
+# deliberately bumping that pin and reconciling all three expected-failures
+# files in the same change. Entries MUST be removed as they start passing (the
+# runner fails on stale entries).
+
+client: []
+
+server: []

@@ -1,6 +1,5 @@
-from mcp_types import ElicitRequest, ElicitRequestFormParams, ElicitResult, InputRequiredResult
-
 from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity
+from mcp.types import ElicitRequest, ElicitRequestFormParams, ElicitResult, InputRequiredResult
 
 CONFIRM = ElicitRequest(
     params=ElicitRequestFormParams(

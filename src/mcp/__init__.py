@@ -58,6 +58,9 @@ from mcp_types import (
 )
 from mcp_types import Role as SamplingRole
 
+# Bind the `mcp.types` submodule on the package, as v1's `from .types import
+# ...` did, so `import mcp` followed by `mcp.types.Tool` keeps working.
+from . import types as types
 from .client._input_required import InputRequiredRoundsExceededError
 from .client.client import Client
 from .client.session import ClientSession

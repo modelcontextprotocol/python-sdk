@@ -1,4 +1,5 @@
-from mcp_types import (
+from mcp.server import Server, ServerRequestContext
+from mcp.types import (
     ListResourcesResult,
     PaginatedRequestParams,
     ReadResourceRequestParams,
@@ -6,8 +7,6 @@ from mcp_types import (
     Resource,
     TextResourceContents,
 )
-
-from mcp.server import Server, ServerRequestContext
 
 RESOURCES = {
     "config://shop": '{"currency": "USD", "tax_rate": 0.08}',

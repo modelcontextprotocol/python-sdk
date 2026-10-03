@@ -16,6 +16,7 @@ See `JSONRPCDispatcher` for the production implementation and
 embedding a server in-process.
 """
 
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Protocol, TypedDict, TypeVar, runtime_checkable
 
@@ -26,17 +27,44 @@ from mcp_types import RequestId
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "CallOptions",
     "DispatchContext",
     "Dispatcher",
     "OnNotify",
+    "OnNotifyIntercept",
     "OnRequest",
     "Outbound",
     "ProgressFnT",
+    "as_request_id",
+    "coerce_request_id",
+    "run_notify_intercept",
 ]
 
 TransportT_co = TypeVar("TransportT_co", bound=TransportContext, covariant=True)
+
+
+def as_request_id(value: object) -> RequestId | None:
+    """Narrow an untyped wire value to a `RequestId`, or None; rejects bool (True would alias request id 1)."""
+    if isinstance(value, str | int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def coerce_request_id(request_id: RequestId) -> RequestId:
+    """Coerce a stringified int request id back to int so a peer-echoed id still correlates (matches the TS SDK).
+
+    This is the collision/correlation domain dispatchers share: "7" and 7 are one
+    id for correlation purposes, even where the wire carries the verbatim value.
+    """
+    if isinstance(request_id, str):
+        try:
+            return int(request_id)
+        except ValueError:
+            pass
+    return request_id
 
 
 class ProgressFnT(Protocol):
@@ -49,6 +77,24 @@ class CallOptions(TypedDict, total=False):
     """Per-call options for `Outbound.send_raw_request`.
 
     All keys are optional. Dispatchers ignore keys they do not understand.
+    """
+
+    request_id: RequestId
+    """Send the request under this caller-supplied id instead of a dispatcher-minted one.
+
+    The peer sees the value verbatim ("7" stays a string). A value that collides
+    with one of the sender's own in-flight request ids raises `ValueError`.
+    Callers that need to know a request's id before its result arrives (a
+    `subscriptions/listen` stream is demultiplexed by it) mint their own ids
+    here.
+
+    Integer ids, and strings that parse as integers, share the dispatcher's own
+    counter. The dispatcher skips an id that is still in flight, but may mint
+    the same value again once that request has finished. When an id must stay
+    unique for the whole session, use a string that doesn't parse as an
+    integer, as the `subscriptions/listen` driver does (`listen-1`,
+    `listen-2`, ...). Per the class contract, dispatchers that predate this key
+    ignore it and mint as usual.
     """
 
     timeout: float
@@ -184,6 +230,25 @@ OnRequest = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] 
 OnNotify = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] | None], Awaitable[None]]
 """Handler for inbound notifications: `(ctx, method, params)`."""
 
+OnNotifyIntercept = Callable[[str, Mapping[str, Any] | None], bool]
+"""Synchronous receive-order intercept for inbound notifications: `(method, params) -> consumed`.
+
+Runs before `on_notify` is scheduled so correlation state advances in wire order
+relative to response resolution (the client's listen demux depends on this).
+Returning True consumes the notification. Must not block the receive path.
+"""
+
+
+def run_notify_intercept(intercept: OnNotifyIntercept | None, method: str, params: Mapping[str, Any] | None) -> bool:
+    """Invoke `intercept`, containing a raise to that one notification (never the receive loop)."""
+    if intercept is None:
+        return False
+    try:
+        return intercept(method, params)
+    except Exception:
+        logger.exception("notification intercept raised; passing %r through", method)
+        return False
+
 
 class Dispatcher(Outbound, Protocol[TransportT_co]):
     """A duplex request/notification channel with call-return semantics.
@@ -191,13 +256,15 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
     Implementations own correlation of outbound requests to inbound results, the
     receive loop, per-request concurrency, and cancellation/progress wiring.
 
-    The lifecycle surface is provisional; `run()` may change before v2 stable.
+    The lifecycle surface is provisional; `run()` may change in a 2.x minor
+    release.
     """
 
     async def run(
         self,
         on_request: OnRequest,
         on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
@@ -205,7 +272,9 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
 
         Each inbound request is dispatched to `on_request` in its own task;
         the returned dict (or raised `MCPError`) is sent back as the response.
-        Inbound notifications go to `on_notify`.
+        Implementations MUST offer every inbound notification to
+        `on_notify_intercept` synchronously in receive order (via
+        `run_notify_intercept`), handing only unconsumed ones to `on_notify`.
 
         `task_status.started()` is called once the dispatcher is ready to
         accept `send_request`/`notify` calls, so callers can use

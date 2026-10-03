@@ -43,6 +43,7 @@ from mcp.shared.inbound import (
     find_duplicated_routing_header,
     find_invalid_x_mcp_header,
     mcp_param_headers,
+    unsupported_protocol_version_rejection,
     validate_mcp_param_headers,
     x_mcp_header_map,
 )
@@ -98,19 +99,55 @@ def assert_rejected(result: object, code: int) -> InboundLadderRejection:
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("body", "named"),
     [
-        pytest.param({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, id="no-params"),
-        pytest.param({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}, id="no-meta"),
-        pytest.param(envelope(drop=frozenset({PROTOCOL_VERSION_META_KEY})), id="meta-missing-version"),
-        pytest.param(envelope(drop=frozenset({CLIENT_INFO_META_KEY})), id="meta-missing-client-info"),
-        pytest.param(envelope(drop=frozenset({CLIENT_CAPABILITIES_META_KEY})), id="meta-missing-client-caps"),
+        pytest.param(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            [PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY],
+            id="no-params",
+        ),
+        pytest.param(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+            [PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY],
+            id="no-meta",
+        ),
+        pytest.param(
+            envelope(drop=frozenset({PROTOCOL_VERSION_META_KEY})),
+            [PROTOCOL_VERSION_META_KEY],
+            id="meta-missing-version",
+        ),
+        pytest.param(
+            envelope(drop=frozenset({CLIENT_CAPABILITIES_META_KEY})),
+            [CLIENT_CAPABILITIES_META_KEY],
+            id="meta-missing-client-caps",
+        ),
+        pytest.param(
+            envelope(drop=frozenset({PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY})),
+            [PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY],
+            id="meta-missing-both",
+        ),
     ],
 )
-def test_envelope_rung_rejects_missing_keys(body: dict[str, Any]) -> None:
-    """Spec-mandated: a modern request lacking any of the three reserved `_meta` keys is rejected INVALID_PARAMS."""
+def test_envelope_rung_rejects_missing_required_keys(body: dict[str, Any], named: list[str]) -> None:
+    """Spec-mandated (basic/index.mdx per-request protocol fields): a modern
+    request lacking a required `_meta` envelope key (protocol version or
+    client capabilities) is rejected INVALID_PARAMS with a message naming the
+    missing key(s)."""
     rejection = assert_rejected(classify_inbound_request(body), INVALID_PARAMS)
     assert rejection.data is None
+    for key in named:
+        assert key in rejection.message
+
+
+def test_envelope_rung_accepts_pair_only_envelope_without_client_info() -> None:
+    """Spec-mandated (spec PR #3002): `clientInfo` is optional - a request whose
+    `_meta` carries only the protocol-version + client-capabilities pair
+    routes, with `client_info` read as `None`."""
+    result = classify_inbound_request(envelope(drop=frozenset({CLIENT_INFO_META_KEY})))
+    assert isinstance(result, InboundModernRoute)
+    assert result.protocol_version == LATEST_MODERN_VERSION
+    assert result.client_info is None
+    assert result.client_capabilities == CLIENT_CAPS
 
 
 @pytest.mark.parametrize(
@@ -187,6 +224,22 @@ def test_version_rung_data_reflects_supplied_supported_list() -> None:
         UNSUPPORTED_PROTOCOL_VERSION,
     )
     assert rejection.data == {"supported": list(custom), "requested": LATEST_MODERN_VERSION}
+
+
+def test_unsupported_protocol_version_rejection_is_the_version_rung_standalone() -> None:
+    """SDK-defined: the standalone helper (used by the HTTP notification arm) yields `None` for a
+    served version and otherwise the very rejection the request ladder's version rung produces."""
+    assert unsupported_protocol_version_rejection(LATEST_MODERN_VERSION) is None
+    assert unsupported_protocol_version_rejection("2099-01-01") == classify_inbound_request(
+        envelope(version="2099-01-01")
+    )
+    assert unsupported_protocol_version_rejection(LATEST_MODERN_VERSION, (LATEST_HANDSHAKE_VERSION,)) == (
+        InboundLadderRejection(
+            code=UNSUPPORTED_PROTOCOL_VERSION,
+            message="Unsupported protocol version",
+            data={"supported": [LATEST_HANDSHAKE_VERSION], "requested": LATEST_MODERN_VERSION},
+        )
+    )
 
 
 # --- rung 3: header ↔ envelope agreement ---------------------------------------

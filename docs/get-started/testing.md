@@ -1,8 +1,8 @@
 # Testing
 
-The Python SDK ships a `Client` class with an **in-memory transport**: pass it your server object and it connects to it directly.
+The SDK's `Client` class, the same one that connects to a URL or launches a subprocess, also connects **in memory**: pass it your server object and it talks to it directly.
 
-No subprocess. No port. No transport at all. It's the same idea as FastAPI's `TestClient`.
+No subprocess. No port. Nothing on a wire. It's the same idea as FastAPI's `TestClient`.
 
 ## Basic usage
 
@@ -40,7 +40,7 @@ Now the test:
 import pytest
 from inline_snapshot import snapshot
 from mcp import Client
-from mcp_types import CallToolResult, TextContent
+from mcp.types import CallToolResult, TextContent
 
 from server import mcp
 
@@ -59,6 +59,8 @@ async def client():  # (2)!
 @pytest.mark.anyio
 async def test_call_add_tool(client: Client):
     result = await client.call_tool("add", {"a": 1, "b": 2})
+    # Drop the server identity stamp in `_meta`; it is not what this test is about.
+    result.meta = None
     assert result == snapshot(
         CallToolResult(
             content=[TextContent(type="text", text="3")],
@@ -77,8 +79,8 @@ There you go! You can now extend your tests to cover more scenarios.
 Two different things can go wrong, and this flag only touches one of them.
 
 An exception inside one of **your tools** is not a protocol failure. It becomes a normal result with
-`is_error=True`, and the model reads the message. `raise_exceptions` doesn't change that: with or
-without it, `call_tool` returns the same `is_error=True` result. There's a whole page on it:
+`is_error=True` (and if it was a `ToolError`, the model reads your message). `raise_exceptions` doesn't
+change that: with or without it, `call_tool` returns the same `is_error=True` result. There's a whole page on it:
 **[Handling errors](../servers/handling-errors.md)**.
 
 A failure **outside** a tool body is different. On the connection `Client(mcp)` gives you, the
@@ -89,7 +91,7 @@ instead of the sanitised one.
 
 Leave it on in tests. It has no meaning in production code.
 
-## In-process by default
+## Era-neutral by default
 
 !!! note
     `Client(mcp)` connects in-process and is **era-neutral** by default: it probes the server and

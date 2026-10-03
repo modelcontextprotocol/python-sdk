@@ -2,10 +2,10 @@
 
 from typing import Any
 
-import mcp_types as types
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
+import mcp.types as types
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import ServerRequestContext
@@ -46,6 +46,7 @@ def build_app() -> Starlette:
             issuer_url=AnyHttpUrl(ISSUER),
             resource_server_url=AnyHttpUrl(RESOURCE_URL),
             required_scopes=[REQUIRED_SCOPE],
+            validate_token_resource=True,
         ),
         token_verifier=StaticTokenVerifier(),
         transport_security=NO_DNS_REBIND,

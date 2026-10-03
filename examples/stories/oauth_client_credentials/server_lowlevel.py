@@ -5,13 +5,13 @@ import json
 import secrets
 from typing import Any
 
-import mcp_types as types
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+import mcp.types as types
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
 from mcp.server.context import ServerRequestContext
@@ -63,7 +63,14 @@ def build_app() -> Starlette:
         if creds != f"{DEMO_CLIENT_ID}:{DEMO_CLIENT_SECRET}":
             return JSONResponse({"error": "invalid_client"}, status_code=401)
         access = f"access_{secrets.token_hex(16)}"
-        issued[access] = AccessToken(token=access, client_id=DEMO_CLIENT_ID, scopes=[DEMO_SCOPE], expires_at=None)
+        resource = form.get("resource")  # RFC 8707: bind the token to the resource the client asked for
+        issued[access] = AccessToken(
+            token=access,
+            client_id=DEMO_CLIENT_ID,
+            scopes=[DEMO_SCOPE],
+            expires_at=None,
+            resource=resource if isinstance(resource, str) else None,
+        )
         body = OAuthToken(access_token=access, token_type="Bearer", expires_in=3600, scope=DEMO_SCOPE)
         return JSONResponse(body.model_dump(exclude_none=True), headers={"cache-control": "no-store"})
 

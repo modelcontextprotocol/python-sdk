@@ -9,7 +9,7 @@ behaviour is covered by the `connect`-fixture matrix.
 import re
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import JSONRPCResponse, ListToolsResult, PaginatedRequestParams, Tool
@@ -107,23 +107,15 @@ async def test_delete_terminates_the_session_and_subsequent_requests_return_404(
         delete = await http.delete("/mcp", headers=base_headers(session_id=session_id))
         assert delete.status_code == 200
 
-        # The manager keeps the terminated transport registered, so the next request reaches the
-        # transport's own _terminated check rather than the manager's unknown-session path.
-        assert session_id in manager._server_instances
+        # The manager forgets a terminated session, so from then on the ID is simply unknown.
+        assert session_id not in manager._server_instances
         post = await http.post(
             "/mcp",
             json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
             headers=base_headers(session_id=session_id),
         )
         assert (post.status_code, post.json()) == snapshot(
-            (
-                404,
-                {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {"code": -32600, "message": "Not Found: Session has been terminated"},
-                },
-            )
+            (404, {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Session not found"}})
         )
 
 
@@ -167,9 +159,9 @@ async def test_stateless_mode_never_issues_a_session_id() -> None:
     cannot have issued one, or the client would echo it); the empty instance map proves the
     manager kept no transport between requests.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def record(request: httpx.Request) -> None:
+    async def record(request: httpx2.Request) -> None:
         requests.append(request)
 
     async with mounted_app(_server(), stateless_http=True, on_request=record) as (http, manager):

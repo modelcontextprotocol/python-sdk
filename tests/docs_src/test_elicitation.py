@@ -1,5 +1,6 @@
 """`docs/handlers/elicitation.md`: every claim the page makes, proved against the real SDK."""
 
+import logging
 from typing import Literal
 
 import pytest
@@ -123,8 +124,7 @@ async def test_an_answer_that_does_not_match_the_schema_never_reaches_the_tool_c
     async with Client(tutorial001.mcp, mode="legacy", elicitation_callback=on_elicit) as client:
         result = await client.call_tool("book_table", {"date": "2025-12-25", "party_size": 2})
     assert result.is_error
-    assert isinstance(result.content[0], TextContent)
-    assert "does not match the requested schema" in result.content[0].text
+    assert result.content == [TextContent(type="text", text="Error executing tool book_table")]
 
 
 class Address(BaseModel):
@@ -158,15 +158,21 @@ async def choose_seating(ctx: Context) -> str:
     return result.data.area
 
 
-async def test_a_nested_model_is_rejected_before_anything_is_sent() -> None:
-    """`!!! warning`: a non-primitive field raises `TypeError` inside `ctx.elicit`, with this exact message."""
+async def test_a_nested_model_is_rejected_before_anything_is_sent(caplog: pytest.LogCaptureFixture) -> None:
+    """`!!! warning`: a non-primitive field raises `TypeError` inside `ctx.elicit` with this exact message,
+    which fails the call and lands in the server log rather than on the wire."""
+    caplog.set_level(logging.ERROR, logger="mcp.server.mcpserver.server")
     async with Client(schema_gate_server, mode="legacy") as client:
         result = await client.call_tool("sign_up", {})
     assert result.is_error
-    assert isinstance(result.content[0], TextContent)
-    assert result.content[0].text == (
-        "Error executing tool sign_up: Elicitation schema field 'address' rendered as "
-        "{'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition"
+    assert result.content == [TextContent(type="text", text="Error executing tool sign_up")]
+    (record,) = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert record.exc_info is not None and record.exc_info[1] is not None
+    cause = record.exc_info[1].__cause__
+    assert isinstance(cause, TypeError)
+    assert str(cause) == (
+        "Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, "
+        "which is not a valid PrimitiveSchemaDefinition"
     )
 
 

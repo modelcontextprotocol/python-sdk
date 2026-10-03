@@ -9,9 +9,9 @@ the vendor method.
 from collections.abc import Sequence
 from typing import Any
 
-import mcp_types as types
 from pydantic import Field
 
+import mcp.types as types
 from mcp.server.context import ServerRequestContext
 from mcp.server.extension import Extension, MethodBinding, ToolBinding
 from mcp.server.mcpserver import MCPServer, require_client_extension

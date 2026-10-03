@@ -6,8 +6,8 @@ from types import MappingProxyType, UnionType
 from typing import Any, get_args
 
 import mcp_types as types
-import mcp_types.v2025_11_25 as v2025
-import mcp_types.v2026_07_28 as v2026
+import mcp_types._v2025_11_25 as v2025
+import mcp_types._v2026_07_28 as v2026
 import pydantic
 import pytest
 from mcp_types import methods
@@ -295,19 +295,21 @@ EMPTY_CLIENT_RESPONSE_METHODS = frozenset({"ping"})
 
 # Pre-2026 versions share the 2025-11-25 surface package.
 PACKAGE_BY_VERSION = {
-    "2024-11-05": "mcp_types.v2025_11_25",
-    "2025-03-26": "mcp_types.v2025_11_25",
-    "2025-06-18": "mcp_types.v2025_11_25",
-    "2025-11-25": "mcp_types.v2025_11_25",
-    "2026-07-28": "mcp_types.v2026_07_28",
+    "2024-11-05": "mcp_types._v2025_11_25",
+    "2025-03-26": "mcp_types._v2025_11_25",
+    "2025-06-18": "mcp_types._v2025_11_25",
+    "2025-11-25": "mcp_types._v2025_11_25",
+    "2026-07-28": "mcp_types._v2026_07_28",
 }
 
-# The three reserved `params._meta` entries the 2026 surface requires on every request.
+# The reserved `params._meta` entries the 2026 surface accepts on every request.
+# `clientInfo` is optional (SHOULD-include, spec PR #3002); the other two are required.
 META_TRIPLE: dict[str, Any] = {
     "io.modelcontextprotocol/protocolVersion": "2026-07-28",
     "io.modelcontextprotocol/clientInfo": {"name": "client", "version": "1.0"},
     "io.modelcontextprotocol/clientCapabilities": {},
 }
+META_REQUIRED_KEYS = ("io.modelcontextprotocol/protocolVersion", "io.modelcontextprotocol/clientCapabilities")
 
 # One minimal valid params mapping per surface request class.
 REQUEST_PARAMS_FIXTURES: dict[type[BaseModel], dict[str, Any] | None] = {
@@ -397,7 +399,6 @@ RESULT_BODY_FIXTURES: dict[type[BaseModel] | UnionType, dict[str, Any]] = {
     v2026.DiscoverResult: {
         "supportedVersions": ["2026-07-28"],
         "capabilities": {},
-        "serverInfo": {"name": "server", "version": "1.0"},
         "resultType": "complete",
         "ttlMs": 0,
         "cacheScope": "private",
@@ -453,11 +454,20 @@ def test_elicit_result_surface_accepts_null_content_values_at_every_version_that
         surface.model_validate({"action": "accept", "content": {"name": "x", "age": None}})
 
 
-def test_server_capabilities_extensions_with_null_json_value_round_trips_at_2026():
-    """Spec `JSONValue` includes `null`; the ts->json render dropped it from the vendored schema."""
-    raw: dict[str, Any] = {"extensions": {"x": {"k": None}}}
-    parsed = v2026.ServerCapabilities.model_validate(raw)
-    assert parsed.model_dump(mode="json")["extensions"] == {"x": {"k": None}}
+def test_discovery_capabilities_preserve_nested_json_values() -> None:
+    """Spec `JSONValue` permits nested containers and every JSON scalar, including numbers and null."""
+    extensions = {"x": {"nested": [None, True, 1, 1.5, "text", {"child": [False]}]}}
+    raw = {
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {"extensions": extensions},
+        "resultType": "complete",
+        "ttlMs": 0,
+        "cacheScope": "private",
+    }
+    parsed = methods.parse_server_result("server/discover", "2026-07-28", raw)
+    assert isinstance(parsed, types.DiscoverResult)
+    assert parsed.capabilities.extensions == extensions
+    assert methods.serialize_server_result("server/discover", "2026-07-28", raw) == raw
 
 
 def test_elicit_request_surface_accepts_loose_property_schemas():
@@ -471,6 +481,22 @@ def test_elicit_request_surface_accepts_loose_property_schemas():
     }
     parsed = methods.parse_server_request("elicitation/create", "2025-11-25", params)
     assert isinstance(parsed, types.ElicitRequest)
+
+
+def test_2025_11_25_tool_schema_surfaces_accept_boolean_sub_schemas():
+    """JSON Schema 2020-12 allows `true`/`false` wherever a sub-schema is expected; real servers emit them."""
+    tool = {
+        "name": "echo",
+        "inputSchema": {"type": "object", "properties": {"arg": True}},
+        "outputSchema": {
+            "type": "object",
+            "properties": {"result": True, "hidden": False, "rows": {"type": "array", "items": True}},
+            "required": ["result"],
+        },
+    }
+    sieved = methods.serialize_server_result("tools/list", "2025-11-25", {"tools": [tool]})
+    assert sieved["tools"][0]["inputSchema"] == tool["inputSchema"]
+    assert sieved["tools"][0]["outputSchema"] == tool["outputSchema"]
 
 
 def test_response_map_keys_mirror_the_request_map_keys():
@@ -651,14 +677,22 @@ def test_unknown_version_strings_raise_value_error_on_every_parse_function():
         assert "2099-01-01" in str(excinfo.value)
 
 
-def test_2026_07_28_requests_missing_a_reserved_meta_entry_reject_as_missing():
-    for absent_key in META_TRIPLE:
+def test_2026_07_28_requests_missing_a_required_meta_entry_reject_as_missing():
+    for absent_key in META_REQUIRED_KEYS:
         partial_meta = {key: value for key, value in META_TRIPLE.items() if key != absent_key}
         with pytest.raises(pydantic.ValidationError) as excinfo:
             methods.parse_client_request("tools/list", "2026-07-28", {"_meta": partial_meta})
         assert [error["loc"] for error in excinfo.value.errors() if error["type"] == "missing"] == [
             ("params", "_meta", absent_key)
         ]
+
+
+def test_2026_07_28_requests_accept_meta_without_the_optional_client_info():
+    """spec PR #3002: `clientInfo` is optional on the 2026 surface - the required
+    pair alone validates."""
+    pair_meta = {key: value for key, value in META_TRIPLE.items() if key != "io.modelcontextprotocol/clientInfo"}
+    parsed = methods.parse_client_request("tools/list", "2026-07-28", {"_meta": pair_meta})
+    assert isinstance(parsed, types.ListToolsRequest)
 
 
 def test_2026_07_28_results_require_result_type():
@@ -861,7 +895,6 @@ MONOLITH_RESULT_FIXTURES: dict[str, types.Result] = {
     "server/discover": types.DiscoverResult(
         supported_versions=["2026-07-28"],
         capabilities=types.ServerCapabilities(),
-        server_info=types.Implementation(name="server", version="1.0"),
         ttl_ms=0,
         cache_scope="private",
     ),
@@ -925,6 +958,24 @@ def test_serialize_server_result_preserves_open_type_extras():
     sieved = methods.serialize_server_result("tools/list", "2025-11-25", {"tools": [tool]})
     assert sieved["tools"][0]["inputSchema"] == input_schema
     assert sieved["tools"][0]["_meta"] == nested_meta
+
+
+def test_serialize_server_result_drops_top_level_server_info_on_discover_but_keeps_the_meta_stamp():
+    """Server identity moved from the discover body to result `_meta` (spec PR #3002):
+    the sieve drops the removed body key and preserves the `_meta` stamp."""
+    stamp = {"name": "server", "version": "1.0"}
+    dumped: dict[str, Any] = {
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {},
+        "serverInfo": stamp,
+        "_meta": {types.SERVER_INFO_META_KEY: stamp},
+        "resultType": "complete",
+        "ttlMs": 0,
+        "cacheScope": "private",
+    }
+    sieved = methods.serialize_server_result("server/discover", "2026-07-28", dumped)
+    assert "serverInfo" not in sieved
+    assert sieved["_meta"] == {types.SERVER_INFO_META_KEY: stamp}
 
 
 def test_serialize_server_result_drops_an_unknown_nested_tool_field():

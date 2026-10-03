@@ -6,9 +6,17 @@ Servers released before 2026-07-28 open every connection with the **`initialize`
 
 You almost never have to care, because `Client` negotiates for you. This page is about the one constructor argument that controls it, `mode=`, and the three times you change it.
 
+Every snippet on this page is a `client.py` that talks to the Bookshop `server.py` from **[The Client](client/index.md)**. Start that server in one terminal:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+Then run each snippet in a second terminal with `python client.py`.
+
 ## `mode="auto"`
 
-```python title="client.py" hl_lines="14-15"
+```python title="client.py" hl_lines="7-8"
 --8<-- "docs_src/protocol_versions/tutorial001.py"
 ```
 
@@ -26,13 +34,14 @@ Either way you come out connected, and `client.protocol_version` tells you which
 That is the whole feature. One `Client`, any era of server, no branching in your code.
 
 !!! info
-    `MCPServer` answers `server/discover` on every transport — in-memory, stdio, streamable
-    HTTP — so against your own server `auto` always lands on `2026-07-28`. The fallback only
-    ever fires against a real pre-2026 server, which is exactly when you want it to.
+    `MCPServer` answers `server/discover` on every transport — Streamable HTTP, stdio, and the
+    in-process connection your tests use — so against your own server `auto` always lands on
+    `2026-07-28`. The fallback only ever fires against a real pre-2026 server, which is exactly
+    when you want it to.
 
 ## `mode="legacy"`
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial002.py"
 ```
 
@@ -56,7 +65,7 @@ At 2026-07-28 it is gone. The server *returns* its questions and you retry the c
 
 `mode` also accepts a modern protocol version string. Today that set is exactly `["2026-07-28"]`.
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial003.py"
 ```
 
@@ -68,10 +77,10 @@ A pin is a promise *you* make: you already know the server speaks that version. 
     A pin is not a discovery. Print `client.server_info` and the price is right there:
 
     ```text
-    name='' title=None version='' description=None website_url=None icons=None
+    None
     ```
 
-    The client never asked the server who it is, so `server_info` is a blank. `client.server_capabilities`
+    The client never asked the server who it is, so `server_info` is `None`. `client.server_capabilities`
     is the same story: every capability is `None`. Tool calls still work (the protocol needs none of it);
     code that reads `server_capabilities` to decide what to offer does not.
 
@@ -87,9 +96,9 @@ ValueError: mode must be 'legacy', 'auto', or one of ['2026-07-28']; got '2025-0
 
 The probe is cheap, but it is still a round trip you pay on every reconnect, and the answer almost never changes.
 
-So keep it. After an `auto` connection, `client.session.discover_result` holds the exact `DiscoverResult` the server sent: its `supported_versions`, its `capabilities`, its `server_info`, its `instructions`. Hand it back as `prior_discover=` the next time:
+So keep it. After an `auto` connection, `client.session.discover_result` holds the exact `DiscoverResult` the server sent: its `supported_versions`, its `capabilities`, its `instructions`, and the identity the server stamped into the result's `_meta`. Hand it back as `prior_discover=` the next time:
 
-```python title="client.py" hl_lines="15 17"
+```python title="client.py" hl_lines="8 10"
 --8<-- "docs_src/protocol_versions/tutorial004.py"
 ```
 
@@ -112,7 +121,7 @@ The second connection made **zero** negotiation round trips and still knows exac
 | --- | --- | --- |
 | `Client(target)` | one `server/discover` probe; the `initialize` handshake if it fails | the newest version both sides speak, whichever era |
 | `Client(target, mode="legacy")` | the `initialize` handshake | a handshake-era version; server-initiated requests work |
-| `Client(target, mode="2026-07-28")` | none | that version, pinned, with a blank `server_info` |
+| `Client(target, mode="2026-07-28")` | none | that version, pinned, with `server_info` as `None` |
 | `Client(target, mode="2026-07-28", prior_discover=saved)` | none | that version, pinned, *and* the identity you saved last time |
 
 ## Recap
@@ -121,7 +130,7 @@ The second connection made **zero** negotiation round trips and still knows exac
 * `mode="auto"` is the default: probe, fall back. Leave it alone unless one of the other three rows describes you.
 * `client.protocol_version` is always the answer to "what did I get?".
 * `mode="legacy"` forces the handshake. It is what you need for server-initiated requests: sampling, push elicitation, `message_handler`.
-* A version pin (`mode="2026-07-28"`) sends no negotiation traffic at all, at the cost of a blank `server_info`.
+* A version pin (`mode="2026-07-28"`) sends no negotiation traffic at all, at the cost of `client.server_info` being `None`.
 * `prior_discover=` pays that cost back: save `client.session.discover_result`, reconnect with it, get both.
 
 A modern connection has no push channel, so how does a 2026 server ask you a question mid-call? It returns it: **[Multi-round-trip requests](handlers/multi-round-trip.md)**.

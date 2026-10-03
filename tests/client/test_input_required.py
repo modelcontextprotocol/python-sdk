@@ -37,6 +37,11 @@ from mcp.client._input_required import (
 pytestmark = pytest.mark.anyio
 
 
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`."""
+
+
 def _elicit(message: str = "What is your name?") -> ElicitRequest:
     schema = {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
     return ElicitRequest(params=ElicitRequestFormParams(message=message, requested_schema=schema))

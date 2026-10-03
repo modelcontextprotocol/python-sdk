@@ -8,6 +8,7 @@ order on a modern connection, the `ping` removal, and both `filterwarnings` reci
 so the prose cannot drift away from what the SDK does.
 """
 
+import logging
 import warnings
 
 import pytest
@@ -117,20 +118,25 @@ def test_mcp_deprecation_warning_is_a_user_warning() -> None:
 
 
 @pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")
-async def test_error_filter_turns_the_deprecated_call_into_the_documented_tool_error() -> None:
+async def test_error_filter_turns_the_deprecated_call_into_the_documented_tool_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """The `!!! check`: `"error::mcp.MCPDeprecationWarning"` makes `old_log` fail.
 
-    Under the error filter the warning becomes the raised exception, the tool manager
-    wraps it, and the result is exactly the tool error the page quotes.
+    Under the error filter the warning becomes the raised exception, the tool wrapper treats it as a
+    crash, and the result plus the logged warning are exactly what the page quotes.
     """
+    caplog.set_level(logging.ERROR, logger="mcp.server.mcpserver.server")
     async with Client(mcp) as client:
         result = await client.call_tool("old_log", {})
     assert result.is_error
     [content] = result.content
     assert isinstance(content, TextContent)
-    assert content.text == (
-        "Error executing tool old_log: The logging capability is deprecated as of 2026-07-28 (SEP-2577)."
-    )
+    assert content.text == "Error executing tool old_log"
+    (record,) = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert record.exc_info is not None and isinstance(record.exc_info[1], BaseException)
+    assert str(record.exc_info[1].__cause__) == "The logging capability is deprecated as of 2026-07-28 (SEP-2577)."
+    assert type(record.exc_info[1].__cause__).__name__ == "MCPDeprecationWarning"
 
 
 async def test_filterwarnings_ignore_silences_the_whole_category() -> None:

@@ -1,7 +1,7 @@
 """`docs/run/deploy.md`: every claim the page makes, proved against the real SDK."""
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from mcp_types import (
     INVALID_PARAMS,
@@ -44,18 +44,18 @@ async def test_the_default_app_rejects_a_real_hostname_before_mcp_runs() -> None
     bare = MCPServer("Notes")
     app = bare.streamable_http_app()
     async with bare.session_manager.run():
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://api.example.com") as h:
+        async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url="https://api.example.com") as h:
             response = await h.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
     assert (response.status_code, response.text) == (421, "Invalid Host header")
 
 
 async def test_the_allowlisted_app_serves_its_hostname_and_still_rejects_others() -> None:
     """tutorial001: `allowed_hosts=` opens exactly the hostname you named, and nothing else."""
-    transport = httpx.ASGITransport(app=tutorial001.app)
+    transport = httpx2.ASGITransport(app=tutorial001.app)
     async with tutorial001.mcp.session_manager.run():
-        async with httpx.AsyncClient(transport=transport, base_url="https://mcp.example.com") as http:
+        async with httpx2.AsyncClient(transport=transport, base_url="https://mcp.example.com") as http:
             allowed = await http.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
-        async with httpx.AsyncClient(transport=transport, base_url="https://api.example.com") as http:
+        async with httpx2.AsyncClient(transport=transport, base_url="https://api.example.com") as http:
             rejected = await http.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
     assert allowed.status_code == 200
     assert allowed.headers["mcp-session-id"]

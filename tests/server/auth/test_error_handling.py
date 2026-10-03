@@ -7,15 +7,16 @@ import unittest.mock
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-import httpx
+import httpx2
 import pytest
-from httpx import ASGITransport
+from httpx2 import ASGITransport
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
 from mcp.server.auth.provider import AuthorizeError, RegistrationError, TokenError
 from mcp.server.auth.routes import create_auth_routes
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE
 from tests.server.mcpserver.auth.test_auth_integration import MockOAuthProvider
 
 
@@ -47,7 +48,7 @@ def app(oauth_provider: MockOAuthProvider):
 def client(app: Starlette):
     transport = ASGITransport(app=app)
     # Use base_url without a path since routes are directly on the app
-    return httpx.AsyncClient(transport=transport, base_url="http://localhost")
+    return httpx2.AsyncClient(transport=transport, base_url="http://localhost")
 
 
 @pytest.fixture
@@ -65,7 +66,7 @@ def pkce_challenge():
 
 
 @pytest.fixture
-async def registered_client(client: httpx.AsyncClient) -> dict[str, Any]:
+async def registered_client(client: httpx2.AsyncClient) -> dict[str, Any]:
     """Create and register a test client."""
     # Default client metadata
     client_metadata = {
@@ -84,7 +85,7 @@ async def registered_client(client: httpx.AsyncClient) -> dict[str, Any]:
 
 
 @pytest.mark.anyio
-async def test_registration_error_handling(client: httpx.AsyncClient, oauth_provider: MockOAuthProvider):
+async def test_registration_error_handling(client: httpx2.AsyncClient, oauth_provider: MockOAuthProvider):
     # Mock the register_client method to raise a registration error
     with unittest.mock.patch.object(
         oauth_provider,
@@ -118,7 +119,7 @@ async def test_registration_error_handling(client: httpx.AsyncClient, oauth_prov
 
 @pytest.mark.anyio
 async def test_authorize_error_handling(
-    client: httpx.AsyncClient,
+    client: httpx2.AsyncClient,
     oauth_provider: MockOAuthProvider,
     registered_client: dict[str, Any],
     pkce_challenge: dict[str, str],
@@ -159,7 +160,7 @@ async def test_authorize_error_handling(
 
 @pytest.mark.anyio
 async def test_token_error_handling_auth_code(
-    client: httpx.AsyncClient,
+    client: httpx2.AsyncClient,
     oauth_provider: MockOAuthProvider,
     registered_client: dict[str, Any],
     pkce_challenge: dict[str, str],
@@ -218,7 +219,7 @@ async def test_token_error_handling_auth_code(
 
 @pytest.mark.anyio
 async def test_token_error_handling_refresh_token(
-    client: httpx.AsyncClient,
+    client: httpx2.AsyncClient,
     oauth_provider: MockOAuthProvider,
     registered_client: dict[str, Any],
     pkce_challenge: dict[str, str],
@@ -288,3 +289,61 @@ async def test_token_error_handling_refresh_token(
         data = refresh_response.json()
         assert data["error"] == "invalid_scope"
         assert data["error_description"] == "The requested scope is invalid"
+
+
+_FORM = "application/x-www-form-urlencoded"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("method", "path", "content_type"),
+    [
+        ("POST", "/token", _FORM),
+        ("POST", "/revoke", _FORM),
+        ("POST", "/register", "application/json"),
+        ("POST", "/authorize", _FORM),
+        # The other methods these routes accept reach the same body-reading handlers.
+        ("OPTIONS", "/token", _FORM),
+        ("OPTIONS", "/revoke", _FORM),
+        ("OPTIONS", "/register", "application/json"),
+        ("HEAD", "/authorize", _FORM),
+    ],
+)
+async def test_oversized_request_body_returns_413(
+    client: httpx2.AsyncClient, method: str, path: str, content_type: str
+):
+    """Each endpoint that reads a request body rejects one over 4 MiB before parsing it, whatever the method."""
+    response = await client.request(
+        method, path, content=b"x" * (DEFAULT_MAX_REQUEST_BODY_SIZE + 1), headers={"Content-Type": content_type}
+    )
+    assert response.status_code == 413
+
+
+@pytest.mark.anyio
+async def test_request_body_within_the_limit_is_still_parsed(client: httpx2.AsyncClient):
+    """A small body is passed through to the handler intact: the form is parsed and its fields validated."""
+    response = await client.post("/token", data={"grant_type": "authorization_code"})
+    assert response.status_code == 401
+    assert response.json() == {"error": "invalid_client", "error_description": "Missing client_id"}
+
+
+@pytest.mark.anyio
+async def test_cors_preflight_is_still_answered(client: httpx2.AsyncClient):
+    """A CORS preflight to a body-limited endpoint is answered by the CORS layer as before."""
+    response = await client.options(
+        "/token", headers={"Origin": "https://client.example.com", "Access-Control-Request-Method": "POST"}
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+
+
+@pytest.mark.anyio
+async def test_oversized_cross_origin_request_gets_413_with_cors_headers(client: httpx2.AsyncClient):
+    """The 413 is produced inside the CORS layer, so a browser client can still read it."""
+    response = await client.post(
+        "/token",
+        content=b"x" * (DEFAULT_MAX_REQUEST_BODY_SIZE + 1),
+        headers={"Content-Type": _FORM, "Origin": "https://client.example.com"},
+    )
+    assert response.status_code == 413
+    assert response.headers["access-control-allow-origin"] == "*"

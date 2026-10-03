@@ -22,8 +22,8 @@ Drop `--server server_lowlevel` (on either transport) to run against the
 
 - `client.py` `main` — `async with Client(target, mode=mode) as client:` is the
   whole connection. The story owns the construction; `target` is whatever
-  `Client()` accepts (an in-process server, a transport, or an HTTP URL) and
-  the entry point picks it.
+  `Client()` accepts (an HTTP URL, `StdioServerParameters`, a transport, or,
+  in tests, an in-process server) and the entry point picks it.
 - `client.py` — `if page.next_cursor is None: break`. Termination is
   key-absent, not falsy; `while cursor:` would be a spec bug.
 - `server_lowlevel.py` — the handler owns the cursor encoding (here: an

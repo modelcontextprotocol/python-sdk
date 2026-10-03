@@ -134,9 +134,54 @@ The `prompts/list` entry now carries everything a client needs to draw a good fo
 ```
 
 !!! info
-    If you have read **[Tools](tools.md)**, you already know everything on this page. Same decorator, same
+    If you have read **[Tools](tools.md)**, you already know everything up to this point. Same decorator, same
     docstring-as-description, same `Annotated`/`Field`. The only things that change are who
     triggers it (the user) and where the result goes (into the conversation).
+
+## More than text
+
+`UserMessage` and `AssistantMessage` also accept a content block, or an `Image` / `Audio` helper, wherever they accept a `str`. Two cases come up in prompts: attaching a document and attaching a picture.
+
+### Embedding a file
+
+```python title="server.py" hl_lines="5 12 21 23"
+--8<-- "docs_src/prompts/tutorial004.py"
+```
+
+* The style guide is a resource at `style://python` (**[Resources](resources.md)** covers those), read from a `style-guide.md` next to `server.py`. Put any Markdown file there.
+* `EmbeddedResource(resource=TextResourceContents(...))`, both from `mcp.types`, carries the file with its URI and MIME type as the first message; the request that refers to it follows as plain text.
+* Embedding, rather than pasting the guide into the f-string, lets the client show it as an attachment and reopen `style://python` later, and the model receives the file verbatim. For a binary file use `BlobResourceContents` with a base64 `blob`.
+
+Rendered, the first message's `content` is a `resource` block:
+
+```json
+{"type": "resource", "resource": {"uri": "style://python", "mimeType": "text/markdown", "text": "* Prefer early returns.\n..."}}
+```
+
+### Attaching an image
+
+```python title="server.py" hl_lines="4 15"
+--8<-- "docs_src/prompts/tutorial005.py"
+```
+
+* `Image` is the helper from **[Images, audio & icons](media.md)**. `UserMessage` converts it to an `ImageContent` block (the file base64-encoded, MIME type guessed from `.png`) when the prompt renders; `Audio` becomes an `AudioContent` the same way.
+* Put any PNG named `architecture.png` beside `server.py`. Prompt arguments are strings, so the picture always comes from the server; `component` only supplies the words.
+
+```json
+{"type": "image", "data": "iVBORw0KGgoAAAANSUhEUg...", "mimeType": "image/png"}
+```
+
+## Changing the list at runtime
+
+Prompts can be added while clients are connected, for example to let a user save an instruction as a menu entry of their own. Register the prompt, then notify:
+
+```python title="server.py" hl_lines="5 23-27"
+--8<-- "docs_src/prompts/tutorial006.py"
+```
+
+* `mcp.add_prompt(Prompt.from_function(fn, name=..., description=...))` registers a function exactly as `@mcp.prompt()` would, and `mcp.remove_prompt(name)` is the reverse. `add_prompt` keeps an existing entry of the same name rather than overwrite it, so the tool removes any old one first to make saving a replace. `prompts/list` reflects the change immediately.
+* `await ctx.notify_prompts_changed()` sends `notifications/prompts/list_changed` to every `2026-07-28` client listening on a `subscriptions/listen` stream (**[Subscriptions](../handlers/subscriptions.md)**). `await ctx.session.send_prompt_list_changed()` sends it to the calling client when that client is pre-2026 (**[Serving legacy clients](../run/legacy-clients.md)**). Call both; each does nothing when there is nobody to tell.
+* A client that receives the notification calls `prompts/list` again. In the Python `Client` that is `async with client.listen(prompts_list_changed=True) as sub:`, which yields a `PromptsListChanged` event.
 
 ## Recap
 
@@ -146,5 +191,7 @@ The `prompts/list` entry now carries everything a client needs to draw a good fo
 * Return a `str` and it becomes one user message. Return a list of `UserMessage` / `AssistantMessage` to seed a multi-turn conversation.
 * `title=` and `Field(description=...)` are what a client puts in its UI.
 * A missing required argument fails the whole request. There is no per-prompt error result.
+* Wrap an `EmbeddedResource` or an `Image` in a `UserMessage` to attach a document or a picture.
+* Add or remove prompts at runtime with `mcp.add_prompt(...)` / `mcp.remove_prompt(...)`, then `await ctx.notify_prompts_changed()` and `await ctx.session.send_prompt_list_changed()`.
 
 Server-side autocomplete for a prompt's (or a resource template's) arguments is **[Completions](completions.md)**.

@@ -1,6 +1,6 @@
 import anyio
 import click
-import mcp_types as types
+import mcp.types as types
 from mcp.server import Server, ServerRequestContext
 
 

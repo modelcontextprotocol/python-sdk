@@ -14,7 +14,6 @@ import json
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
-    ClientResult,
     CreateMessageRequestParams,
     CreateMessageResult,
     ElicitRequestParams,
@@ -30,7 +29,6 @@ from mcp_types import (
     ResourceListChangedNotification,
     ResourceTemplateReference,
     ServerNotification,
-    ServerRequest,
     TextContent,
     TextResourceContents,
     ToolListChangedNotification,
@@ -48,8 +46,7 @@ from examples.snippets.servers import (
     structured_output,
     tool_progress,
 )
-from mcp.client import Client, ClientRequestContext
-from mcp.shared.session import RequestResponder
+from mcp.client import Client, ClientRequestContext, IncomingMessage
 
 pytestmark = pytest.mark.anyio
 
@@ -63,9 +60,7 @@ class NotificationCollector:
         self.resource_notifications: list[NotificationParams | None] = []
         self.tool_notifications: list[NotificationParams | None] = []
 
-    async def handle_generic_notification(
-        self, message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception
-    ) -> None:
+    async def handle_generic_notification(self, message: IncomingMessage) -> None:
         """Handle any server notification and route to appropriate handler."""
         if isinstance(message, ServerNotification):  # pragma: no branch
             if isinstance(message, ProgressNotification):
@@ -180,7 +175,7 @@ async def test_tool_progress() -> None:
     """Test tool progress reporting."""
     collector = NotificationCollector()
 
-    async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
+    async def message_handler(message: IncomingMessage):
         await collector.handle_generic_notification(message)
         if isinstance(message, Exception):  # pragma: no cover
             raise message
@@ -259,7 +254,7 @@ async def test_notifications() -> None:
     """Test notifications and logging functionality."""
     collector = NotificationCollector()
 
-    async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
+    async def message_handler(message: IncomingMessage):
         await collector.handle_generic_notification(message)
         if isinstance(message, Exception):  # pragma: no cover
             raise message

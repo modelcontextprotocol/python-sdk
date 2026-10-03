@@ -1,7 +1,6 @@
-from mcp_types import INVALID_PARAMS
-
 from mcp import MCPError
 from mcp.server import MCPServer
+from mcp.types import INVALID_PARAMS
 
 mcp = MCPServer("Bookshop")
 

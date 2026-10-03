@@ -1,0 +1,165 @@
+---
+translation:
+  sections: [9cac816674181eb0, 5619e950d206e6c8, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 991c10e47fda2636]
+  tool: 1
+---
+# İstemci aktarımları {#client-transports}
+
+Her `Client`, sunucusuyla bir **aktarım** üzerinden konuşur: mesajları fiilen taşıyan şey budur.
+
+Aktarımı hiçbir zaman ayrıca yapılandırmazsınız. `Client` tek bir konumsal argüman alır ve aktarımı bu argümanın türünden çıkarır.
+
+Her birinin *sunucu* tarafı (`mcp.run()`'ın ne yaptığı ve neyi dağıttığınız) **[Sunucunuzu çalıştırma](../run/index.md)** sayfasında.
+
+## Streamable HTTP {#streamable-http}
+
+Bir URL dizesi geçirin; arkasına dağıtım yaptığınız ve ilk başvurmanız gereken aktarım olan **Streamable HTTP**'yi elde edersiniz:
+
+```python title="client.py" hl_lines="5"
+--8<-- "docs_src/client_transports/tutorial002.py"
+```
+
+Üretim istemcisinin tamamı bu. `Client`, URL'yi sizin için `streamable_http_client(...)` ile sarar; bunu da MCP'nin gerektirdiği şekilde yapılandırılmış bir `httpx2.AsyncClient` üzerine kurar: connect/write/pool için 30 saniyelik zaman aşımı ve sunucu bir yanıt akışını açık tutabileceği için 300 saniyelik okuma zaman aşımı.
+
+!!! check
+    Oluşturduğunuz bir `Client` bağlı **değildir**. Oluşturma yalnızca aktarımı seçer;
+    onu açan `async with`'tir. İçine girmeden bağlantıya uzanırsanız SDK bunu size söyler:
+
+    ```text
+    RuntimeError: Client must be used within an async context manager
+    ```
+
+    `Client("http://...")` yazdığınızda hiçbir şey çözümlenmedi, getirilmedi ya da başlatılmadı. O satır bedava.
+
+### Kendi `httpx2.AsyncClient`'ınızı getirme {#bring-your-own-httpx2asyncclient}
+
+Bir `Authorization` başlığına, bir çereze, bir vekil sunucuya, mTLS'e ya da farklı bir zaman aşımına ihtiyaç duyduğunuz anda `httpx2.AsyncClient`'ı kendiniz oluşturun ve `streamable_http_client`'a verin:
+
+```python title="client.py" hl_lines="8-13"
+--8<-- "docs_src/client_transports/tutorial003.py"
+```
+
+Dikkat edilecek iki şey:
+
+* `httpx2.AsyncClient`'ın sahibi sizsiniz, bu yüzden içine **siz** girer ve **siz** çıkarsınız. SDK, kendi oluşturmadığı bir istemciyi asla kapatmaz.
+* `streamable_http_client(url, http_client=...)` bir aktarım döndürür ve `Client(transport)` onu diğer her şey gibi kabul eder.
+
+`timeout=` değerini koruyun. Bu, SDK'nın kendi istemcisinin kullandığı değerdir (30 saniye, okumalar için 300); zaman aşımı verilmeden oluşturulan bir `httpx2.AsyncClient`, `httpx2`'nin 5 saniyelik varsayılan değerini alır ve bundan uzun süren bir araç çağrısı okuma zaman aşımıyla başarısız olur.
+
+TLS ile ilgili bir not: `httpx2`, sertifikaları paketle gelen bir CA listesine göre değil, işletim sisteminin güven deposuna göre doğrular (
+[`truststore`](https://pypi.org/project/truststore/) aracılığıyla). Kullanılabilir bir sistem CA deposu olmayan bir ortamda (bazı minimal kapsayıcılar) standart `SSL_CERT_FILE`/`SSL_CERT_DIR`
+ortam değişkenlerini ayarlayın ya da `httpx2.AsyncClient`'ınıza açıkça bir `verify=ssl_context` geçirin
+(arka plan bilgisi için
+[`httpx` ve `httpx-sse`'nin yerini `httpx2` aldı](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)).
+
+### Daha büyük SSE olayları {#larger-sse-events}
+
+Sunucu büyük bir araç sonucunu ya da bildirimi tek bir SSE olayında gönderiyorsa `max_sse_event_size` geçirin:
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+Varsayılan değer olay başına 1 MiB; bu, olay ayrıştırılmadan önce bayt cinsinden ölçülür. Sınır
+POST yanıtlarına, GET akışına ve sürdürülen akışlara uygulanır. Bir POST yanıtındaki ya da sürdürülen
+bir akıştaki aşırı büyük bir olay, o isteği bir SSE hatasıyla başarısız kılar. Arka plandaki GET akışında ise istemci
+hatayı log'a yazar ve akışı yeniden dener. Sunucuya güveniyorsanız ve daha büyük olaylara ihtiyacınız varsa
+sınırı devre dışı bırakmak için `max_sse_event_size=None` ayarlayın. JSON yanıtları bundan etkilenmez. `ClientSessionGroup` kullanıyorsanız
+aynı seçeneği `StreamableHttpParameters` üzerinde ayarlayın.
+
+!!! warning
+    `streamable_http_client` eskiden `headers=` ve `timeout=` parametrelerini doğrudan alırdı. Artık almıyor:
+    parametreleri `url`, `http_client`, `terminate_on_close` ve `max_sse_event_size`. Alışkanlıkla `headers=`'a
+    uzanırsanız şunu alırsınız:
+
+    ```text
+    TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
+    ```
+
+    Başlıklar, kimlik doğrulama, vekil sunucular ve zaman aşımları, geçirdiğiniz o tek `httpx2.AsyncClient` üzerinde yer alır.
+    `max_sse_event_size` ise MCP aktarımının SSE okuyucularına uygulanır.
+
+!!! info
+    `httpx2`, tanıdık `httpx` API'sini korur; yani `httpx`'i biliyorsanız kimlik doğrulama,
+    vekil sunucular, olay kancaları, yeniden denemeler ve bağlantı sınırlarının burada nasıl yapılacağını zaten biliyorsunuz. SDK üzerine hiçbir şey eklemez,
+    [yönlendirme işleme](#redirects) dışında hiçbir şeyi de eksiltmez. OAuth'un takıldığı yer de burası:
+    `httpx2.AsyncClient(auth=OAuthClientProvider(...))`. Bu akışın tamamı **[OAuth istemcileri](oauth-clients.md)** sayfasında.
+
+### Yönlendirmeler {#redirects}
+
+Aktarım, verdiğiniz URL'ye ve yalnızca o kökene (origin) bağlanır.
+
+* Aynı şema, ana bilgisayar ve portta kalan bir `307`/`308` yönlendirmesi izlenir; aynı ana bilgisayar üzerindeki `http://` → `https://` yönlendirmesi de öyle. Bu, alışıldık `/mcp` → `/mcp/` sondaki eğik çizgi yönlendirmesini kapsar.
+* Başka herhangi bir yere yapılan yönlendirme **izlenmez**. Çağrı şu hatayla başarısız olur:
+
+    ```text
+    MCPError: Redirect to https://other.example.com/mcp not followed; use that URL as the endpoint if it is the intended server
+    ```
+
+    O URL kastettiğiniz sunucuysa yapılandırmanıza yazın. Değilse sunucu ya da önündeki bir vekil sunucu yanlış yapılandırılmıştır.
+
+Bu, geçirdiğiniz her `httpx2.AsyncClient` için geçerlidir: MCP isteklerinde `follow_redirects` ayarına hiçbir yönde bakılmaz. SDK'nın OAuth sağlayıcıları da aynı kuralı kendi isteklerine uygular.
+
+!!! tip
+    `Redirect to http://… not followed: it would downgrade this HTTPS endpoint to plain HTTP` iletisi,
+    sunucunun haberdar olmadığı, TLS sonlandıran bir vekil sunucunun arkasında durduğu ve `http://` yönlendirmeleri
+    verdiği anlamına gelir. Bu, sunucu tarafında düzeltilir (**[Dağıtım ve ölçekleme](../run/deploy.md#behind-a-tls-terminating-proxy)**)
+    ya da iletinin önerdiği tam `https://…/` URL'si kullanılarak.
+
+## stdio {#stdio}
+
+Bir **stdio** sunucusu bir alt süreçtir. İstemci onu başlatır, stdin'ine JSON-RPC yazar ve stdout'undan JSON-RPC okur. Bir masaüstü host'un makinenizde bir sunucuyu çalıştırma biçimi budur: bir host, bu kod artı bir kullanıcı arayüzü*dür* ve **[Gerçek bir host'a bağlanma](../get-started/real-host.md)**, aynı ilişkinin host'un tarafından, bir yapılandırma dosyası olarak görülen halidir.
+
+Süreci `StdioServerParameters` ile tanımlayın ve `Client`'a verin:
+
+```python title="client.py" hl_lines="3-7 11"
+--8<-- "docs_src/client_transports/tutorial004.py"
+```
+
+Bloğa girmek süreci başlatır. Bloktan çıkmak alt süreci kapatır: stdin'i kapatır, bekler, oyalanıyorsa sonlandırır. Onu hiçbir zaman kendiniz temizlemezsiniz.
+
+Alt sürecin stderr'i sizinkine gider. Başka bir yere göndermek için aktarımı `stdio_client` ile (`mcp` içinden) kendiniz oluşturun ve onun yerine bunu geçirin: `Client(stdio_client(server, errlog=log_file))`.
+
+!!! warning
+    Alt süreç ortamınızı **devralmaz**. Minimal bir izin listesi alır (POSIX'te `HOME`, `LOGNAME`,
+    `PATH`, `SHELL`, `TERM` ve `USER`); böylece sizin yazmamış olabileceğiniz bir sürece hassas hiçbir şey
+    sızmaz.
+
+    Bir API anahtarına ihtiyaç duyan bir sunucu onu orada bulamaz. `env=` ile açıkça geçirin; bu
+    değişkenler izin listesinin üstüne birleştirilir. Yukarıda `BOOKSHOP_API_KEY`'in yaptığı budur.
+
+## Bellek içinde {#in-memory}
+
+Bir testte dağıtılacak da başlatılacak da bir şey yoktur. Sunucu nesnesinin kendisini geçirin:
+
+```python hl_lines="14"
+--8<-- "docs_src/client_transports/tutorial001.py"
+```
+
+Alt süreç yok, port yok, ağ üzerinde tek bir bayt yok. İstemci ve sunucu aynı süreçteki iki nesnedir; yine de çağrı gerçek protokol katmanından geçer: `search_books`, HTTP üzerinden nasıl olacaksa tam olarak öyle listelenir, doğrulanır ve çağrılır. **[Test etme](../get-started/testing.md)** sayfası tüm deseni bunun üzerine kurar.
+
+Aynı biçim bir gömme API'si olarak da iş görür: sunucuyu kendisi oluşturan bir uygulama, araçlarını ağ üzerinden bir sıçrama olmadan çağırabilir.
+
+## SSE {#sse}
+
+`mcp.client.sse` içindeki `sse_client(url)`, Streamable HTTP'nin yerini aldığı HTTP aktarımıdır. Hâlâ onu konuşan bir sunucuyla konuşmak için aynı şekilde sarın, `Client(sse_client("http://localhost:8000/sse"))`, ve üzerine yeni hiçbir şey kurmayın.
+
+## `Transport` protokolü {#the-transport-protocol}
+
+`Client` için yukarıdakilerin hepsi aynı şeydir.
+
+Bir **aktarım**, `(read, write)` mesaj akışı çifti veren herhangi bir asenkron bağlam yöneticisidir: resmi olarak `mcp.client` içindeki `Transport` protokolü. `Client`, argümanını türüne göre çözümler: bir `str` `streamable_http_client(url)` olur, bir `StdioServerParameters` `stdio_client(params)` olur, bir sunucu nesnesi süreç içinde bağlanır ve geri kalan her şeye doğrudan bir aktarım olarak girilir. `stdio_client(...)`, `streamable_http_client(...)` ve `sse_client(...)`'in hepsinin aynı yuvaya oturmasının ve kendinizinkini yazabilmenizin nedeni bu son kuraldır.
+
+## Özet {#recap}
+
+* `Client("http://.../mcp")` (bir URL), üretim aktarımı olan Streamable HTTP üzerinden bağlanır.
+* Başlıklar, kimlik doğrulama, vekil sunucular ve zaman aşımları, `streamable_http_client(url, http_client=...)`'a geçirdiğiniz bir `httpx2.AsyncClient` üzerinde yer alır. `headers=` anahtar sözcüğü yoktur.
+* Her SSE olayının bayt sınırını değiştirmek için `streamable_http_client(url, max_sse_event_size=...)` kullanın.
+* Yönlendirmeler yalnızca URL'nin kendi kökeni içinde (sondaki eğik çizgi için `307`/`308`) ve aynı ana bilgisayarda `http`→`https` için izlenir. Geri kalan her şey `Redirect to … not followed` hatasıyla başarısız olur; nihai URL'yi yapılandırın.
+* stdio, `Client(StdioServerParameters(...))` demektir. Onu `stdio_client(...)` ile yalnızca alt sürecin stderr'ini başka yere yönlendirmek için kendiniz sarın.
+* Alt süreç sizinkini değil, izin listesine göre oluşturulmuş bir ortam alır; `env=` buna ekleme yapar.
+* `Client(mcp)` (sunucu nesnesi) bellek içinde bağlanır. Testlerde ya da bir sunucuyu onu oluşturan uygulamaya gömmek için kullanın.
+* Bir aktarım, `async with x as (read, write)` yapabildiğiniz herhangi bir şeydir. `Client`, sunucu nesnesi, URL ya da `StdioServerParameters` olmayan her şeyi doğrudan bu protokole verir.
+* Bir `Client` oluşturmak aktarımı seçer. Onu `async with` açar.
+
+Aktarım açıldıktan sonra iki tarafın bir protokol sürümünde anlaşması gerekir. Normalde bunu hiç düşünmezsiniz; düşünmeniz gerektiğinde gidilecek sayfa **[Protokol sürümleri](../protocol-versions.md)**'dir.

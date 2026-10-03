@@ -4,7 +4,7 @@
 > the sessionful transport are removed in the 2026-07-28 protocol (SEP-2575)
 > with no modern-era equivalent; the closest 2026-era pattern is client-side
 > reconnection over a persisted `DiscoverResult` —
-> [`reconnect/`](../reconnect/). TODO(maxisbey): revisit before beta.
+> [`reconnect/`](../reconnect/).
 
 SEP-1699 server-initiated SSE disconnection with `Last-Event-ID` replay. The
 server's `EventStore` stamps every SSE event with an ID and opens each response
@@ -57,7 +57,7 @@ kill "$SERVER_PID"
   release; this story calls it directly because the event-store and
   retry-interval kwargs are the point.
 - DNS-rebinding protection is disabled (`transport_security=NO_DNS_REBIND`)
-  because the in-process httpx client sends no `Origin` header. Drop the kwarg
+  because the in-process httpx2 client sends no `Origin` header. Drop the kwarg
   for a real deployment.
 - `event_store.py` here is example-grade only (sequential IDs, no eviction). A
   production server would back the `EventStore` interface with persistent

@@ -1,7 +1,7 @@
 import time
 import uuid
 
-import httpx
+import httpx2
 import jwt
 
 from mcp import Client
@@ -9,7 +9,7 @@ from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuth
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
-IDP_SIGNING_KEY = "the-enterprise-idp-signing-key"
+IDP_SIGNING_KEY = "the-enterprise-idp-signing-key-for-this-demo"
 
 
 class InMemoryTokenStorage:
@@ -62,7 +62,7 @@ oauth = IdentityAssertionOAuthProvider(
 
 
 async def main() -> None:
-    async with httpx.AsyncClient(auth=oauth, follow_redirects=True) as http_client:
+    async with httpx2.AsyncClient(auth=oauth, timeout=httpx2.Timeout(30.0, read=300.0)) as http_client:
         transport = streamable_http_client("http://localhost:8001/mcp", http_client=http_client)
         async with Client(transport) as client:
             result = await client.list_tools()

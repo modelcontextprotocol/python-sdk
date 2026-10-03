@@ -1,8 +1,7 @@
 from typing import Any
 
-from mcp_types import ListResourcesResult, PaginatedRequestParams, Resource
-
 from mcp.server import Server, ServerRequestContext
+from mcp.types import ListResourcesResult, PaginatedRequestParams, Resource
 
 BOOKS = [f"book-{n}" for n in range(1, 101)]
 
@@ -18,3 +17,4 @@ async def list_books(ctx: ServerRequestContext[Any], params: PaginatedRequestPar
 
 
 server = Server("Bookshop", on_list_resources=list_books)
+app = server.streamable_http_app()

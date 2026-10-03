@@ -1,10 +1,10 @@
 """Drive the sticky-notes board end to end and prove `remove_all` clears only on a confirmed elicitation."""
 
 import anyio
-import mcp_types as types
-from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 
-from mcp.client import Client, ClientRequestContext
+import mcp.types as types
+from mcp.client import Client, ClientRequestContext, IncomingMessage
+from mcp.types.version import HANDSHAKE_PROTOCOL_VERSIONS
 from stories._harness import Target, run_client
 
 
@@ -18,7 +18,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
             return types.ElicitResult(action="cancel")
         return types.ElicitResult(action="accept", content={"confirm": answer == "confirm"})
 
-    async def on_message(message: object) -> None:
+    async def on_message(message: IncomingMessage) -> None:
         if isinstance(message, types.ResourceListChangedNotification):
             list_changed.set()
 

@@ -1,8 +1,10 @@
 """`docs/servers/structured-output.md`: every claim the page makes, proved against the real SDK."""
 
+import logging
+
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import TextContent
+from mcp_types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
 
 from docs_src.structured_output import (
     tutorial001,
@@ -17,6 +19,7 @@ from docs_src.structured_output import (
 )
 from mcp import Client
 from mcp.server import MCPServer
+from mcp.server.mcpserver import Image
 from mcp.server.mcpserver.exceptions import InvalidSignature
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
@@ -150,15 +153,19 @@ async def test_dict_str_return_is_not_wrapped() -> None:
         assert result.structured_content == {"London": 16.2, "Reykjavik": 4.4}
 
 
-async def test_return_value_is_validated_against_the_schema() -> None:
-    """tutorial007: a return value that does not match the output schema is a tool error, not a result."""
+async def test_return_value_is_validated_against_the_schema(caplog: pytest.LogCaptureFixture) -> None:
+    """tutorial007: a return value that does not match the output schema is a tool error, not a result;
+    the field name goes to the server log, not the client."""
+    caplog.set_level(logging.ERROR, logger="mcp.server.mcpserver.server")
     async with Client(tutorial007.mcp) as client:
         result = await client.call_tool("get_weather", {"city": "London"})
         assert result.is_error
         assert result.structured_content is None
-        assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text.startswith("Error executing tool get_weather: 1 validation error for WeatherData")
-        assert "humidity\n  Field required" in result.content[0].text
+        assert result.content == [TextContent(type="text", text="Error executing tool get_weather")]
+    (record,) = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert record.getMessage() == "Tool 'get_weather' raised an unexpected exception"
+    assert record.exc_info is not None and record.exc_info[1] is not None
+    assert "1 validation error for WeatherData\nhumidity\n  Field required" in str(record.exc_info[1].__cause__)
 
 
 async def test_structured_output_false_opts_out() -> None:
@@ -170,6 +177,36 @@ async def test_structured_output_false_opts_out() -> None:
         assert result.structured_content is None
         assert result.content == [
             TextContent(type="text", text="London: 17 degrees, overcast, light rain easing by evening.")
+        ]
+
+
+async def test_content_blocks_and_media_are_opted_out_of_structured_output() -> None:
+    """The "Content blocks and media" section: a content-block or `Image`/`Audio` return annotation, bare or
+    as list items, derives no output schema and no structured content; the blocks are the result."""
+    mcp = MCPServer("Reports")
+    document = EmbeddedResource(
+        type="resource", resource=TextResourceContents(uri="report://q3", mime_type="text/markdown", text="# Q3")
+    )
+
+    @mcp.tool()
+    def report() -> EmbeddedResource:
+        return document
+
+    @mcp.tool()
+    def chart() -> list[str | Image]:
+        return ["Sales by region:", Image(data=b"png", format="png")]
+
+    async with Client(mcp) as client:
+        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+        assert tools["report"].output_schema is None
+        assert tools["chart"].output_schema is None
+        report_result = await client.call_tool("report", {})
+        assert (report_result.content, report_result.structured_content) == ([document], None)
+        chart_result = await client.call_tool("chart", {})
+        assert chart_result.structured_content is None
+        assert chart_result.content == [
+            TextContent(type="text", text="Sales by region:"),
+            ImageContent(type="image", data="cG5n", mime_type="image/png"),
         ]
 
 

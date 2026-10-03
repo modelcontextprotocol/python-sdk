@@ -12,8 +12,8 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from functools import partial
 from typing import Any, Protocol
 
-import httpx
-from httpx_sse import ServerSentEvent, aconnect_sse
+import httpx2
+from httpx2 import ServerSentEvent
 from mcp_types import (
     ClientCapabilities,
     Implementation,
@@ -21,6 +21,7 @@ from mcp_types import (
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
+    LoggingLevel,
     jsonrpc_message_adapter,
 )
 from mcp_types.version import LATEST_HANDSHAKE_VERSION, MODERN_PROTOCOL_VERSIONS
@@ -68,6 +69,7 @@ class Connect(Protocol):
         sampling_callback: SamplingFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
+        log_level: LoggingLevel | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: Implementation | None = None,
         elicitation_callback: ElicitationFnT | None = None,
@@ -84,6 +86,7 @@ async def connect_in_memory(
     sampling_callback: SamplingFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
+    log_level: LoggingLevel | None = None,
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
@@ -103,6 +106,7 @@ async def connect_in_memory(
         sampling_callback=sampling_callback,
         list_roots_callback=list_roots_callback,
         logging_callback=logging_callback,
+        log_level=log_level,
         message_handler=message_handler,
         client_info=client_info,
         elicitation_callback=elicitation_callback,
@@ -123,6 +127,7 @@ async def connect_over_streamable_http(
     sampling_callback: SamplingFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
+    log_level: LoggingLevel | None = None,
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
@@ -150,7 +155,7 @@ async def connect_over_streamable_http(
     )
     async with (
         server.session_manager.run(),
-        httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
+        httpx2.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
         Client(
             streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client),
             mode=spec_version if spec_version in MODERN_PROTOCOL_VERSIONS else "legacy",
@@ -158,6 +163,7 @@ async def connect_over_streamable_http(
             sampling_callback=sampling_callback,
             list_roots_callback=list_roots_callback,
             logging_callback=logging_callback,
+            log_level=log_level,
             message_handler=message_handler,
             client_info=client_info,
             elicitation_callback=elicitation_callback,
@@ -182,17 +188,17 @@ async def mounted_app(
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
     transport_security: TransportSecuritySettings | None = NO_DNS_REBINDING_PROTECTION,
-    on_request: Callable[[httpx.Request], Awaitable[None]] | None = None,
-    on_response: Callable[[httpx.Response], Awaitable[None]] | None = None,
+    on_request: Callable[[httpx2.Request], Awaitable[None]] | None = None,
+    on_response: Callable[[httpx2.Response], Awaitable[None]] | None = None,
     headers: dict[str, str] | None = None,
     auth: AuthSettings | None = None,
     token_verifier: TokenVerifier | None = None,
     auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
-) -> AsyncIterator[tuple[httpx.AsyncClient, StreamableHTTPSessionManager]]:
-    """Mount the server's streamable HTTP app on the in-process bridge and yield an httpx client.
+) -> AsyncIterator[tuple[httpx2.AsyncClient, StreamableHTTPSessionManager]]:
+    """Mount the server's streamable HTTP app on the in-process bridge and yield an httpx2 client.
 
-    Yields the httpx client (rooted at the in-process origin) and the live session manager. Tests
-    use this in two ways: for raw-httpx assertions (status codes, headers, SSE bytes) the test
+    Yields the httpx2 client (rooted at the in-process origin) and the live session manager. Tests
+    use this in two ways: for raw-httpx2 assertions (status codes, headers, SSE bytes) the test
     speaks HTTP through the yielded client directly; for client-driven assertions the test wraps
     that client in `client_via_http(http)`, which lets several `Client`s share the one mounted
     session manager. `on_request` observes every outgoing HTTP request before it leaves the
@@ -220,7 +226,7 @@ async def mounted_app(
         event_hooks["response"] = [on_response]
     async with (
         server.session_manager.run(),
-        httpx.AsyncClient(
+        httpx2.AsyncClient(
             transport=StreamingASGITransport(app), base_url=BASE_URL, event_hooks=event_hooks, headers=headers
         ) as http_client,
     ):
@@ -229,17 +235,18 @@ async def mounted_app(
 
 @asynccontextmanager
 async def client_via_http(
-    http_client: httpx.AsyncClient,
+    http_client: httpx2.AsyncClient,
     *,
     logging_callback: LoggingFnT | None = None,
+    log_level: LoggingLevel | None = None,
     message_handler: MessageHandlerFnT | None = None,
     elicitation_callback: ElicitationFnT | None = None,
 ) -> AsyncIterator[Client]:
     """Connect a `Client` over an already-mounted streamable HTTP app.
 
     Use with `mounted_app(...)` so several `Client`s share the one session manager, or so a
-    client-driven assertion can sit alongside raw-httpx assertions in the same test. The
-    underlying `httpx.AsyncClient` is left open when the `Client` exits.
+    client-driven assertion can sit alongside raw-httpx2 assertions in the same test. The
+    underlying `httpx2.AsyncClient` is left open when the `Client` exits.
     """
     transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
     async with Client(
@@ -248,6 +255,7 @@ async def client_via_http(
         # closing DELETE); the modern flow is sessionless and would silently change the subject.
         mode="legacy",
         logging_callback=logging_callback,
+        log_level=log_level,
         message_handler=message_handler,
         elicitation_callback=elicitation_callback,
     ) as client:
@@ -260,22 +268,22 @@ def parse_sse_messages(events: Iterable[ServerSentEvent]) -> list[JSONRPCMessage
 
 
 async def post_jsonrpc(
-    http: httpx.AsyncClient, body: dict[str, object], *, session_id: str | None = None
-) -> tuple[httpx.Response, list[JSONRPCMessage]]:
+    http: httpx2.AsyncClient, body: dict[str, object], *, session_id: str | None = None
+) -> tuple[httpx2.Response, list[JSONRPCMessage]]:
     """POST a JSON-RPC body and read its SSE response stream to completion.
 
     Returns the HTTP response (for header/status assertions) and the parsed JSON-RPC messages
     that arrived on the response's SSE stream. Only meaningful for requests the server answers
     with `text/event-stream`; for error responses or 202 notification acknowledgements, use
-    `httpx.AsyncClient.post` directly and assert on the response.
+    `httpx2.AsyncClient.post` directly and assert on the response.
     """
-    async with aconnect_sse(http, "POST", "/mcp", json=body, headers=base_headers(session_id=session_id)) as source:
-        events = [event async for event in source.aiter_sse()]
+    async with http.sse("/mcp", method="POST", json=body, headers=base_headers(session_id=session_id)) as source:
+        events = [event async for event in source]
     return source.response, parse_sse_messages(events)
 
 
 def base_headers(*, session_id: str | None = None) -> dict[str, str]:
-    """Standard request headers for raw-httpx streamable-HTTP tests.
+    """Standard request headers for raw-httpx2 streamable-HTTP tests.
 
     Every well-formed request carries these (Accept covering both response representations,
     Content-Type for POST bodies, MCP-Protocol-Version at the newest handshake revision, and the session
@@ -304,16 +312,16 @@ def initialize_body(request_id: int = 1) -> dict[str, object]:
     ).model_dump(by_alias=True, exclude_none=True)
 
 
-async def initialize_via_http(http: httpx.AsyncClient) -> str:
-    """Perform the initialize handshake over a raw `httpx.AsyncClient` and return the session ID.
+async def initialize_via_http(http: httpx2.AsyncClient) -> str:
+    """Perform the initialize handshake over a raw `httpx2.AsyncClient` and return the session ID.
 
     Validates the SSE response and sends the `notifications/initialized` follow-up, so the server
     is fully ready for subsequent feature requests when this returns.
     """
-    async with aconnect_sse(http, "POST", "/mcp", json=initialize_body(), headers=base_headers()) as source:
+    async with http.sse("/mcp", method="POST", json=initialize_body(), headers=base_headers()) as source:
         assert source.response.status_code == 200
         # An event-store-backed server opens the stream with a priming event (empty data); skip it.
-        events = [event async for event in source.aiter_sse() if event.data]
+        events = [event async for event in source if event.data]
     assert len(events) == 1
     assert JSONRPCResponse.model_validate_json(events[0].data).id == 1
     session_id = source.response.headers["mcp-session-id"]
@@ -360,6 +368,7 @@ async def connect_over_sse(
     sampling_callback: SamplingFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
+    log_level: LoggingLevel | None = None,
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
@@ -371,13 +380,13 @@ async def connect_over_sse(
 
     def httpx_client_factory(
         headers: dict[str, str] | None = None,
-        timeout: httpx.Timeout | None = None,
-        auth: httpx.Auth | None = None,
-    ) -> httpx.AsyncClient:
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
         # The SSE server transport's connect_sse runs the entire MCP session inside the GET
         # request and only releases its streams after that request observes a disconnect, so the
         # bridge must let the application drain rather than cancelling at close.
-        return httpx.AsyncClient(
+        return httpx2.AsyncClient(
             transport=StreamingASGITransport(app, cancel_on_close=False),
             base_url=BASE_URL,
             headers=headers,
@@ -394,6 +403,7 @@ async def connect_over_sse(
         sampling_callback=sampling_callback,
         list_roots_callback=list_roots_callback,
         logging_callback=logging_callback,
+        log_level=log_level,
         message_handler=message_handler,
         client_info=client_info,
         elicitation_callback=elicitation_callback,

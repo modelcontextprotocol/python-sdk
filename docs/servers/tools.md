@@ -34,6 +34,8 @@ From those type hints the SDK generates a JSON Schema and sends it to the client
 
 Both arguments are in `required` because neither has a default. You'll fix that in a moment. (The `title` keys are Pydantic artifacts; the properties, their types, and `required` are the contract.)
 
+There is no `$schema` key either: MCP treats a schema without one as **JSON Schema 2020-12**, which is what Pydantic generates, so there is nothing to choose until you write schemas by hand on the **[low-level Server](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)**.
+
 !!! tip
     Type hints aren't documentation here. They are **the contract**. If a client sends `"limit": "ten"`,
     the SDK rejects it before your function ever runs.
@@ -134,7 +136,7 @@ You can mix and match: plain parameters next to model parameters, nested models,
 
 If a tool does I/O (calls an API, reads a file, queries a database), declare it `async def` and `await` inside it. The SDK awaits it.
 
-A plain `def` tool works too: the SDK runs it in a thread so it never blocks the server.
+A plain `def` tool works too: the SDK runs it in a thread so it never blocks the server. A long one can check whether the client is still waiting; see **[Cancellation](../handlers/cancellation.md)**.
 
 There is nothing else to configure.
 
@@ -142,7 +144,7 @@ There is nothing else to configure.
 
 Everything the SDK infers, you can override in the decorator:
 
-```python title="server.py" hl_lines="8-11"
+```python title="server.py" hl_lines="7-10"
 --8<-- "docs_src/tools/tutorial005.py"
 ```
 

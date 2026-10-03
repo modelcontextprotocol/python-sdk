@@ -21,7 +21,7 @@ Nothing here is about completions yet.
 
 Add **one** function decorated with `@mcp.completion()`:
 
-```python title="server.py" hl_lines="22-30"
+```python title="server.py" hl_lines="21-29"
 --8<-- "docs_src/completions/tutorial002.py"
 ```
 
@@ -91,7 +91,7 @@ You didn't list `completions` anywhere. The SDK saw the handler and declared the
 
 That's what `context` is for. It carries the arguments the user has **already resolved**:
 
-```python title="server.py" hl_lines="9-12 35-39"
+```python title="server.py" hl_lines="8-11 34-38"
 --8<-- "docs_src/completions/tutorial003.py"
 ```
 

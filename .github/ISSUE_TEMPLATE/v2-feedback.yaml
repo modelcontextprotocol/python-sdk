@@ -1,15 +1,15 @@
 name: v2 feedback
 description: Bugs, API friction, or docs gaps in v2 of the SDK
 title: "[v2] "
-labels: ["v2-alpha"]
+labels: ["v2"]
 
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for trying v2. Anything that broke, surprised you, or slowed you down is useful — API feedback is explicitly welcome while v2 is in pre-release.
+        Anything in v2 that broke, surprised you, or slowed you down is useful, including API friction and docs gaps.
 
-        Docs: https://py.sdk.modelcontextprotocol.io/v2/ · Migration from v1: https://py.sdk.modelcontextprotocol.io/v2/migration/
+        Docs: https://py.sdk.modelcontextprotocol.io/ · Migration from v1: https://py.sdk.modelcontextprotocol.io/migration/
 
   - type: textarea
     id: what

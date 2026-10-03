@@ -13,13 +13,16 @@ from mcp.server.request_state import (
 )
 
 from .context import Context
+from .prompts.base import AssistantMessage, Message, UserMessage
 from .resolve import (
     AcceptedElicitation,
     CancelledElicitation,
     DeclinedElicitation,
     Elicit,
     ElicitationResult,
+    ListRoots,
     Resolve,
+    Sample,
 )
 from .resources import DEFAULT_RESOURCE_SECURITY, ResourceSecurity
 from .server import MCPServer, require_client_extension
@@ -30,9 +33,14 @@ __all__ = [
     "Context",
     "Image",
     "Audio",
+    "Message",
+    "UserMessage",
+    "AssistantMessage",
     "Icon",
     "Resolve",
     "Elicit",
+    "Sample",
+    "ListRoots",
     "ElicitationResult",
     "AcceptedElicitation",
     "DeclinedElicitation",

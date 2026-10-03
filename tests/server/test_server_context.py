@@ -11,6 +11,8 @@ from typing import Any
 
 import anyio
 import pytest
+from mcp_types import LOG_LEVEL_META_KEY
+from mcp_types.version import LATEST_MODERN_VERSION
 
 from mcp.server.connection import Connection
 from mcp.server.context import Context
@@ -71,6 +73,34 @@ async def test_context_log_sends_request_scoped_message_notification():
         method, params = crec.notifications[0]
         assert method == "notifications/message"
         assert params is not None and params["level"] == "debug" and params["data"] == "hello"
+
+
+@pytest.mark.anyio
+async def test_context_log_is_gated_by_the_request_log_level_at_2026():
+    """On a 2026 connection an un-opted request delivers nothing; opting in at
+    `warning` delivers `warning`+ and drops what falls below."""
+    crec = Recorder()
+    _, c_notify = echo_handlers(crec)
+
+    async def server_on_request(dctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        modern = Connection.from_envelope(LATEST_MODERN_VERSION, None, None, outbound=dctx)
+        silent: Context[_Lifespan] = Context(dctx, lifespan=_Lifespan("app"), connection=modern)
+        await silent.log("emergency", "dropped: no opt-in")  # pyright: ignore[reportDeprecated]
+        opted: Context[_Lifespan] = Context(
+            dctx, lifespan=_Lifespan("app"), connection=modern, meta={LOG_LEVEL_META_KEY: "warning"}
+        )
+        await opted.log("info", "dropped: below level")  # pyright: ignore[reportDeprecated]
+        await opted.log("warning", "delivered")  # pyright: ignore[reportDeprecated]
+        return {}
+
+    async with running_pair(direct_pair, server_on_request=server_on_request, client_on_notify=c_notify) as (
+        client,
+        *_,
+    ):
+        with anyio.fail_after(5):
+            await client.send_raw_request("t", None)
+            await crec.notified.wait()
+        assert [p["data"] for _, p in crec.notifications if p is not None] == ["delivered"]
 
 
 @pytest.mark.anyio

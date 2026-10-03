@@ -1,0 +1,258 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "araç",
+      "note": "MCP protocol noun (a server exposes tools): araç / araçlar, aracı in the accusative. Standard rendering. Wire identifiers such as `tools/call` and the `@mcp.tool()` decorator are code and stay Latin; the Inspector's **Tools** tab is a UI label and stays English."
+    },
+    {
+      "source": "resource",
+      "target": "kaynak",
+      "note": "MCP protocol noun (data a server exposes for reading), and also the general noun (a pool acquired in a lifespan is still kaynak). Standard rendering; context keeps it apart from kaynak kodu (source code). `resources/read` and `@mcp.resource()` are code."
+    },
+    {
+      "source": "prompt",
+      "target": "prompt",
+      "note": "The MCP feature (a reusable message template a server exposes) and the everyday LLM sense; kept in English as Turkish AI writing does, lower-case, suffixed with an apostrophe: prompt'u, prompt'a, prompt'lar. Not komut istemi (a shell prompt). `prompts/get` and `@mcp.prompt()` are code. Provisional pending native review; istem is the native alternative to weigh."
+    },
+    {
+      "source": "sampling",
+      "target": "örnekleme",
+      "note": "The (deprecated) client feature that lets a server borrow the client's model for a completion. Gloss the English on first use per page — örnekleme (sampling) — so the reader maps it to `sampling/createMessage`, which is code. Provisional pending native review."
+    },
+    {
+      "source": "roots",
+      "target": "kök dizinler",
+      "note": "The (deprecated) client feature listing the workspace directories a client exposes. Descriptive rendering with the English glossed on first use per page — kök dizinler (roots); a single root is kök dizin. `roots/list` and the `Root` type are code and stay Latin. Provisional pending native review; keeping roots in English is the open alternative."
+    },
+    {
+      "source": "elicitation",
+      "target": "elicitation",
+      "note": "The mechanism by which a server asks the user a question through the client mid-request. No Turkish term exists, so the English word is kept, lower-case, suffixed with an apostrophe (elicitation'ı, elicitation'a, elicitation'lar), and may carry a Turkish explanation on its first appearance per page — elicitation (kullanıcıdan bilgi isteme). `elicitation/create`, `ctx.elicit()` and the `Elicit` class are code. Provisional pending native review."
+    },
+    {
+      "source": "capability",
+      "target": "yetenek",
+      "note": "A negotiated protocol capability (what a client or server declared it supports): sunucu yetenekleri, \"capability negotiation\" → yetenek anlaşması. Not özellik, which is a feature. The `capabilities` field and keys such as `sampling.tools` stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "transport",
+      "target": "aktarım",
+      "note": "The connection mechanism (\"every standard transport\" → tüm standart aktarımlar; \"transport layer\" → aktarım katmanı). Not taşıma or ulaşım, which are physical transportation. The transport names stdio, Streamable HTTP and SSE stay in English: stdio aktarımı, Streamable HTTP aktarımı. Provisional pending native review."
+    },
+    {
+      "source": "session",
+      "target": "oturum",
+      "note": "An MCP session (the negotiated connection state): oturum, oturum kimliği for \"session ID\". Standard rendering. `session` objects, `ClientSession` and `ServerSession` are code and stay Latin."
+    },
+    {
+      "source": "handler",
+      "target": "işleyici",
+      "note": "The tool, resource or prompt function you register, and request handlers generally (nav section \"Inside your handler\" → İşleyicinin içinde): işleyici / işleyiciler. Provisional pending native review; keeping handler in English is the alternative many Turkish developers use in speech."
+    },
+    {
+      "source": "dependency",
+      "target": "bağımlılık",
+      "note": "Both package dependencies and the SDK's parameter-injection feature (the \"Dependencies\" page → Bağımlılıklar; \"dependency injection\" → bağımlılık enjeksiyonu). Standard rendering. The `Resolve` marker class stays Latin."
+    },
+    {
+      "source": "resolver",
+      "target": "çözümleyici",
+      "note": "The plain function attached to a parameter with `Resolve(...)` that computes or asks for its value: çözümleyici, çözümleyici fonksiyon where the kind needs naming. Provisional pending native review; keeping resolver in English is the alternative. The `Resolve` class stays Latin."
+    },
+    {
+      "source": "client",
+      "target": "istemci",
+      "note": "An MCP client, and the client side of a connection: istemci. Standard rendering; müşteri is a customer and is only right where the English says customer. The `Client` class and the `mcp.client` module are code and stay Latin (`Client`'ı, `Client`'a)."
+    },
+    {
+      "source": "server",
+      "target": "sunucu",
+      "note": "An MCP server (the program you build): sunucu, MCP sunucusu. Standard rendering. The `MCPServer`, `Server` and `ServerSession` classes are code and stay Latin."
+    },
+    {
+      "source": "host",
+      "target": "host",
+      "note": "The MCP host — the application the user talks to (Claude Desktop, an IDE, an agent runtime) — kept in English as Turkish developers say it, lower-case, suffixed with an apostrophe: host'u, host'a, host'lar; host uygulama where the kind helps. ana bilgisayar is the network-machine sense (ana bilgisayar adı for a hostname is fine) and never names the MCP host. Provisional pending native review."
+    },
+    {
+      "source": "context",
+      "target": "bağlam",
+      "note": "The generic lower-case word (\"provide context to LLMs\" → LLM'lere bağlam sağlamak). The capitalised `Context` is the SDK object injected as `ctx`; it is on the keep list and stays Latin in prose (\"The Context\" page title → Context nesnesi). Standard rendering."
+    },
+    {
+      "source": "request",
+      "target": "istek",
+      "note": "A JSON-RPC or HTTP request (\"the initialize request\" → initialize isteği; HTTP isteği). Standard term; not talep, and not the English request in prose. `Request` types in code font stay Latin."
+    },
+    {
+      "source": "response",
+      "target": "yanıt",
+      "note": "A JSON-RPC or HTTP response (HTTP yanıtı, yanıt gövdesi). Pinned over cevap so one word is used throughout; never the English response in prose. `Response` types in code font stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "notification",
+      "target": "bildirim",
+      "note": "A JSON-RPC notification (a message that expects no response): bildirim göndermek, ilerleme bildirimi. Standard term. Method strings such as `notifications/tools/list_changed` stay Latin."
+    },
+    {
+      "source": "callback",
+      "target": "callback",
+      "note": "Client callbacks and OAuth redirect callbacks alike (the \"Client callbacks\" page → İstemci callback'leri): kept in English, lower-case, suffixed with an apostrophe — callback'i, callback'e, callback'ler. Provisional pending native review; geri çağırma (işlevi) is the native alternative and may serve as a one-time gloss. Parameter names such as `sampling_callback` stay Latin."
+    },
+    {
+      "source": "decorator",
+      "target": "dekoratör",
+      "note": "The Python decorators the SDK is built on: dekoratör / dekoratörler. `@mcp.tool()` and its siblings are code and stay untouched. Standard rendering."
+    },
+    {
+      "source": "type hint",
+      "target": "tür ipucu",
+      "note": "Python type hints (\"from your type hints\" → tür ipuçlarınızdan; plural tür ipuçları). Pinned with tür, matching veri türü and dönüş türü; do not alternate with tip ipucu on the same site. Provisional pending native review."
+    },
+    {
+      "source": "exception",
+      "target": "istisna",
+      "note": "A raised Python exception: istisna; \"raises an exception\" → bir istisna fırlatır. Pinned over özel durum. Exception class names stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "async",
+      "target": "asenkron",
+      "note": "The prose adjective (\"the async runtime\" → asenkron çalışma zamanı, \"an async callback\" → asenkron callback); pinned over eşzamansız. The `async` and `await` keywords in code font stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "by default",
+      "target": "varsayılan olarak",
+      "note": "\"By default\" → varsayılan olarak; \"the default value\" → varsayılan değer; \"defaults to X\" → varsayılan olarak X. Standard rendering, pinned over öntanımlı."
+    },
+    {
+      "source": "authorization",
+      "target": "yetkilendirme",
+      "note": "Security sense: yetkilendirme (yetkilendirme sunucusu, yetkilendirme kodu), distinct from authentication → kimlik doğrulama. The `Authorization` header and code identifiers stay Latin. Standard rendering."
+    },
+    {
+      "source": "deploy",
+      "target": "dağıtım",
+      "note": "The noun is dağıtım and the verb dağıtmak (\"Deploy & scale\" → Dağıtım ve ölçekleme; \"deploy it behind a proxy\" → bir vekil sunucunun arkasına dağıtın). Never deploylamak; deploy etmek is speech, not documentation. Provisional pending native review."
+    },
+    {
+      "source": "lifespan",
+      "target": "lifespan",
+      "note": "The server's startup/shutdown scope (the \"Lifespan\" page, as in the ASGI lifespan); kept in English so the prose matches the `lifespan=` parameter, lower-case, suffixed with an apostrophe (lifespan'i, lifespan'e). May carry a Turkish explanation on first appearance per page — lifespan (yaşam döngüsü). Provisional pending native review; translating it as yaşam döngüsü throughout is the open alternative."
+    },
+    {
+      "source": "back-channel",
+      "target": "geri kanal",
+      "note": "This documentation's term for the server calling back into the client during a request, which exists only on legacy connections. Gloss the English on first use per page — geri kanal (back-channel) — so the reader can connect it to `NoBackChannelError`, which is code. Provisional pending native review."
+    },
+    {
+      "source": "multi-round-trip",
+      "target": "çok turlu",
+      "note": "The 2026-07-28 request pattern: \"Multi-round-trip requests\" → Çok turlu istekler, glossed on first use per page — çok turlu istekler (multi-round-trip). A single \"round trip\" is tur or gidiş-dönüş by context. The abbreviation MRTR stays Latin. Provisional coinage pending native review; çok gidiş-dönüşlü is the literal alternative."
+    },
+    {
+      "source": "deprecated",
+      "target": "kullanım dışı",
+      "note": "Advisory status: still works, scheduled for removal later — kullanım dışı / kullanım dışı bırakılmış (\"Deprecated features\" → Kullanım dışı özellikler; \"deprecation warning\" → kullanım dışı bırakma uyarısı; \"X is deprecated\" → X kullanım dışı bırakıldı). \"Removed\" is a different word (kaldırıldı); the corpus contrasts the two, so never render deprecated as kaldırıldı. The `MCPDeprecationWarning` class stays Latin. Provisional pending native review."
+    },
+    {
+      "source": "legacy",
+      "target": "eski nesil",
+      "note": "\"A legacy connection / client\" = one negotiated at spec version 2025-11-25 or earlier → eski nesil bağlantı, eski nesil istemci (the page \"Serving legacy clients\" → Eski nesil istemcilere hizmet verme). Pairs with \"era\" → nesil and keeps kullanım dışı free for \"deprecated\". Provisional pending native review."
+    },
+    {
+      "source": "era",
+      "target": "nesil",
+      "note": "\"Protocol era\" (\"a 2025-era client\", \"whatever era the client speaks\") → protokol nesli, 2025 neslinden bir istemci. Not the literal çağ or dönem. Provisional pending native review."
+    },
+    {
+      "source": "handshake",
+      "target": "el sıkışma",
+      "note": "The initialization handshake (\"the classic handshake\" → klasik el sıkışma; başlatma el sıkışması). el sıkışma is the standard Turkish networking term (as in TLS el sıkışması), so the literal word is correct here. Standard rendering."
+    },
+    {
+      "source": "middleware",
+      "target": "middleware",
+      "note": "Kept in English, lower-case in running text, suffixed with an apostrophe (middleware'i, middleware'ler); the \"Middleware\" page title stays Middleware. May carry the one-time explanation middleware (ara katman). Provisional pending native review; ara yazılım is the formal alternative."
+    },
+    {
+      "source": "Get started",
+      "target": "Başlarken",
+      "note": "The nav section that opens the guide, and the title of its index page. \"First steps\" is a separate page inside that section (İlk adımlar), so the two need distinct renderings or the sidebar shows the same title twice. Provisional pending native review."
+    },
+    {
+      "source": "First steps",
+      "target": "İlk adımlar",
+      "note": "The tutorial page inside the \"Get started\" section, spelled with the dotted capital İ; never reuse this rendering for the section itself (see that entry). Provisional pending native review."
+    },
+    {
+      "source": "Recap",
+      "target": "Özet",
+      "note": "Recurring section heading that closes most pages; one rendering everywhere, not Özet on some pages and Toparlayalım or Sonuç on others. Provisional pending native review."
+    },
+    {
+      "source": "Try it",
+      "target": "Deneyin",
+      "note": "Recurring section heading above a runnable example; one rendering everywhere, not Deneyin on some pages and Kendiniz deneyin or Deneme on others. Provisional pending native review."
+    }
+  ]
+}

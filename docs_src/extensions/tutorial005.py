@@ -1,11 +1,10 @@
 import logging
 from typing import Any
 
-from mcp_types import CallToolRequestParams
-
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension
 from mcp.server.mcpserver import MCPServer
+from mcp.types import CallToolRequestParams
 
 logger = logging.getLogger(__name__)
 

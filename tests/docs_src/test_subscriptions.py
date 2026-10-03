@@ -1,17 +1,47 @@
-"""`docs/handlers/subscriptions.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/{handlers,client}/subscriptions.md`: every claim the two pages make, proved against the real SDK."""
 
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, Literal
 
 import anyio
 import mcp_types as types
 import pytest
+from inline_snapshot import snapshot
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+from trio.testing import MockClock
 
-from docs_src.subscriptions import tutorial001, tutorial002
+from docs_src.subscriptions import (
+    tutorial001,
+    tutorial002,
+    tutorial003,
+    tutorial004_anyio,
+    tutorial004_asyncio,
+    tutorial004_trio,
+    tutorial005,
+    tutorial006,
+    tutorial007,
+)
 from mcp import Client
-from mcp.server.subscriptions import SUBSCRIPTION_ID_META_KEY, ToolsListChanged
+from mcp.server.auth.middleware.auth_context import auth_context_var
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+from mcp.server.auth.provider import AccessToken
+from mcp.server.context import ServerRequestContext
+from mcp.server.lowlevel import Server
+from mcp.server.mcpserver import MCPServer
+from mcp.server.subscriptions import SUBSCRIPTION_ID_META_KEY, ListenHandler, ResourceUpdated, ToolsListChanged
+from mcp.shared.exceptions import MCPError
+
+_ReadResource = Callable[
+    [ServerRequestContext[Any], types.ReadResourceRequestParams], Awaitable[types.ReadResourceResult]
+]
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
+
+
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`."""
 
 
 class _Stream:
@@ -42,10 +72,54 @@ class _Stream:
                 await self._arrival.wait()
 
 
+class _Reads:
+    """Counts server-side resource reads so a test can await the Nth refetch."""
+
+    def __init__(self) -> None:
+        self.count = 0
+        self._bump = anyio.Event()
+
+    def counting(self, handler: _ReadResource) -> _ReadResource:
+        async def counted(
+            ctx: ServerRequestContext[Any], params: types.ReadResourceRequestParams
+        ) -> types.ReadResourceResult:
+            result = await handler(ctx, params)
+            self.count += 1
+            self._bump.set()
+            self._bump = anyio.Event()
+            return result
+
+        return counted
+
+    async def wait_for(self, count: int) -> None:
+        with anyio.fail_after(5):
+            while self.count < count:
+                await self._bump.wait()
+
+
 def _listen_request(**fields: Any) -> types.SubscriptionsListenRequest:
     return types.SubscriptionsListenRequest(
         params=types.SubscriptionsListenRequestParams(notifications=types.SubscriptionFilter(**fields))
     )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_server_state() -> Any:
+    """Each test starts from an all-unfinished board and the base tool set.
+
+    The tutorials mutate module state deliberately (that is what publishes events), so the
+    board contents and the `enable_reports` registration have to be undone between tests.
+    """
+    boards = {name: dict(tasks) for name, tasks in tutorial001.BOARDS.items()}
+    lowlevel_board = dict(tutorial002.BOARD)
+    tools = dict(tutorial001.mcp._tool_manager._tools)  # pyright: ignore[reportPrivateUsage]
+    yield
+    tutorial001.BOARDS.clear()
+    tutorial001.BOARDS.update(boards)
+    tutorial002.BOARD.clear()
+    tutorial002.BOARD.update(lowlevel_board)
+    tutorial001.mcp._tool_manager._tools.clear()  # pyright: ignore[reportPrivateUsage]
+    tutorial001.mcp._tool_manager._tools.update(tools)  # pyright: ignore[reportPrivateUsage]
 
 
 async def test_publishes_reach_the_stream_filtered_and_tagged() -> None:
@@ -57,7 +131,7 @@ async def test_publishes_reach_the_stream_filtered_and_tagged() -> None:
 
             async def listen() -> None:
                 await client.session.send_request(
-                    _listen_request(tools_list_changed=True, resource_subscriptions=["note://todo"]),
+                    _listen_request(tools_list_changed=True, resource_subscriptions=["board://sprint"]),
                     types.SubscriptionsListenResult,
                 )
 
@@ -67,21 +141,21 @@ async def test_publishes_reach_the_stream_filtered_and_tagged() -> None:
             ack = stream.received[0]
             assert isinstance(ack, types.SubscriptionsAcknowledgedNotification)
             assert ack.params.notifications == types.SubscriptionFilter(
-                tools_list_changed=True, resource_subscriptions=["note://todo"]
+                tools_list_changed=True, resource_subscriptions=["board://sprint"]
             )
             assert ack.params.meta is not None and SUBSCRIPTION_ID_META_KEY in ack.params.meta
 
             # An edit to a URI the stream did not subscribe to stays silent...
-            await client.call_tool("edit_note", {"name": "journal", "text": "day two"})
+            await client.call_tool("complete_task", {"board": "backlog", "task": "tidy docs"})
             # ...and the subscribed URI delivers, tagged with the same subscription id.
-            await client.call_tool("edit_note", {"name": "todo", "text": "water plants"})
+            await client.call_tool("complete_task", {"board": "sprint", "task": "design"})
             await stream.wait_for(2)
             updated = stream.received[1]
             assert isinstance(updated, types.ResourceUpdatedNotification)
-            assert updated.params.uri == "note://todo"
+            assert updated.params.uri == "board://sprint"
             assert updated.params.meta == ack.params.meta
 
-            await client.call_tool("enable_search", {})
+            await client.call_tool("enable_reports", {})
             await stream.wait_for(3)
             assert isinstance(stream.received[2], types.ToolListChangedNotification)
 
@@ -91,16 +165,16 @@ async def test_publishes_reach_the_stream_filtered_and_tagged() -> None:
         # The list_changed told us to re-fetch: the new tool is there, and the
         # session outlives the closed stream.
         tools = await client.list_tools()
-        assert "search" in {tool.name for tool in tools.tools}
-        contents = (await client.read_resource("note://todo")).contents[0]
+        assert "sprint_report" in {tool.name for tool in tools.tools}
+        contents = (await client.read_resource("board://sprint")).contents[0]
         assert isinstance(contents, types.TextResourceContents)
-        assert contents.text == "water plants"
+        assert contents.text == "[x] design\n[ ] build\n[ ] ship"
 
 
 async def test_publish_with_no_subscribers_is_a_no_op() -> None:
     """tutorial001: publishing to an idle server does nothing and breaks nothing."""
     async with Client(tutorial001.mcp, mode="2026-07-28") as client:
-        result = await client.call_tool("edit_note", {"name": "todo", "text": "buy milk"})
+        result = await client.call_tool("complete_task", {"board": "sprint", "task": "design"})
         assert result.is_error is not True
 
 
@@ -109,30 +183,216 @@ async def test_lowlevel_composition_serves_the_same_stream() -> None:
     stream = _Stream()
     async with Client(tutorial002.server, mode="2026-07-28", message_handler=stream.handler) as client:
         tools = await client.list_tools()
-        assert [tool.name for tool in tools.tools] == ["edit_note"]
+        assert [tool.name for tool in tools.tools] == ["complete_task"]
 
         async with anyio.create_task_group() as tg:
 
             async def listen() -> None:
                 await client.session.send_request(
-                    _listen_request(resource_subscriptions=["note://todo"]),
+                    _listen_request(resource_subscriptions=["board://sprint"]),
                     types.SubscriptionsListenResult,
                 )
 
             tg.start_soon(listen)
             await stream.wait_for(1)
 
-            await client.call_tool("edit_note", {"name": "todo", "text": "water plants"})
+            await client.call_tool("complete_task", {"task": "design"})
             await stream.wait_for(2)
             updated = stream.received[1]
             assert isinstance(updated, types.ResourceUpdatedNotification)
-            assert updated.params.uri == "note://todo"
+            assert updated.params.uri == "board://sprint"
 
             # The bus you constructed is also the publish surface outside a
             # request; an unrequested kind never reaches this stream.
             await tutorial002.bus.publish(ToolsListChanged())
-            await client.call_tool("edit_note", {"name": "todo", "text": "done"})
+            await client.call_tool("complete_task", {"task": "build"})
             await stream.wait_for(3)
             assert isinstance(stream.received[2], types.ResourceUpdatedNotification)
 
             tg.cancel_scope.cancel()
+
+
+async def test_follow_board_prints_the_refetched_board_and_the_new_tool_list(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """tutorial003: each event drives a refetch - the board reprints, and a tools change reprints the tool names."""
+    async with Client(tutorial001.mcp) as client:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(tutorial003.follow_board, client)
+            # Let the watcher park on its stream (ack complete) before publishing.
+            await anyio.wait_all_tasks_blocked()
+            await client.call_tool("complete_task", {"board": "sprint", "task": "design"})
+            await anyio.wait_all_tasks_blocked()
+            await client.call_tool("enable_reports", {})
+            await anyio.wait_all_tasks_blocked()
+            tg.cancel_scope.cancel()
+
+    printed = capsys.readouterr().out
+    assert "[x] design\n[ ] build\n[ ] ship" in printed
+    assert "sprint_report" in printed
+
+
+EMPTY_BOARD = "[ ] design\n[ ] build\n[ ] ship"
+FINISHED_BOARD = "[x] design\n[x] build\n[x] ship"
+
+
+def _assert_snapshot_then_current_board(printed: str) -> None:
+    """The snapshot taken inside the open subscription came first, and the watcher ended up current.
+
+    How many times the watcher printed is deliberately not asserted: identical events that pile up
+    unconsumed coalesce, so a fast main flow can turn three completions into one refetch. What the
+    stream guarantees is that no change after the acknowledgment is missed.
+    """
+    assert printed.startswith(EMPTY_BOARD), printed
+    assert printed.strip().endswith(FINISHED_BOARD), printed
+
+
+async def test_the_asyncio_watcher_runs_beside_the_main_flow(capsys: pytest.CaptureFixture[str]) -> None:
+    """tutorial004 (asyncio tab): run_sprint opens the subscription, snapshots the board, then a watcher
+    task reprints it while the main flow keeps calling tools.
+
+    The example connects over HTTP; the in-memory client here is the maintainer-side stand-in."""
+    async with Client(tutorial001.mcp) as client:
+        await tutorial004_asyncio.run_sprint(client)
+    _assert_snapshot_then_current_board(capsys.readouterr().out)
+
+
+@pytest.mark.parametrize("anyio_backend", [pytest.param("trio", id="trio")])
+async def test_the_trio_watcher_runs_beside_the_main_flow(capsys: pytest.CaptureFixture[str]) -> None:
+    """tutorial004 (trio tab): the same shape as the asyncio tab, with a nursery owning the watcher."""
+    async with Client(tutorial001.mcp) as client:
+        await tutorial004_trio.run_sprint(client)
+    _assert_snapshot_then_current_board(capsys.readouterr().out)
+
+
+async def test_the_anyio_watcher_runs_beside_the_main_flow(capsys: pytest.CaptureFixture[str]) -> None:
+    """tutorial004 (anyio tab): the same shape again, with a task group owning the watcher."""
+    async with Client(tutorial001.mcp) as client:
+        await tutorial004_anyio.run_sprint(client)
+    _assert_snapshot_then_current_board(capsys.readouterr().out)
+
+
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
+)
+async def test_the_follower_re_listens_after_the_stream_ends(capsys: pytest.CaptureFixture[str]) -> None:
+    """tutorial005: a graceful server close ends one stream; the loop backs off, re-listens, and refetches.
+
+    Runs on trio's autojumping MockClock so the loop's backoff sleep takes no wall-clock time.
+    """
+    reads = _Reads()
+    handler = ListenHandler(tutorial002.bus)
+    server = Server(
+        "sprint-board",
+        on_read_resource=reads.counting(tutorial002.read_resource),
+        on_list_tools=tutorial002.list_tools,
+        on_call_tool=tutorial002.call_tool,
+        on_subscriptions_listen=handler,
+    )
+
+    async with Client(server) as client:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(tutorial005.keep_following, client)
+            # First stream: the entry refetch reads the board, then an event reads it again.
+            await reads.wait_for(1)
+            await client.call_tool("complete_task", {"task": "design"})
+            await reads.wait_for(2)
+
+            # End that stream gracefully. The loop backs off (the mock clock jumps the
+            # sleep), re-listens, and refetches on entry: that is the third read.
+            handler.close()
+            await reads.wait_for(3)
+            await client.call_tool("complete_task", {"task": "build"})
+            await reads.wait_for(4)
+            tg.cancel_scope.cancel()
+
+    printed = capsys.readouterr().out
+    assert "[x] design\n[ ] build" in printed  # first stream, after design
+    assert "[x] design\n[x] build" in printed  # second stream, after build
+
+
+def _signed_in_as(subject: str) -> Any:
+    """Stand in for the auth middleware: put this user's token in the auth context."""
+    token = AccessToken(token="demo", client_id="docs-client", scopes=[], subject=subject)
+    return auth_context_var.set(AuthenticatedUser(token))
+
+
+async def test_the_middleware_refuses_a_listen_the_caller_could_not_read() -> None:
+    """tutorial006: one `can_access` gates both `resources/read` and `subscriptions/listen`.
+
+    Alice may read (and so watch) the report, and is refused the payroll file on both
+    paths - the listen refusal is in-band, before any acknowledgment.
+    """
+    reset = _signed_in_as("alice")
+    try:
+        async with Client(tutorial006.mcp, mode="2026-07-28") as client:
+            async with client.listen(resource_subscriptions=["files://report.pdf"]) as sub:
+                assert sub.honored.resource_subscriptions == ["files://report.pdf"]
+            with pytest.raises(MCPError) as listen_error:
+                async with client.listen(resource_subscriptions=["files://report.pdf", "files://payroll.csv"]):
+                    pass  # pragma: no cover - the refusal precedes the stream
+            assert listen_error.value.error.message == "not permitted to watch the requested resources"
+            with pytest.raises(MCPError):
+                await client.read_resource("files://payroll.csv")
+    finally:
+        auth_context_var.reset(reset)
+
+
+def _replica(*, subscriptions: Literal[False] | None = None) -> MCPServer:
+    """One replica of the sprint board: its own server object running tutorial001's publishing tool."""
+    mcp = MCPServer("Sprint Board", subscriptions=subscriptions)
+    mcp.add_tool(tutorial001.complete_task)
+    return mcp
+
+
+async def test_a_publish_on_another_replica_never_reaches_the_stream() -> None:
+    """The load-balancer diagram: with the default bus, a stream on replica A misses a publish on replica B.
+
+    The stream subscribes to both boards, so B's event would be delivered if it crossed. B publishes
+    first, then A publishes a marker: the marker being the first event proves B's never arrived.
+    """
+    async with Client(_replica()) as on_a, Client(_replica()) as on_b:
+        async with on_a.listen(resource_subscriptions=["board://sprint", "board://backlog"]) as sub:
+            routed_to_b = await on_b.call_tool("complete_task", {"board": "sprint", "task": "design"})
+            await on_a.call_tool("complete_task", {"board": "backlog", "task": "tidy docs"})
+            with anyio.fail_after(5):
+                first_event = await anext(sub)
+            assert first_event == ResourceUpdated(uri="board://backlog")
+        assert routed_to_b.is_error is False  # "Nothing fails": the call on B itself succeeded
+
+
+async def test_a_server_with_subscriptions_off_advertises_nothing_and_refuses_listen() -> None:
+    """tutorial007: a 2026-07-28 client sees every change-notification flag false, and listen is method-not-found."""
+    async with Client(tutorial007.mcp) as client:
+        assert client.protocol_version in MODERN_PROTOCOL_VERSIONS
+        assert client.server_capabilities.model_dump(by_alias=True, exclude_none=True) == snapshot(
+            {
+                "prompts": {"listChanged": False},
+                "resources": {"subscribe": False, "listChanged": False},
+                "tools": {"listChanged": False},
+            }
+        )
+        # Entering is where the request is sent; `__aenter__` directly avoids an unreachable with-body.
+        with pytest.raises(MCPError) as exc_info:
+            await client.listen(tools_list_changed=True).__aenter__()
+        assert exc_info.value.error.code == types.METHOD_NOT_FOUND
+        # The refusal is in-band: the connection carries on and the tool still answers.
+        result = await client.call_tool("km_to_miles", {"km": 10})
+        assert result.structured_content == {"result": 6.21371}
+
+
+async def test_a_publishing_handler_runs_unchanged_with_subscriptions_off() -> None:
+    """`ctx.notify_*` still works with `subscriptions=False`: tutorial001's publishing tool needs no change."""
+    async with Client(_replica(subscriptions=False)) as client:
+        result = await client.call_tool("complete_task", {"board": "sprint", "task": "design"})
+    assert result.is_error is False
+    assert result.content == [types.TextContent(type="text", text="design: done")]
+
+
+async def test_subscriptions_off_changes_nothing_for_an_earlier_protocol_version() -> None:
+    """A client on the initialize handshake reads the same capabilities whether subscriptions are off or on."""
+    async with Client(_replica(subscriptions=False), mode="legacy") as off, Client(_replica(), mode="legacy") as on:
+        assert off.protocol_version == on.protocol_version
+        assert off.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
+        assert off.server_capabilities == on.server_capabilities

@@ -9,7 +9,7 @@ status           = "current"                    # "current" | "legacy" | "deprec
 lowlevel         = true                         # also run main against server_lowlevel.build_server()/build_app()
 server_export    = "factory"                    # "factory" -> build_server() | "app" -> build_app()
 multi_connection = false                        # main(target, ...) vs main(targets, ...); targets() -> fresh target per call
-needs_http       = false                        # main(..., http=) gets the raw httpx.AsyncClient (http-asgi only)
+needs_http       = false                        # main(..., http=) gets the raw httpx2.AsyncClient (http-asgi only)
 timeout_s        = 30
 mcp_path         = "/mcp"
 fixed_port       = 0                            # `client --http` self-host port; 0 = an OS-assigned free port

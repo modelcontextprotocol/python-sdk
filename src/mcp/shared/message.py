@@ -41,6 +41,15 @@ class ServerMessageMetadata:
     close_sse_stream: CloseSSEStreamCallback | None = None
     # Callback to close the standalone GET SSE stream (for unsolicited notifications)
     close_standalone_sse_stream: CloseSSEStreamCallback | None = None
+    # Callback the dispatcher runs when this request settles without a response
+    # (e.g. it was cancelled), for a transport whose wire must still end the
+    # request even though no response is written.
+    on_request_unanswered: Callable[[], Awaitable[None]] | None = None
+    # The transport's verdict on whether this message's request-scoped channel
+    # can deliver a server-initiated request (see
+    # `TransportContext.can_send_request`); a transport that says nothing leaves
+    # it True.
+    can_send_request: bool = True
 
 
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None

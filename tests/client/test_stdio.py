@@ -14,14 +14,18 @@ import math
 import os
 import signal
 import sys
+import threading
 from collections.abc import Callable
 from contextlib import AsyncExitStack, suppress
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TextIO, cast
 
 import anyio
 import anyio.abc
+import anyio.from_thread
 import anyio.lowlevel
+import anyio.to_thread
 import pytest
 import trio
 import trio.testing
@@ -43,6 +47,14 @@ from mcp.os.posix.utilities import terminate_posix_process_tree
 from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
+
+
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`
+    and calls `trio.run` directly (see the tests/conftest.py original for the Windows hazard).
+    """
+
 
 # ---------------------------------------------------------------------------
 # In-process fake of the spawned server process
@@ -191,6 +203,9 @@ def install_fake_process(
     """
     terminated: list[FakeProcess] = []
 
+    async def fake_get_executable_command(command: str) -> str:
+        return command
+
     async def fake_spawn(
         command: str,
         args: list[str],
@@ -204,6 +219,7 @@ def install_fake_process(
         terminated.append(proc)
         proc.exit(-15)
 
+    monkeypatch.setattr(stdio, "_get_executable_command", fake_get_executable_command)
     monkeypatch.setattr(stdio, "_create_platform_compatible_process", fake_spawn)
     monkeypatch.setattr(stdio, "_terminate_process_tree", fake_terminate_tree)
     if grace_period is not None:
@@ -428,7 +444,10 @@ def test_a_server_dying_in_the_final_poll_interval_is_not_escalated(monkeypatch:
                     process.exit(0)
 
                 # The grace wait starts when stdin closes; anchor the death there.
-                process.on_stdin_close = lambda: tg.start_soon(die_late)
+                def schedule_death() -> None:
+                    tg.start_soon(die_late)
+
+                process.on_stdin_close = schedule_death
                 # no branch: the tracer drops this nested async-with's arcs under
                 # trio's MockClock even though the body runs.
                 async with stdio_client(FAKE_PARAMS):  # pragma: no branch
@@ -558,6 +577,45 @@ async def test_a_command_that_cannot_be_execed_raises_enoent() -> None:
             pass  # pragma: no cover
 
     assert exc_info.value.errno == errno.ENOENT
+
+
+@pytest.mark.anyio
+async def test_cancellation_during_windows_command_resolution_returns_before_resolution_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancelling `stdio_client` does not wait for blocked Windows command resolution."""
+    resolution_started = anyio.Event()
+    resolution_release = threading.Event()
+    resolution_finished = threading.Event()
+
+    def blocking_resolver(command: str) -> str:
+        anyio.from_thread.run_sync(resolution_started.set)
+        resolution_release.wait()
+        resolution_finished.set()
+        return command
+
+    monkeypatch.setattr(stdio, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(stdio, "get_windows_executable_command", blocking_resolver)
+
+    cancel_scope = anyio.CancelScope()
+    client_stopped = anyio.Event()
+
+    async def run_client() -> None:
+        with cancel_scope:
+            async with AsyncExitStack() as stack:
+                await stack.enter_async_context(stdio_client(FAKE_PARAMS))
+        client_stopped.set()
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run_client)
+            await resolution_started.wait()
+            cancel_scope.cancel()
+            try:
+                await client_stopped.wait()
+            finally:
+                resolution_release.set()
+            await anyio.to_thread.run_sync(resolution_finished.wait)
 
 
 @pytest.mark.anyio

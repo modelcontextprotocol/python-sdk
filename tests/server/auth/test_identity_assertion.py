@@ -3,9 +3,9 @@
 import secrets
 import time
 
-import httpx
+import httpx2
 import pytest
-from httpx import ASGITransport
+from httpx2 import ASGITransport
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
@@ -121,7 +121,7 @@ def app(provider: IdentityAssertionProvider) -> Starlette:
 @pytest.fixture
 async def client(app: Starlette):
     transport = ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="https://auth.example.com") as http:
+    async with httpx2.AsyncClient(transport=transport, base_url="https://auth.example.com") as http:
         yield http
 
 
@@ -160,7 +160,7 @@ def test_build_metadata_advertises_id_jag_profile_when_enabled():
 
 
 @pytest.mark.anyio
-async def test_metadata_endpoint_lists_id_jag_profile(client: httpx.AsyncClient):
+async def test_metadata_endpoint_lists_id_jag_profile(client: httpx2.AsyncClient):
     response = await client.get("/.well-known/oauth-authorization-server")
     assert response.status_code == 200
     body = response.json()
@@ -169,7 +169,7 @@ async def test_metadata_endpoint_lists_id_jag_profile(client: httpx.AsyncClient)
 
 
 @pytest.mark.anyio
-async def test_identity_assertion_success(client: httpx.AsyncClient, provider: IdentityAssertionProvider):
+async def test_identity_assertion_success(client: httpx2.AsyncClient, provider: IdentityAssertionProvider):
     response = await client.post("/token", data=assertion_form(scope="mcp", resource="https://mcp.example.com/mcp"))
 
     assert response.status_code == 200, response.content
@@ -189,7 +189,7 @@ async def test_identity_assertion_success(client: httpx.AsyncClient, provider: I
 
 
 @pytest.mark.anyio
-async def test_identity_assertion_invalid_assertion(client: httpx.AsyncClient):
+async def test_identity_assertion_invalid_assertion(client: httpx2.AsyncClient):
     response = await client.post("/token", data=assertion_form(assertion="forged"))
 
     assert response.status_code == 400
@@ -207,7 +207,7 @@ async def test_identity_assertion_rejected_when_disabled(provider: IdentityAsser
     )
     app = Starlette(routes=routes)
     transport = ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="https://auth.example.com") as http:
+    async with httpx2.AsyncClient(transport=transport, base_url="https://auth.example.com") as http:
         response = await http.post("/token", data=assertion_form())
 
     assert response.status_code == 400
@@ -216,7 +216,9 @@ async def test_identity_assertion_rejected_when_disabled(provider: IdentityAsser
 
 
 @pytest.mark.anyio
-async def test_identity_assertion_rejects_public_client(client: httpx.AsyncClient, provider: IdentityAssertionProvider):
+async def test_identity_assertion_rejects_public_client(
+    client: httpx2.AsyncClient, provider: IdentityAssertionProvider
+):
     """A public (auth method 'none') client cannot use the grant, even if it presents a valid assertion."""
     provider.clients["public-client"] = OAuthClientInformationFull(
         client_id="public-client",
@@ -238,7 +240,7 @@ async def test_identity_assertion_rejects_public_client(client: httpx.AsyncClien
 
 @pytest.mark.anyio
 async def test_identity_assertion_rejects_secretless_confidential_client(
-    client: httpx.AsyncClient, provider: IdentityAssertionProvider
+    client: httpx2.AsyncClient, provider: IdentityAssertionProvider
 ):
     """A client registered with a secret-based method but no stored secret fails authentication.
 
@@ -267,7 +269,7 @@ async def test_identity_assertion_rejects_secretless_confidential_client(
 
 
 @pytest.mark.anyio
-async def test_malformed_request_missing_assertion_is_invalid_request(client: httpx.AsyncClient):
+async def test_malformed_request_missing_assertion_is_invalid_request(client: httpx2.AsyncClient):
     """A jwt-bearer request without the required `assertion` fails validation with invalid_request."""
     response = await client.post(
         "/token",
@@ -284,7 +286,7 @@ async def test_malformed_request_missing_assertion_is_invalid_request(client: ht
 
 @pytest.mark.anyio
 async def test_client_without_the_grant_registered_is_rejected(
-    client: httpx.AsyncClient, provider: IdentityAssertionProvider
+    client: httpx2.AsyncClient, provider: IdentityAssertionProvider
 ):
     """A confidential client whose registration omits the jwt-bearer grant is refused the grant."""
     provider.clients["no-grant-client"] = OAuthClientInformationFull(
@@ -313,7 +315,7 @@ async def test_client_without_the_grant_registered_is_rejected(
 
 @pytest.mark.anyio
 async def test_dcr_refuses_to_register_the_jwt_bearer_grant(
-    client: httpx.AsyncClient, provider: IdentityAssertionProvider
+    client: httpx2.AsyncClient, provider: IdentityAssertionProvider
 ):
     """Dynamic client registration rejects the jwt-bearer grant; the ID-JAG flow needs pre-registration."""
     response = await client.post(

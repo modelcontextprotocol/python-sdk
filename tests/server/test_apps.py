@@ -62,13 +62,14 @@ async def test_add_html_resource_serves_ui_resource_at_app_mime_type() -> None:
         result = await client.read_resource("ui://clock/app.html")
     assert result == snapshot(
         ReadResourceResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "clock", "version": ""}},
             contents=[
                 TextResourceContents(
                     uri="ui://clock/app.html",
                     mime_type="text/html;profile=mcp-app",
                     text="<title>Clock</title>",
                 )
-            ]
+            ],
         )
     )
     assert isinstance(result.contents[0], TextResourceContents)

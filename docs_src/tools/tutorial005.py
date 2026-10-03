@@ -1,6 +1,5 @@
-from mcp_types import ToolAnnotations
-
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 mcp = MCPServer("Bookshop")
 

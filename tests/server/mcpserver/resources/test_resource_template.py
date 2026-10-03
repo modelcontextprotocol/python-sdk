@@ -505,3 +505,18 @@ async def test_create_resource_passes_input_required_result_through_unchanged():
     template = ResourceTemplate.from_function(fn=ask, uri_template="ask://{topic}")
     result = await template.create_resource("ask://databases", {"topic": "databases"}, Context())
     assert result is sentinel
+
+
+class _Chart:
+    """A plain class pydantic cannot build a schema for."""
+
+
+def test_template_return_annotation_is_not_run_through_tool_output_schema_derivation() -> None:
+    """SDK-defined: a resource template only needs its argument model, so an unschematizable return
+    annotation registers (it used to raise from the tool structured-output machinery)."""
+
+    def charts(year: str) -> list[_Chart]:
+        raise NotImplementedError
+
+    template = ResourceTemplate.from_function(charts, uri_template="charts://{year}")
+    assert template.uri_template == "charts://{year}"

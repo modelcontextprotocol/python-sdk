@@ -1,4 +1,5 @@
-from mcp_types import (
+from mcp.server import Server, ServerRequestContext
+from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     ElicitRequest,
@@ -10,8 +11,6 @@ from mcp_types import (
     TextContent,
     Tool,
 )
-
-from mcp.server import Server, ServerRequestContext
 
 ASK_REGION = ElicitRequest(
     params=ElicitRequestFormParams(

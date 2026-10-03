@@ -25,7 +25,7 @@ ServerFactory = Callable[[], AnyServer]
 AppFactory = Callable[[], Starlette]
 
 NO_DNS_REBIND = TransportSecuritySettings(enable_dns_rebinding_protection=False)
-"""Harness servers bind 127.0.0.1 and the in-process httpx client sends no Origin header."""
+"""Harness servers bind 127.0.0.1 and the in-process httpx2 client sends no Origin header."""
 
 
 def argv_after(flag: str, *, default: str | None = None) -> str:

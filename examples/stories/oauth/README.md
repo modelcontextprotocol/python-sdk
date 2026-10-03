@@ -6,7 +6,7 @@ auth_server_provider=...)` constructor call co-hosts the RFC 9728
 protected-resource metadata route, the AS routes (`/register`, `/authorize`,
 `/token`, `/.well-known/oauth-authorization-server`) and the bearer-gated
 `/mcp` endpoint on a single Starlette app. On the **client** side:
-`OAuthClientProvider` is an `httpx.Auth` that reacts to the first `401` by
+`OAuthClientProvider` is an `httpx2.Auth` that reacts to the first `401` by
 walking PRM discovery → AS metadata → DCR → PKCE authorize → token exchange →
 bearer retry — all inside the first awaited request, with no user-visible
 `UnauthorizedError`.
@@ -39,7 +39,7 @@ straight back with `?code=...`; without it the authorize step returns
 
 `Client(url)` has no `auth=` passthrough, so a target built from a bare URL
 can't carry the flow. Both runners close that gap the same way: `run_client`
-(above) and the pytest harness build an authed `httpx.AsyncClient` from
+(above) and the pytest harness build an authed `httpx2.AsyncClient` from
 this module's `build_auth` export and hand `main` targets that are already
 routed through it.
 
@@ -57,9 +57,9 @@ routed through it.
   request — no second `/authorize`, no second `/register`. The demo AS mints a
   fresh `client_id` per DCR call, so `whoami` returning the *same* `client_id`
   is the reuse proof.
-- **`client.py` — `build_auth()`.** `OAuthClientProvider` is an `httpx.Auth`.
+- **`client.py` — `build_auth()`.** `OAuthClientProvider` is an `httpx2.Auth`.
   `Client(url, auth=...)` is the ergonomic the SDK is missing; until it lands
-  the auth has to be threaded onto the underlying `httpx.AsyncClient` by hand.
+  the auth has to be threaded onto the underlying `httpx2.AsyncClient` by hand.
 - **`server.py` — `MCPServer(auth=..., auth_server_provider=...)`.** The
   constructor wires everything; `streamable_http_app()` reads it back. (Don't
   also pass `token_verifier=` — `auth_server_provider` and `token_verifier` are
@@ -74,7 +74,7 @@ routed through it.
 ## Caveats
 
 - `transport_security=NO_DNS_REBIND` — DNS-rebinding protection is on by default
-  and the in-process httpx bridge sends no `Origin` header. Drop the kwarg for a
+  and the in-process httpx2 bridge sends no `Origin` header. Drop the kwarg for a
   real deployment.
 - `HeadlessOAuth` only works because the demo AS auto-consents; a real
   `redirect_handler` would open a browser and a real `callback_handler` would

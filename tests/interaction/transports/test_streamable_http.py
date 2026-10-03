@@ -12,23 +12,37 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
     INVALID_REQUEST,
+    CallToolRequestParams,
     CallToolResult,
     ElicitRequestParams,
     ElicitResult,
+    ErrorData,
+    JSONRPCError,
+    JSONRPCMessage,
+    JSONRPCRequest,
     LoggingMessageNotification,
     LoggingMessageNotificationParams,
     ResourceUpdatedNotification,
     ResourceUpdatedNotificationParams,
     TextContent,
+    jsonrpc_message_adapter,
 )
 from pydantic import BaseModel
 
-from mcp.client import ClientRequestContext
+from mcp.client import ClientRequestContext, IncomingMessage
+from mcp.server import Server, ServerRequestContext
 from mcp.server.elicitation import AcceptedElicitation
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.streamable_http import REQUEST_CANCELLED
 from mcp.shared.exceptions import MCPError
-from tests.interaction._connect import connect_over_streamable_http
-from tests.interaction._helpers import IncomingMessage
+from tests.interaction._connect import (
+    base_headers,
+    connect_over_streamable_http,
+    initialize_body,
+    initialize_via_http,
+    mounted_app,
+    post_jsonrpc,
+)
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -50,7 +64,8 @@ def _smoke_server() -> MCPServer:
     async def ask(ctx: Context) -> str:
         """Elicit a confirmation from the client and report the outcome."""
         answer = await ctx.elicit("Proceed?", Confirmation)
-        # In stateless mode the elicit raises before this point: there is no session to call back through.
+        # In stateless and JSON-response modes the elicit raises before this point: there is no
+        # request-scoped channel to call back through.
         assert isinstance(answer, AcceptedElicitation)
         return f"confirmed={answer.data.confirmed}"
 
@@ -69,6 +84,7 @@ def _smoke_server() -> MCPServer:
 async def test_tool_call_over_streamable_http_with_json_responses() -> None:
     """The round trip works when the server answers with a single JSON body instead of an SSE stream."""
     async with connect_over_streamable_http(_smoke_server(), json_response=True) as client:
+        assert client.server_info is not None
         assert client.server_info.name == "smoke"
         result = await client.call_tool("echo", {"text": "as json"})
 
@@ -103,6 +119,48 @@ async def test_stateless_streamable_http_rejects_server_initiated_requests() -> 
             await client.call_tool("ask", {})
 
     assert exc_info.value.error.code == INVALID_REQUEST
+
+
+@requirement("transport:streamable-http:json-response-restrictions")
+async def test_json_response_streamable_http_rejects_request_scoped_server_requests() -> None:
+    """A handler that calls back to the client mid-request fails fast when the server answers with
+    JSON: the one response body cannot carry the nested `elicitation/create`, so the request-scoped
+    channel raises `NoBackChannelError` (a top-level `MCPError`) instead of parking a waiter no reply
+    could ever reach. Bounded, because before the fix this call hung until it timed out."""
+    async with connect_over_streamable_http(_smoke_server(), json_response=True) as client:
+        with anyio.fail_after(5), pytest.raises(MCPError) as exc_info:
+            await client.call_tool("ask", {})
+
+    assert exc_info.value.error.code == INVALID_REQUEST
+
+
+@requirement("transport:streamable-http:json-response-restrictions")
+@requirement("transport:streamable-http:unrelated-messages")
+@requirement("hosting:http:standalone-sse")
+async def test_json_response_streamable_http_delivers_only_unrelated_notifications() -> None:
+    """In JSON-response mode the call's own log notification has no stream to ride and never
+    reaches the client, while the tool result comes back as the JSON body and the unrelated
+    resource-updated notification arrives on the standalone stream. The handler writes both
+    notifications before returning, so once the result and the unrelated message are in, no
+    request-scoped message can still be in flight."""
+    received: list[IncomingMessage] = []
+    server_message_seen = anyio.Event()
+
+    async def collect(message: IncomingMessage) -> None:
+        received.append(message)
+        server_message_seen.set()
+
+    async with connect_over_streamable_http(_smoke_server(), json_response=True, message_handler=collect) as client:
+        with anyio.fail_after(5):
+            result = await client.call_tool("announce", {})
+            await server_message_seen.wait()
+
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(text="announced")], structured_content={"result": "announced"})
+    )
+    assert received == snapshot(
+        [ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri="file:///watched.txt"))]
+    )
 
 
 @requirement("transport:streamable-http:notifications")
@@ -168,3 +226,80 @@ async def test_server_initiated_elicitation_round_trips_during_a_tool_call() -> 
         CallToolResult(content=[TextContent(text="confirmed=True")], structured_content={"result": "confirmed=True"})
     )
     assert [params.message for params in asked] == snapshot(["Proceed?"])
+
+
+@requirement("transport:streamable-http:cancelled-request-terminated")
+@pytest.mark.parametrize("json_response", [True, False], ids=["json-response", "sse-response"])
+async def test_cancelled_request_is_terminated_with_request_cancelled(json_response: bool) -> None:
+    """A cancelled request's POST completes carrying the `REQUEST_CANCELLED` terminal error.
+
+    The 2025-era wire ends a request only with a response, so this transport answers the
+    settled-unanswered request with `REQUEST_CANCELLED` (the dispatcher writes nothing on the
+    other transports). Driven with raw httpx2 because the observable is the HTTP exchange
+    itself, which a Client abandoning its own call would tear down first.
+    """
+    handler_started = anyio.Event()
+    handler_cancelled = anyio.Event()
+    call_request_id = 2
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        handler_started.set()
+        try:
+            await anyio.sleep_forever()
+        except anyio.get_cancelled_exc_class():
+            handler_cancelled.set()
+            raise
+        raise NotImplementedError  # unreachable: only cancellation ends the sleep
+
+    server = Server("blocker", on_call_tool=call_tool)
+    call_body = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=call_request_id,
+        method="tools/call",
+        params=CallToolRequestParams(name="block", arguments={}).model_dump(by_alias=True, mode="json"),
+    ).model_dump(by_alias=True, exclude_none=True)
+    cancel_body = {
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": {"requestId": call_request_id},
+    }
+    call_answers: list[JSONRPCMessage] = []
+
+    async with mounted_app(server, json_response=json_response) as (http, _manager):
+        if json_response:
+            # The SSE-reading handshake helper does not apply: JSON mode answers initialize with JSON.
+            initialized = await http.post("/mcp", json=initialize_body(), headers=base_headers())
+            session_id = initialized.headers["mcp-session-id"]
+            ready = await http.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                headers=base_headers(session_id=session_id),
+            )
+            assert ready.status_code == 202
+        else:
+            session_id = await initialize_via_http(http)
+
+        async def post_call() -> None:
+            if json_response:
+                response = await http.post("/mcp", json=call_body, headers=base_headers(session_id=session_id))
+                call_answers.append(jsonrpc_message_adapter.validate_json(response.content))
+            else:
+                _, messages = await post_jsonrpc(http, call_body, session_id=session_id)
+                call_answers.extend(messages)
+
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as task_group:  # pragma: no branch
+                task_group.start_soon(post_call)
+                await handler_started.wait()
+                cancelled = await http.post("/mcp", json=cancel_body, headers=base_headers(session_id=session_id))
+                assert cancelled.status_code == 202
+                await handler_cancelled.wait()
+                # The call's POST must now complete on its own; the task group waits for it.
+
+    assert call_answers == [
+        JSONRPCError(
+            jsonrpc="2.0",
+            id=call_request_id,
+            error=ErrorData(code=REQUEST_CANCELLED, message="Request cancelled"),
+        )
+    ]

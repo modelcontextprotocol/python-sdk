@@ -354,8 +354,8 @@ REQUIREMENTS: dict[str, Requirement] = {
     "lifecycle:stateless:request-envelope": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
         behavior=(
-            "At protocol_version 2026-07-28, every request carries io.modelcontextprotocol/protocolVersion, "
-            "/clientInfo, and /clientCapabilities in params._meta; no initialize handshake occurs."
+            "At protocol_version 2026-07-28, every request carries io.modelcontextprotocol/protocolVersion "
+            "and /clientCapabilities in params._meta (/clientInfo is optional); no initialize handshake occurs."
         ),
         added_in="2026-07-28",
     ),
@@ -408,7 +408,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#discover",
         behavior=(
             "Calling discover() sends server/discover with no params and returns a typed DiscoverResult "
-            "carrying protocolVersion, capabilities, serverInfo and the cache hint fields."
+            "carrying supportedVersions, capabilities and the cache hint fields; the server's identity "
+            "travels as the io.modelcontextprotocol/serverInfo stamp in the result _meta."
         ),
         added_in="2026-07-28",
     ),
@@ -428,6 +429,15 @@ REQUIREMENTS: dict[str, Requirement] = {
             "handshake-era version (legacy servers reject the probe with various codes)."
         ),
         added_in="2026-07-28",
+    ),
+    "lifecycle:discover:fallback-silence": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/stdio#backward-compatibility",
+        behavior=(
+            "When server/discover goes unanswered for the probe deadline, an auto-negotiating client falls "
+            "back to the legacy initialize handshake."
+        ),
+        added_in="2026-07-28",
+        note="The spec states the timeout rule for stdio only; the SDK applies it on every transport.",
     ),
     "lifecycle:discover:network-error-raises": Requirement(
         source="sdk",
@@ -474,6 +484,19 @@ REQUIREMENTS: dict[str, Requirement] = {
             "never reused within the session."
         ),
     ),
+    "protocol:request-id:caller-supplied": Requirement(
+        source="sdk",
+        behavior=(
+            "A caller can supply the id of a request it sends, so the id is known before any response "
+            "arrives; subscriptions/listen streams are demultiplexed by exactly that id."
+        ),
+        note=(
+            f"The demux-by-listen-request-id obligation is the spec's "
+            f"({SPEC_2026_BASE_URL}/basic/patterns/subscriptions#receiving-notifications); supplying the "
+            "id up front is the SDK surface that makes it satisfiable."
+        ),
+        added_in="2026-07-28",
+    ),
     "protocol:notifications:no-response": Requirement(
         source=f"{SPEC_BASE_URL}/basic#notifications",
         behavior=(
@@ -484,14 +507,32 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:cancel:abort-signal": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#cancellation-flow",
         behavior=(
-            "Cancelling an in-flight request through the client API sends notifications/cancelled with "
-            "the request id and fails the local call."
+            "Abandoning an in-flight request client-side (cancelling the task awaiting it) cancels the "
+            "request itself: the server-side handler stops and the session serves later requests "
+            "normally."
         ),
-        deferred=(
-            "Not implemented in the SDK: there is no public client-side API to cancel an in-flight "
-            "request; cancellation requires hand-constructing the notification (which is how "
-            "protocol:cancel:in-flight exercises the receiving side)."
+        note=(
+            "The per-transport wire spelling (frame vs response-stream close) is pinned separately by "
+            "protocol:cancel:stream-frame and the client-transport:http:cancel-* pair."
         ),
+        arm_exclusions=(
+            ArmExclusion(
+                reason="requires-session",
+                transport="streamable-http-stateless",
+                note=(
+                    "The 2025-era cancel frame POSTs on a fresh per-request transport that shares no "
+                    "in-flight state with the blocked request, so the handler is never interrupted."
+                ),
+            ),
+        ),
+    ),
+    "protocol:cancel:abort-scoped": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
+        behavior=(
+            "Abandoning one in-flight request cancels only that request: a concurrent request on the "
+            "same connection keeps running and returns its result."
+        ),
+        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
     ),
     "protocol:cancel:handler-abort-propagates": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
@@ -505,14 +546,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior=(
             "A cancellation notification for an in-flight request stops the server-side handler, and the "
-            "receiver does not send a response for the cancelled request."
+            "receiver does not send a response for the cancelled request - no result and no error."
         ),
         divergence=Divergence(
             note=(
-                "The spec says receivers of a cancellation SHOULD NOT send a response for the cancelled "
-                "request; both seats send an error response (code 0, 'Request cancelled') instead — the "
-                "server for cancelled client requests, and the client for cancelled server-initiated "
-                "requests — which is what unblocks the sender's pending call."
+                "The 2025-era streamable HTTP transport still answers a cancelled request, with a "
+                "REQUEST_CANCELLED (-32800) error - deliberate and era-scoped: that wire ends a request's "
+                "stream only with a response for its id, so silence would leave the POST (and any "
+                "resuming client's replay) open. Every other transport sends nothing, and the "
+                "2026-07-28 MUST NOT applies only there. Retires with the legacy transport; see "
+                "transport:streamable-http:cancelled-request-terminated."
             ),
         ),
         arm_exclusions=(
@@ -549,6 +592,16 @@ REQUIREMENTS: dict[str, Requirement] = {
             ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
             ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
+    ),
+    "protocol:cancel:stream-frame": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/cancellation#transport-specific-cancellation",
+        behavior=(
+            "On stream (stdio-shaped) wires at 2026-07-28, abandoning an in-flight request sends exactly "
+            "one notifications/cancelled naming its request id - streams keep the frame spelling of "
+            "cancellation that streamable HTTP dropped."
+        ),
+        added_in="2026-07-28",
+        note="Exercised over the in-memory stream pair, the same dual-era wire stdio serves.",
     ),
     "protocol:cancel:unknown-id-ignored": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#error-handling",
@@ -616,7 +669,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "The dispatcher drops null-id error responses with a debug log; in v1, JSONRPCError.id was "
                 "non-nullable, so a null-id error response failed transport validation and the resulting "
                 "ValidationError was surfaced to message_handler as an exception. A typed fault channel "
-                "restoring visibility is planned before v2 stable."
+                "restoring visibility is planned."
             ),
         ),
         deferred=(
@@ -972,8 +1025,9 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:tool:handler-throws": Requirement(
         source="sdk",
         behavior=(
-            "An exception raised by a tool function (ToolError or otherwise) is caught and returned as a "
-            "tool result with isError true and the failure text in content; it does not become a JSON-RPC error."
+            "An exception raised by a tool function is caught and returned as a tool result with isError true, "
+            "never a JSON-RPC error; a ToolError carries its message in content, any other exception carries only "
+            "the generic 'Error executing tool <name>'."
         ),
     ),
     "mcpserver:tool:input-validation": Requirement(
@@ -1182,6 +1236,59 @@ REQUIREMENTS: dict[str, Requirement] = {
         removed_in="2026-07-28",
         note="removed in 2026-07-28 (SEP-2575); resources/unsubscribe replaced by subscriptions/listen.",
     ),
+    "subscriptions:listen:client:honored-surfacing": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#acknowledgment",
+        behavior=(
+            "Entering Client.listen() waits for the server's acknowledgment and surfaces the honored "
+            "filter subset on the handle, so the client can check it against what it requested (spec SHOULD)."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:concurrent-demux": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#multiple-concurrent-subscriptions",
+        behavior=(
+            "Concurrently open subscriptions each surface their own acknowledgment: with both listen "
+            "requests in flight before either ack arrives, each handle's honored filter is the subset "
+            "for its own request, routed by subscription id rather than broadcast to every open route."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:iteration": Requirement(
+        source="sdk",
+        behavior=(
+            "An open subscription is an async iterator of typed change events; delivered notifications "
+            "still tee to message_handler so caching and observers keep working."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:graceful-close": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#cancellation",
+        behavior=(
+            "The server's empty subscriptions/listen result (its deliberate close) ends iteration cleanly "
+            "after buffered events drain; no exception is raised."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:lost": Requirement(
+        source="sdk",
+        behavior=(
+            "A listen stream that ends without the graceful result raises SubscriptionLost from iteration; "
+            "there is no automatic re-listen."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:era-guard": Requirement(
+        source="sdk",
+        behavior=(
+            "Client.listen() on a pre-2026 connection raises ListenNotSupportedError steering to "
+            "subscribe_resource/message_handler instead of leaking a wire -32601."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "removed_in scopes the matrix to the 2025 cells deliberately: the behavior under test is the "
+            "guard on connections where the method does not exist."
+        ),
+    ),
     "resources:updated-notification": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
         behavior=(
@@ -1210,8 +1317,15 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:resource:read-throws-surfaced": Requirement(
         source="sdk",
         behavior=(
-            "A resource function that raises is surfaced to the caller as a JSON-RPC error response "
-            "(-32603 Internal error), with the original exception text withheld."
+            "A resource function that raises an unexpected exception is surfaced to the caller as a JSON-RPC "
+            "error response (-32603 Internal error), with the original exception text withheld."
+        ),
+    ),
+    "mcpserver:resource:static-not-found": Requirement(
+        source="sdk",
+        behavior=(
+            "A static (fixed-URI) resource function that raises ResourceNotFoundError is surfaced as -32602 "
+            "with the handler's message and the URI in data, the same as from a template function."
         ),
     ),
     "mcpserver:resource:static": Requirement(
@@ -1425,6 +1539,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             ),
         ),
         removed_in="2026-07-28",
+        superseded_by="logging:per-request:threshold",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
@@ -1434,6 +1549,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/logging#setting-log-level",
         behavior="logging/setLevel delivers the requested level to the server's handler and returns an empty result.",
         removed_in="2026-07-28",
+        superseded_by="logging:per-request:opt-in",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
@@ -1443,10 +1559,39 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/logging#error-handling",
         behavior="logging/setLevel with an invalid level value returns JSON-RPC error -32602 (Invalid params).",
         removed_in="2026-07-28",
+        superseded_by="logging:per-request:invalid-level",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
         ),
+    ),
+    "logging:per-request:opt-in": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/logging#per-request-log-level",
+        behavior=(
+            "The server does not send log message notifications for a request unless the request opts in by "
+            "carrying io.modelcontextprotocol/logLevel in _meta; a handler's log calls on an un-opted "
+            "request are dropped, not delivered on another stream."
+        ),
+        added_in="2026-07-28",
+        supersedes=("logging:set-level",),
+    ),
+    "logging:per-request:threshold": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/logging#per-request-log-level",
+        behavior=(
+            "A request that opts in receives log message notifications only at or above the level named in "
+            "its io.modelcontextprotocol/logLevel; entries below the level are dropped."
+        ),
+        added_in="2026-07-28",
+        supersedes=("logging:message:filtered",),
+    ),
+    "logging:per-request:invalid-level": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/logging#error-handling",
+        behavior=(
+            "A request whose io.modelcontextprotocol/logLevel is not a recognized log level is rejected with "
+            "JSON-RPC error -32602 (Invalid params)."
+        ),
+        added_in="2026-07-28",
+        supersedes=("logging:set-level:invalid-level",),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Sampling (server → client)
@@ -2464,6 +2609,32 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: JSON-response mode is an HTTP framing option.",
     ),
+    "transport:streamable-http:cancelled-request-terminated": Requirement(
+        source="sdk",
+        behavior=(
+            "A request cancelled through notifications/cancelled is terminated with a REQUEST_CANCELLED "
+            "(-32800) error response, completing its POST - the JSON body in JSON-response mode, the "
+            "final event of its stream in SSE mode."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "An SDK choice, not spec-mandated (the spec-side gap is the Divergence on "
+            "protocol:cancel:in-flight): this era's wire ends a request's stream only with a response "
+            "for its id, and stores it so a resuming client's replay terminates too. The terminator is "
+            "written through the same ordered channel as the request's other messages, so it cannot "
+            "overtake anything already queued for the request."
+        ),
+    ),
+    "transport:streamable-http:json-response-restrictions": Requirement(
+        source="sdk",
+        behavior=(
+            "In JSON-response mode a handler's request-scoped server-initiated request fails fast with an "
+            "INVALID_REQUEST protocol error and request-scoped notifications are not delivered, because the "
+            "single JSON body carries only the response; the connection's standalone stream is unaffected."
+        ),
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: JSON-response mode is an HTTP framing option.",
+    ),
     "transport:streamable-http:stateless": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
         behavior=(
@@ -2686,11 +2857,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/authorization#access-token-usage",
         behavior="The resource server validates that the token audience matches its resource identifier.",
         transports=("streamable-http",),
-        note="Auth is enforced at the HTTP layer.",
+        note="Auth is enforced at the HTTP layer; the conformant tests enable AuthSettings.validate_token_resource.",
         divergence=Divergence(
             note=(
-                "BearerAuthBackend never inspects AccessToken.resource; a token issued for a different "
-                "resource is accepted. Spec MUST."
+                "Off by default: without AuthSettings.validate_token_resource the bearer gate does not compare "
+                "AccessToken.resource with resource_server_url and the check is the token verifier's. Spec MUST."
             ),
         ),
     ),
@@ -2844,6 +3015,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=("Every token-endpoint response carries `Cache-Control: no-store` and `Pragma: no-cache`."),
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; Cache-Control is an HTTP header.",
+    ),
+    "hosting:auth:as:register-echo": Requirement(
+        source="sdk",
+        behavior=(
+            "The bundled registration endpoint returns all registered metadata about the client "
+            "in its 201 response (RFC 7591 §3.2.1) - the client's `application_type` rather than a "
+            "substituted default, and `client_secret_expires_at` (0 when the secret never expires) "
+            "whenever a `client_secret` is issued."
+        ),
+        transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
     ),
     "hosting:auth:as:register-error-response": Requirement(
         source="sdk",
@@ -3017,7 +3199,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="A POST containing only notifications or responses returns 202 with no body.",
         transports=("streamable-http",),
-        note="Only observable over HTTP: 202 is an HTTP status code.",
+        removed_in="2026-07-28",
+        superseded_by="hosting:http:modern:notification-post-202",
+        note=(
+            "Only observable over HTTP: 202 is an HTTP status code. At 2026-07-28 clients no longer post "
+            "responses (streamable-http §Sending Messages item 4), so only the notification half carries over."
+        ),
     ),
     "hosting:http:onerror": Requirement(
         source="sdk",
@@ -3167,8 +3354,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     "hosting:http:modern:discover-response-shape": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/index",
         behavior=(
-            "A 2026-07-28 server/discover response carries supportedVersions, capabilities, and "
-            "serverInfo, with supportedVersions naming the modern protocol revisions the server accepts."
+            "A 2026-07-28 server/discover response carries supportedVersions and capabilities in the "
+            "result body, with supportedVersions naming the modern protocol revisions the server "
+            "accepts; serverInfo is not a body field and travels as the io.modelcontextprotocol/serverInfo "
+            "result _meta stamp."
         ),
         added_in="2026-07-28",
         transports=("streamable-http",),
@@ -3207,6 +3396,22 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: the modern entry's JSONRPCError-to-HTTP-status mapping.",
+    ),
+    "hosting:http:modern:notification-post-202": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#sending-messages",
+        behavior=(
+            "A 2026-07-28 POST whose body is a single JSON-RPC notification is acknowledged 202 with no "
+            "body (the spec's accept branch) and is not dispatched; a posted JSON-RPC response is rejected "
+            "INVALID_REQUEST at HTTP 400."
+        ),
+        added_in="2026-07-28",
+        supersedes=("hosting:http:notifications-202",),
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: the HTTP status is the assertion. The revision defines no "
+            "client-to-server notifications on this transport (cancellation is closing the response stream), "
+            "so accept-and-drop is the SDK's choice between the two responses the spec permits."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client transport: streamable HTTP
@@ -3256,6 +3461,30 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over HTTP: Accept is an HTTP request header.",
     ),
+    "client-transport:http:cancel-closes-stream": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#cancellation",
+        behavior=(
+            "At 2026-07-28, abandoning an in-flight request closes that request's own POST stream and "
+            "posts nothing further: no notifications/cancelled reaches the server (the revision defines "
+            "no client-to-server notifications), and the server treats the disconnect as cancellation "
+            "of exactly that request."
+        ),
+        transports=("streamable-http",),
+        added_in="2026-07-28",
+        supersedes=("client-transport:http:cancel-posts-frame",),
+        note="HTTP-only by nature: the response stream that closing constitutes the signal is an HTTP exchange.",
+    ),
+    "client-transport:http:cancel-posts-frame": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#cancellation-flow",
+        behavior=(
+            "At 2025-era revisions, abandoning an in-flight request POSTs exactly one "
+            "notifications/cancelled naming its request id."
+        ),
+        transports=("streamable-http",),
+        removed_in="2026-07-28",
+        superseded_by="client-transport:http:cancel-closes-stream",
+        note="HTTP-only by nature: pins that the frame travels as its own POST on the legacy HTTP wire.",
+    ),
     "client-transport:http:concurrent-streams": Requirement(
         source="sdk",
         behavior="Multiple concurrent POST-initiated SSE streams each deliver their response to the right caller.",
@@ -3269,7 +3498,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "including auth flows."
         ),
         transports=("streamable-http",),
-        note="Only observable over HTTP: the httpx client is HTTP-specific.",
+        note="Only observable over HTTP: the httpx2 client is HTTP-specific.",
     ),
     "client-transport:http:custom-headers": Requirement(
         source="sdk",
@@ -3403,6 +3632,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: headers are derived from the cached tool schema at the seam.",
+    ),
+    "client-transport:http:header-mismatch-recovery": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#client-behavior",
+        behavior=(
+            "When the server rejects a tools/call with HeaderMismatch, the client calls tools/list for the "
+            "tool's current inputSchema and retries the call once with the Mcp-Param-* headers that schema "
+            "asks for. A second rejection is raised to the caller."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Client.call_tool only: ClientSession.call_tool sends once and leaves the recovery to its caller.",
     ),
     "client-transport:http:vendor-name-param-header": Requirement(
         source="sdk",
@@ -3539,6 +3779,19 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
+    "client-auth:dcr:substituted-metadata": Requirement(
+        source="sdk",
+        behavior=(
+            "A 201 registration response whose echoed metadata the server substituted (RFC 7591 §3.2.1) - "
+            "an unregistered application_type, null redirect_uris, extra grant types - completes the flow; "
+            "substituted credentials the authorization-code flow cannot apply (an unimplemented "
+            "token_endpoint_auth_method; private_key_jwt, whose assertion it has no key to sign; or a "
+            "secret-based method with no client_secret issued) are instead reported as an "
+            "OAuthRegistrationError before the record is persisted or authorization begins."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
     "client-auth:dcr": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#dynamic-client-registration",
         behavior=(
@@ -3579,6 +3832,25 @@ REQUIREMENTS: dict[str, Requirement] = {
     "client-auth:invalid-grant-clears-tokens": Requirement(
         source="sdk",
         behavior="An invalid-grant error during authorization invalidates only the stored tokens.",
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:login-time:not-counted": Requirement(
+        source="issue:#3601",
+        behavior=(
+            "The time OAuthClientProvider spends awaiting redirect_handler and callback_handler does not count "
+            "against the timeout of the request that was challenged; afterwards the timeout resumes with the "
+            "budget that was left. The provider's own HTTP calls do count."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:login-time:other-requests-keep-counting": Requirement(
+        source="sdk",
+        behavior=(
+            "A login suspends the timeout of the challenged request only: a request queued behind it in the "
+            "provider still times out on its own clock."
+        ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
@@ -3798,9 +4070,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="Only observable over stdio: stdin/stdout purity is stdio-specific.",
         divergence=Divergence(
             note=(
-                "stdio_server's own writes satisfy this, but it does not redirect or guard sys.stdout: "
-                "handler code that calls print() writes directly to the protocol stream and corrupts the "
-                "framing. The spec MUST is satisfied only as long as application code behaves."
+                "While serving, stdio_server moves the wire to private descriptors and diverts fd 0/1, so "
+                "handler code and its child processes can neither read protocol bytes nor write into the "
+                "stream (pinned by tests/server/test_stdio.py). Remaining gaps: output flushed to stdout "
+                "before the transport enters can still precede the first frame, and the claim is "
+                "best-effort - skipped for explicitly injected streams and for processes without "
+                "normal standard descriptors."
             ),
         ),
     ),

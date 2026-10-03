@@ -14,7 +14,7 @@ import jwt
 IDP_ISSUER = "https://idp.example.com"
 # Demo only: a real IdP signs with its private key and the authorization server verifies the
 # signature against the IdP's published JWKS. A shared HMAC secret keeps this story self-contained.
-IDP_SIGNING_KEY = "demo-idp-signing-key"
+IDP_SIGNING_KEY = "the-demo-idp-signing-key-for-this-story"
 
 
 def issue_id_jag(*, subject: str, client_id: str, audience: str, resource: str, scope: str) -> str:

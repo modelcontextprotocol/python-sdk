@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 
 import anyio
 import anyio.to_thread
-import httpx
+import httpx2
 import pytest
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -147,8 +147,8 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
         # Suppress WARNING logs (expected validation errors) and capture ERROR logs
         with caplog.at_level(logging.ERROR):
             # Test with missing text/event-stream in Accept header
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
+            async with httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
             ) as client:
                 response = await client.post(
                     "/",
@@ -162,8 +162,8 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
                 assert response.status_code == 406
 
             # Test with missing application/json in Accept header
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
+            async with httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
             ) as client:
                 response = await client.post(
                     "/",
@@ -177,8 +177,8 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
                 assert response.status_code == 406
 
             # Test with completely invalid Accept header
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
+            async with httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
             ) as client:
                 response = await client.post(
                     "/",
@@ -218,8 +218,8 @@ async def test_race_condition_invalid_content_type(caplog: pytest.LogCaptureFixt
         # Suppress WARNING logs (expected validation errors) and capture ERROR logs
         with caplog.at_level(logging.ERROR):
             # Test with invalid Content-Type
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
+            async with httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
             ) as client:
                 response = await client.post(
                     "/",
@@ -257,9 +257,9 @@ async def test_race_condition_message_router_async_for(caplog: pytest.LogCapture
 
         # Suppress WARNING logs (expected validation errors) and capture ERROR logs
         with caplog.at_level(logging.ERROR):
-            # Use httpx.ASGITransport to test the ASGI app directly
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
+            # Use httpx2.ASGITransport to test the ASGI app directly
+            async with httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
             ) as client:
                 # Send a valid initialize request
                 response = await client.post(

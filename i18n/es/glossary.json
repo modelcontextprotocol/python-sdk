@@ -1,0 +1,307 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "herramienta",
+      "note": "MCP protocol noun (a server exposes tools), feminine: la herramienta / las herramientas. Standard rendering. Wire identifiers such as `tools/call` and the `@mcp.tool()` decorator are code and stay untouched; the Inspector's **Tools** tab is a UI label and stays English."
+    },
+    {
+      "source": "resource",
+      "target": "recurso",
+      "note": "MCP protocol noun (data a server exposes for reading) and the general noun alike, masculine: el recurso / los recursos. Standard rendering. `resources/read` and `@mcp.resource()` are code."
+    },
+    {
+      "source": "prompt",
+      "target": "prompt",
+      "note": "The MCP feature (a reusable prompt template a server exposes) and the everyday AI sense; kept in English as Spanish AI writing does, masculine: el prompt / los prompts. Provisional pending native review: indicación / instrucción are not used for the MCP noun. `prompts/get` and `@mcp.prompt()` are code."
+    },
+    {
+      "source": "sampling",
+      "target": "muestreo",
+      "note": "The (deprecated) client feature that lets a server borrow the client's model for a completion, masculine: el muestreo. Provisional pending native review; first mention in a page body reads \"muestreo (sampling)\" so the reader can map it to `sampling/createMessage`, which is code. Keeping the English word is the open alternative."
+    },
+    {
+      "source": "roots",
+      "target": "roots",
+      "note": "The (deprecated) client feature listing the workspace directories a client exposes; kept in English because the reader meets it as `roots/list`, masculine plural: los roots. Provisional pending native review; may take the gloss \"roots (directorios raíz)\" on first mention. raíces is the open alternative; a `Root` object in code font stays Latin."
+    },
+    {
+      "source": "elicitation",
+      "target": "elicitación",
+      "note": "OPEN QUESTION for native review: the server asking the user a question mid-request through the client. Provisionally the software-engineering loan elicitación (as in elicitación de requisitos), feminine, glossed on first mention per page — elicitación (elicitation). Alternatives a reviewer may prefer: consulta al usuario, petición de datos al usuario. `elicitation/create` and `ctx.elicit()` are code."
+    },
+    {
+      "source": "capability",
+      "target": "capacidad",
+      "note": "What client and server declare during initialization (\"capability negotiation\" → negociación de capacidades), feminine. Not habilidad; and funcionalidad / característica mean a feature, which is a different thing. The `capabilities` field and keys such as `sampling.tools` are code."
+    },
+    {
+      "source": "transport",
+      "target": "transporte",
+      "note": "The connection mechanism (\"every standard transport\" → todos los transportes estándar), masculine. The transport names stdio, Streamable HTTP and SSE are on the keep list: el transporte stdio."
+    },
+    {
+      "source": "session",
+      "target": "sesión",
+      "note": "An MCP session (the negotiated connection state), feminine: la sesión / las sesiones, ID de sesión. `session` objects, `ClientSession` and `ServerSession` are code."
+    },
+    {
+      "source": "handler",
+      "target": "handler",
+      "note": "The tool, resource or prompt function you register; kept in English as Spanish-speaking developers say it, masculine: el handler / los handlers (nav section \"Inside your handler\" → Dentro de tu handler). Provisional pending native review: manejador is the open alternative; controlador is not used because it also means controller and driver."
+    },
+    {
+      "source": "dependency",
+      "target": "dependencia",
+      "note": "Both package dependencies and the SDK's parameter-injection feature (the \"Dependencies\" page → Dependencias; \"dependency injection\" → inyección de dependencias), feminine. The `Resolve` marker class is code."
+    },
+    {
+      "source": "resolver",
+      "target": "resolutor",
+      "note": "The plain function attached with `Resolve(...)` that computes or asks for a parameter's value before the tool runs. Rendered as the noun resolutor (masculine) because resolver is a Spanish verb and \"el resolver\" misreads. OPEN QUESTION for native review: resolvedor and función de resolución are the alternatives. The `Resolve` class stays Latin."
+    },
+    {
+      "source": "client",
+      "target": "cliente",
+      "note": "An MCP client and the client side of a connection, masculine: el cliente. The `Client` class and the `mcp.client` module are code and stay in English."
+    },
+    {
+      "source": "server",
+      "target": "servidor",
+      "note": "An MCP server (the program you build), masculine: el servidor. The `MCPServer`, `Server` and `ServerSession` classes are code."
+    },
+    {
+      "source": "host",
+      "target": "host",
+      "note": "The MCP host — the application the user talks to (Claude Desktop, an IDE, an agent runtime) — and a network host alike; kept in English as Spanish networking usage does, masculine: el host / los hosts. Provisional pending native review: anfitrión is not used for the MCP role."
+    },
+    {
+      "source": "context",
+      "target": "contexto",
+      "note": "The generic lower-case word (\"provide context to LLMs\" → proporcionar contexto a los LLM), masculine. The capitalised `Context` is the SDK object injected as `ctx`; it is on the keep list and stays Latin (\"The Context\" → El Context, la clase `Context`)."
+    },
+    {
+      "source": "request",
+      "target": "solicitud",
+      "note": "A JSON-RPC or HTTP request (\"the initialize request\" → la solicitud de inicialización), feminine. Provisional pending native review: petición is equally understood but use solicitud throughout rather than alternating; the raw English \"request\" is developer speech, not used in prose here. `Request` types in code font stay Latin."
+    },
+    {
+      "source": "response",
+      "target": "respuesta",
+      "note": "A JSON-RPC or HTTP response, feminine: la respuesta. `Response` types in code font stay Latin."
+    },
+    {
+      "source": "callback",
+      "target": "callback",
+      "note": "Client callbacks and OAuth redirect callbacks alike; kept in English, masculine: el callback / los callbacks. Provisional pending native review: retrollamada (the Python documentation's term) and devolución de llamada (vendor style) are not used. Parameter names such as `sampling_callback` are code."
+    },
+    {
+      "source": "decorator",
+      "target": "decorador",
+      "note": "The Python decorators the SDK is built on, masculine: el decorador. Standard rendering in the Spanish Python documentation. `@mcp.tool()` and its siblings are code and stay untouched."
+    },
+    {
+      "source": "type hint",
+      "target": "anotación de tipo",
+      "note": "Python type hints (\"from your type hints\" → a partir de tus anotaciones de tipo), feminine; the plural goes on anotación, tipo stays singular. Provisional pending native review: the Spanish Python documentation also uses indicador de tipo; pin anotación de tipo here and do not leave \"type hints\" in English prose. `type hints` inside code font is code."
+    },
+    {
+      "source": "notification",
+      "target": "notificación",
+      "note": "A JSON-RPC notification (a message with no response) and the change notifications a server publishes, feminine: la notificación / las notificaciones. `notifications/...` method strings are code."
+    },
+    {
+      "source": "round trip",
+      "target": "ida y vuelta",
+      "note": "One request-and-response exchange (\"zero negotiation round trips\" → cero idas y vueltas de negociación; \"round-trip time\" → tiempo de ida y vuelta), feminine. Provisional pending native review."
+    },
+    {
+      "source": "multi-round-trip",
+      "target": "de varias idas y vueltas",
+      "note": "The 2026-07-28 request pattern (\"Multi-round-trip requests\" → Solicitudes de varias idas y vueltas). Provisional coinage pending native review: gloss the English on first mention per page — solicitudes de varias idas y vueltas (multi-round-trip). The abbreviation MRTR stays Latin."
+    },
+    {
+      "source": "lifespan",
+      "target": "lifespan",
+      "note": "The server's startup/shutdown scope and its `lifespan=` parameter; kept in English so the prose matches the parameter name, masculine: el lifespan. Provisional pending native review; may take the gloss \"lifespan (ciclo de vida del servidor)\" on first mention. Not vida útil; and esperanza de vida (life expectancy) is never the sense. The neighbouring word \"lifetime\" (\"for the lifetime of the app\") may render as durante toda la vida de la app.",
+      "avoid": ["esperanza de vida"]
+    },
+    {
+      "source": "back-channel",
+      "target": "canal de retorno",
+      "note": "This documentation's term for the server calling back into the client during a request, which exists only on legacy connections; masculine. Provisional pending native review: gloss the English on first mention per page — canal de retorno (back-channel) — so the reader can connect it to `NoBackChannelError`, which is code."
+    },
+    {
+      "source": "deprecated",
+      "target": "obsoleto",
+      "note": "Advisory status: still works, scheduled for removal later — obsoleto / obsoleta (agreeing), as the Spanish Python documentation says (\"Deprecated features\" → Funcionalidades obsoletas; \"deprecation warning\" → aviso de obsolescencia); \"removed\" is eliminado. Provisional pending native review: the calque deprecado is widespread in speech but not used here; en desuso is understood but pin obsoleto. `MCPDeprecationWarning` is code."
+    },
+    {
+      "source": "legacy",
+      "target": "heredado",
+      "note": "\"A legacy connection / client\" = one negotiated at spec version 2025-11-25 or earlier → una conexión heredada, un cliente heredado (\"Serving legacy clients\" → Atender clientes heredados). Standard vendor rendering, understood everywhere; do not leave \"legacy\" in English prose. Provisional pending native review."
+    },
+    {
+      "source": "era",
+      "target": "generación",
+      "note": "\"Protocol era\" (\"a 2025-era client\", \"whatever era the client speaks\") → la generación del protocolo, un cliente de la generación 2025. Provisional pending native review; not the literal era or época."
+    },
+    {
+      "source": "handshake",
+      "target": "handshake",
+      "note": "The initialization handshake (\"the classic handshake\" → el handshake clásico), kept in English as Spanish networking usage mostly does, masculine. Provisional pending native review: negociación inicial is the descriptive alternative; the literal apretón de manos appears in some vendor texts but is not used here."
+    },
+    {
+      "source": "wire",
+      "target": "canal",
+      "note": "The corpus's light metaphor for the byte stream between client and server. Render the meaning, not the picture: \"stdout is the wire\" → stdout es el canal; \"invisible on the wire\" → no aparece en lo que se transmite; \"the JSON on the wire\" → el JSON que realmente se transmite. Provisional pending native review. Never the literal alambre; cable only if a reviewer prefers it.",
+      "avoid": ["alambre"]
+    },
+    {
+      "source": "token",
+      "target": "token",
+      "note": "Kept in English for OAuth tokens (token de acceso, token de actualización) and LLM tokens alike, masculine: el token / los tokens. Standard."
+    },
+    {
+      "source": "schema",
+      "target": "esquema",
+      "note": "A JSON schema describing tool input or output (\"the input schema\" → el esquema de entrada), masculine. The proper name JSON Schema stays English; `inputSchema` / `outputSchema` are code."
+    },
+    {
+      "source": "default",
+      "target": "por defecto",
+      "note": "\"by default\" → por defecto; \"the default value\" → el valor por defecto; \"defaults to X\" → es X por defecto. Provisional pending native review: predeterminado is equally correct but pin one rendering; never leave \"default\" in English prose. `default=` in code font is code."
+    },
+    {
+      "source": "deploy",
+      "target": "desplegar",
+      "note": "Verb desplegar, noun despliegue (masculine): \"Deploy & scale\" → Desplegar y escalar; \"after deployment\" → tras el despliegue. Standard pan-Hispanic rendering; never the verbified deployar."
+    },
+    {
+      "source": "subscription",
+      "target": "suscripción",
+      "note": "Resource and list-change subscriptions (the \"Subscriptions\" pages → Suscripciones; \"subscribe\" → suscribirse), feminine. Spelled without the b (suscripción, not subscripción). `subscriptions/listen` and `resources/subscribe` are code."
+    },
+    {
+      "source": "completion",
+      "target": "autocompletado",
+      "note": "The MCP feature that suggests values for prompt and resource-template arguments (the \"Completions\" page → Autocompletado), masculine. It is argument autocompletion, not LLM text completion; when a page means the model's generated text (sampling), say la respuesta del modelo. `completion/complete` is code. Provisional pending native review."
+    },
+    {
+      "source": "library",
+      "target": "biblioteca",
+      "note": "A code library, feminine: la biblioteca (\"the standard library\" → la biblioteca estándar). The false friend librería means a bookshop and is never right for this sense. It is not on the banned list only because the corpus's running example server is a bookshop (\"Bookshop\"), for which librería would be the correct word if the English prose ever names it."
+    },
+    {
+      "source": "file",
+      "target": "archivo",
+      "note": "Masculine: el archivo. fichero is Spain-only usage and this single global variant never uses it; archivo is understood everywhere, Spain included.",
+      "avoid": ["fichero"]
+    },
+    {
+      "source": "computer",
+      "target": "computadora",
+      "note": "Rare in this corpus, which mostly says \"machine\" (→ la máquina: \"on your machine\" → en tu máquina) or can say el equipo. Where \"computer\" itself must be rendered, computadora is the pan-American form and is understood in Spain; ordenador is Spain-only and this global variant never uses it. Provisional pending native review.",
+      "avoid": ["ordenador"]
+    },
+    {
+      "source": "string",
+      "target": "cadena",
+      "note": "A text string (\"returns a string\" → devuelve una cadena), feminine, as the Spanish Python documentation writes it; cadena de texto where cadena alone could be ambiguous. `str` is code. Provisional pending native review: the raw \"string\" is common in speech but not used in prose here."
+    },
+    {
+      "source": "return",
+      "target": "devolver",
+      "note": "What a function or tool gives back (\"returns `3`\" → devuelve `3`; \"the return value\" → el valor devuelto / el valor de retorno). Provisional pending native review: retornar is understood everywhere and the Python documentation uses it too, but pin devolver so pages do not alternate. The `return` keyword is code."
+    },
+    {
+      "source": "raise",
+      "target": "lanzar",
+      "note": "Raising an exception (\"raises `ToolError`\" → lanza `ToolError`; \"an exception is raised\" → se lanza una excepción), as the Spanish Python documentation says. generar una excepción is understood but pin lanzar. The `raise` keyword is code."
+    },
+    {
+      "source": "async",
+      "target": "asíncrono",
+      "note": "The prose adjective (\"the async runtime\" → el entorno de ejecución asíncrono; \"an async callback\" → un callback asíncrono). Provisional pending native review: asincrónico is equally valid and more common in parts of the Americas; pin asíncrono for consistency. The `async` and `await` keywords in code font stay Latin."
+    },
+    {
+      "source": "Get started",
+      "target": "Empieza aquí",
+      "note": "The nav section that opens the guide, and the title of its index page. \"First steps\" is a separate page inside that section (Primeros pasos), so the two need distinct renderings or the sidebar shows the same title twice. Provisional pending native review; Cómo empezar and Introducción are the alternatives for the section."
+    },
+    {
+      "source": "First steps",
+      "target": "Primeros pasos",
+      "note": "The tutorial page inside the \"Get started\" section; never reuse this rendering for the section itself (see that entry). Provisional pending native review."
+    },
+    {
+      "source": "Recap",
+      "target": "Resumen",
+      "note": "Recurring section heading that closes most pages; one rendering everywhere, not Resumen on some pages and Recapitulación or En resumen on others. Provisional pending native review."
+    },
+    {
+      "source": "Try it",
+      "target": "Pruébalo",
+      "note": "Recurring section heading above a runnable example; one rendering everywhere (tú imperative with the clitic, accent kept). Provisional pending native review."
+    }
+  ]
+}

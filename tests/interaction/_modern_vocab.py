@@ -17,7 +17,7 @@ assumptions about which side produced what.
 
 from dataclasses import dataclass
 
-import httpx
+import httpx2
 from mcp_types import JSONRPCMessage, jsonrpc_message_adapter
 
 #: Substrings that must not appear anywhere in a request body or JSON-RPC frame on a legacy
@@ -51,8 +51,8 @@ class RecordedExchange:
     the server-to-client body content must be supplied via `frames`.
     """
 
-    requests: list[httpx.Request]
-    responses: list[httpx.Response]
+    requests: list[httpx2.Request]
+    responses: list[httpx2.Response]
     frames: list[JSONRPCMessage]
 
 

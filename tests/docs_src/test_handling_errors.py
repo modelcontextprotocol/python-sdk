@@ -1,17 +1,19 @@
 """`docs/servers/handling-errors.md`: every claim the page makes, proved against the real SDK."""
 
+import logging
+
 import pytest
 from mcp_types import INVALID_PARAMS, ErrorData, TextContent, TextResourceContents
 
-from docs_src.handling_errors import tutorial001, tutorial002, tutorial003
+from docs_src.handling_errors import tutorial001, tutorial002, tutorial003, tutorial004
 from mcp import Client, MCPError
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
 
 
-async def test_a_plain_exception_becomes_a_tool_error_the_model_reads() -> None:
-    """tutorial001: any non-`MCPError` exception comes back as `is_error=True` with the message in `content`."""
+async def test_tool_error_becomes_a_tool_error_the_model_reads() -> None:
+    """tutorial001: `ToolError` comes back as `is_error=True` with the message in `content`."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("get_author", {"title": "Nothing"})
         assert result.is_error
@@ -19,6 +21,16 @@ async def test_a_plain_exception_becomes_a_tool_error_the_model_reads() -> None:
             TextContent(type="text", text="Error executing tool get_author: No book titled 'Nothing' in the catalog.")
         ]
         assert result.structured_content is None
+
+
+async def test_tool_error_is_one_info_line(caplog: pytest.LogCaptureFixture) -> None:
+    """tutorial001: on the server a `ToolError` is one INFO record with no traceback."""
+    caplog.set_level(logging.INFO)
+    async with Client(tutorial001.mcp) as client:
+        await client.call_tool("get_author", {"title": "Nothing"})
+    records = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert [(r.levelno, r.exc_info) for r in records] == [(logging.INFO, None)]
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 async def test_a_title_the_catalog_knows_is_an_ordinary_result() -> None:
@@ -55,6 +67,21 @@ async def test_mcp_error_only_fires_on_the_raising_path() -> None:
         assert result.structured_content == {"result": "Frank Herbert"}
 
 
+async def test_any_other_exception_is_a_crash_the_model_sees_generically(caplog: pytest.LogCaptureFixture) -> None:
+    """tutorial004, "Any other exception": the `KeyError` text stays on the server; the model gets only the
+    generic line, and the log gets one ERROR record with the traceback under the documented message."""
+    caplog.set_level(logging.INFO)
+    async with Client(tutorial004.mcp) as client:
+        result = await client.call_tool("get_author", {"title": "Nothing"})
+    assert result.is_error
+    assert result.content == [TextContent(type="text", text="Error executing tool get_author")]
+    (record,) = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert (record.levelno, record.getMessage()) == (logging.ERROR, "Tool 'get_author' raised an unexpected exception")
+    assert record.exc_info is not None
+    logged = record.exc_info[1]
+    assert logged is not None and isinstance(logged.__cause__, KeyError)
+
+
 async def test_resource_not_found_error_maps_to_invalid_params() -> None:
     """tutorial003: `ResourceNotFoundError` from a template handler is `-32602` with the URI in `data`."""
     async with Client(tutorial003.mcp) as client:
@@ -69,12 +96,10 @@ async def test_resource_not_found_error_maps_to_invalid_params() -> None:
 
 async def test_raise_exceptions_does_not_turn_a_tool_error_into_a_traceback() -> None:
     """The closing `!!! info`: even `raise_exceptions=True` leaves a failing tool as the `is_error=True` result."""
-    async with Client(tutorial001.mcp, raise_exceptions=True) as client:
+    async with Client(tutorial004.mcp, raise_exceptions=True) as client:
         result = await client.call_tool("get_author", {"title": "Nothing"})
         assert result.is_error
-        assert result.content == [
-            TextContent(type="text", text="Error executing tool get_author: No book titled 'Nothing' in the catalog.")
-        ]
+        assert result.content == [TextContent(type="text", text="Error executing tool get_author")]
 
 
 async def test_a_title_the_template_knows_reads_normally() -> None:
@@ -84,3 +109,14 @@ async def test_a_title_the_template_knows_reads_normally() -> None:
         (contents,) = result.contents
         assert isinstance(contents, TextResourceContents)
         assert contents.text == "Dune by Frank Herbert"
+
+
+async def test_a_bad_argument_is_an_info_line_not_a_crash(caplog: pytest.LogCaptureFixture) -> None:
+    """ "Errors you never raise": schema rejection of the arguments is logged at INFO with no traceback."""
+    caplog.set_level(logging.INFO)
+    async with Client(tutorial001.mcp) as client:
+        result = await client.call_tool("get_author", {"title": 42})
+    assert result.is_error
+    records = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert [(r.levelno, r.exc_info) for r in records] == [(logging.INFO, None)]
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]

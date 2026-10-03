@@ -1,0 +1,107 @@
+/* Sidebar hierarchy + density for Zensical's UI (Material-compatible md-*
+   DOM, but different stock spacing: nav links are 8px-radius pills with
+   7px 16px padding). All rules scoped to the desktop sidebar breakpoint
+   (>= 76.25em) so the mobile drill-down drawer keeps stock styling. Colors
+   use the md-* tokens, so the light and slate schemes both work without
+   extra palette handling. */
+
+@media screen and (min-width: 76.25em) {
+  /* The sidebar is one coordinate system derived from the pill inset:
+     every row — page links, group rows, section labels — is a direct
+     .md-nav__link child of its item with the same 10px horizontal padding,
+     so all text shares one column, and hover/active pills always paint
+     10px of breathing room inside the scroll container (never clipped).
+     The padding lives on the elements Zensical paints hover/active pills
+     on (.md-nav__link[href] anchors and [for] labels — leaf links, bare
+     section labels, and the inner anchor of an .md-nav__container
+     wrapper); wrappers stay geometry-neutral, as stock. The 10px inset
+     also stays >= the 0.4rem pill radius, so the corner curve never
+     crowds the text. Vertical rhythm has a single knob: the nav list's
+     flex gap (stock 0.2rem reads airy; 2px matches the density the site
+     shipped with on Material, ~30px row pitch). */
+  .md-sidebar--primary .md-nav__list {
+    gap: 2px;
+  }
+  .md-sidebar--primary .md-nav__item > .md-nav__link:not(.md-nav__container),
+  .md-sidebar--primary .md-nav__container > .md-nav__link {
+    padding: 3px 10px;
+    margin: 0;
+  }
+  .md-sidebar--primary .md-nav__item > .md-nav__container {
+    padding: 0;
+    margin: 0;
+  }
+
+  /* Section labels: typography only — geometry comes from the row rule
+     above, so no specificity coordination is needed. */
+  .md-sidebar--primary .md-nav__item--section {
+    margin: 0.8em 0;
+  }
+  .md-sidebar--primary .md-nav__item--section > .md-nav__link {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--md-default-fg-color--light);
+  }
+
+  /* Guide lines: 12px from the item box = 2px right of the label text
+     (which sits at box + 10px pill inset); children indent past them. */
+  .md-sidebar--primary .md-nav__item--section > .md-nav {
+    margin-inline-start: 12px;
+    border-inline-start: 0.05rem solid var(--md-default-fg-color--lightest);
+  }
+  .md-sidebar--primary .md-nav__item--nested:not(.md-nav__item--section) > .md-nav {
+    margin-inline-start: 12px;
+    border-inline-start: 0.05rem solid var(--md-default-fg-color--lightest);
+  }
+
+  /* The current page stands out from its siblings (on top of the stock
+     pill highlight). 700 because only Inter 300/400/700 are loaded. */
+  .md-sidebar--primary .md-nav__link--active {
+    font-weight: 700;
+  }
+
+  /* The sidebar repeats the site name right above the homepage nav entry;
+     drop the title row on desktop (the mobile drawer still needs it for its
+     drill-down back-navigation, hence the media-query scope). */
+  .md-sidebar--primary .md-nav--primary > .md-nav__title {
+    display: none;
+  }
+}
+
+/* Dark scheme: Zensical's slate canvas is near-black (hsla(225,15%,5%)),
+   harsher than the Material slate this site shipped with; restore that
+   blue-grey. Code blocks and other surfaces keep Zensical's own tokens. */
+@media screen {
+  [data-md-color-scheme="slate"] {
+    --md-default-bg-color: #1e2129;
+  }
+}
+
+/* Inline code inside admonitions: the chip token is an absolute dark
+   surface designed for the page canvas, so on a tinted admonition panel it
+   sits as an opaque slab (Zensical's own docs share this bug). Re-tint it
+   tone-on-tone instead — translucent foreground, composited over whatever
+   the panel color is — the same pattern Starlight and Docusaurus ship for
+   code inside callouts. Prose chips keep the block-matching dark surface;
+   block code inside admonitions keeps its own surface too. The first
+   declaration is the fallback where color-mix is unsupported. */
+.md-typeset .admonition :not(pre) > code,
+.md-typeset details :not(pre) > code {
+  background-color: var(--md-default-fg-color--lightest);
+  background-color: color-mix(in srgb, currentcolor 11%, transparent);
+  color: inherit;
+}
+
+/* Headings: the 300-weight light-gray defaults read washed out; use the
+   full foreground color and a solid weight instead. 700, not 600: only
+   Inter 300/400/700 are loaded (see the nav__link note above). */
+.md-typeset h1,
+.md-typeset h2 {
+  font-weight: 700;
+  color: var(--md-default-fg-color);
+}
+.md-typeset h3 {
+  font-weight: 700;
+}

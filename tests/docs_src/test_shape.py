@@ -138,7 +138,7 @@ def test_every_example_is_included_by_a_page() -> None:
 def test_every_included_path_exists() -> None:
     """Every `docs_src/` path a page includes exists on disk.
 
-    `mkdocs build --strict` also enforces this, but only when the docs are
+    `zensical build --strict` also enforces this, but only when the docs are
     built; this puts the same guarantee inside the ordinary `pytest` run.
     """
     missing = sorted(filterfalse(_is_real_file, _referenced_examples()))

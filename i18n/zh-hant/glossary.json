@@ -1,0 +1,411 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "工具",
+      "note": "MCP protocol noun (a server exposes tools); \"tool call\" → 工具呼叫. Wire identifiers such as `tools/call` and `tools/list` are code and stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "resource",
+      "target": "資源",
+      "note": "MCP protocol noun; \"resource template\" → 資源範本 (not 資源模板). `resources/read` stays Latin. Provisional pending native review."
+    },
+    {
+      "source": "prompt",
+      "target": "提示詞",
+      "note": "The MCP feature: a reusable prompt a server exposes (`prompts/get` stays Latin), and the everyday LLM word. Provisional pending native review: 提示詞 rather than the bare 提示, which reads as \"hint\" and is what a `tip` admonition title becomes; several Taiwan vendor docs use 提示 for prompt, so this is an open choice — but one rendering per page."
+    },
+    {
+      "source": "sampling",
+      "target": "取樣",
+      "note": "The (deprecated) client feature that lets a server borrow the client's model. Gloss the English on first use per page: 取樣（sampling）. Taiwan signal-processing usage is 取樣; 抽樣 is statistical sampling and the wrong sense, 采样 is Simplified. The `sampling` capability key and `sampling/createMessage` stay Latin. Provisional pending native review.",
+      "avoid": ["采样", "抽樣"]
+    },
+    {
+      "source": "roots",
+      "target": "根目錄",
+      "note": "The (deprecated) client feature listing workspace folders; a `Root` object in code font stays Latin. Gloss the English on first use per page: 根目錄（roots）. Never the bare 根 and never 根節點 (a tree node). Provisional pending native review.",
+      "avoid": ["根节点", "根節點"]
+    },
+    {
+      "source": "elicitation",
+      "target": "徵詢",
+      "note": "OPEN QUESTION for native review: there is no settled Taiwan term for the server asking the user a question mid-request; candidates seen are 徵詢, 引導, 詢問 and 誘導 (the last carries a manipulative overtone and is not wanted). Provisionally pinned to 徵詢, glossed with the English on first use per page: 徵詢（elicitation）; the verb \"elicit\" is 向使用者徵詢. Write it with 徵, never the Simplified or mis-converted 征. `elicitation/create` and the `Elicit` class stay Latin.",
+      "avoid": ["征询", "征詢"]
+    },
+    {
+      "source": "capability",
+      "target": "能力",
+      "note": "A negotiated protocol capability (宣告了 `sampling` 能力; \"capability negotiation\" → 能力協商). The `capabilities` field and keys such as `sampling.tools` stay Latin. Not 功能, which means \"feature\" — the corpus uses \"feature\" as a separate word. Provisional pending native review."
+    },
+    {
+      "source": "transport",
+      "target": "傳輸",
+      "note": "As a countable noun use 傳輸方式 (\"three transports\" → 三種傳輸方式; the \"Transports\" page → 傳輸方式). The transport names stdio, Streamable HTTP and SSE stay in English. Provisional pending native review."
+    },
+    {
+      "source": "session",
+      "target": "工作階段",
+      "note": "An MCP session (the negotiated connection state). Provisional pending native review: 工作階段 is the established Taiwan localisation; gloss the English on first use per page — 工作階段（session）. 會話 is the Mainland rendering and in Taiwan means a language-conversation class; `session` and `ctx.session` in code font stay Latin, as does the class name ClientSession. Open question: many Taiwanese developers simply write session in English.",
+      "avoid": ["会话", "會話"]
+    },
+    {
+      "source": "handler",
+      "target": "處理函式",
+      "note": "The tool, resource or prompt function you register (nav section \"Inside your handler\" → 在處理函式內部). Provisional pending native review: 處理函式 rather than the vendor form 處理常式 or the Mainland 處理器／處理函數; pick-one-and-never-mix applies within a page."
+    },
+    {
+      "source": "dependency",
+      "target": "相依性",
+      "note": "The SDK's parameter-injection feature (the \"Dependencies\" page → 相依性); \"dependency injection\" → 相依性注入; a package dependency in installation contexts → 相依套件. Provisional pending native review: 依賴／依賴注入 is the widespread community alternative and is not wrong in Taiwan, but do not mix the two families on one page. The `Resolve` marker class stays Latin."
+    },
+    {
+      "source": "client",
+      "target": "用戶端",
+      "note": "An MCP client, and the client side of a connection (\"client-side\" → 用戶端). The `Client` class name stays Latin in code font. Provisional pending native review: 用戶端 is the form Taiwan platform vendors use; 客戶端 is also heard in Taiwan but is pinned out here so a page never mixes the two, and 客户端 is Simplified.",
+      "avoid": ["客户端", "客戶端"]
+    },
+    {
+      "source": "server",
+      "target": "伺服器",
+      "note": "An MCP server (the program you build); \"server-side\" → 伺服器端. The low-level `Server` class and `MCPServer` stay Latin in code font. 服務器／服务器 is the Mainland word and never appears on a Taiwan page. Provisional pending native review.",
+      "avoid": ["服务器", "服務器"]
+    },
+    {
+      "source": "host",
+      "target": "主機",
+      "note": "The MCP host: the application that embeds the client and drives the model (Claude Desktop, an IDE). Gloss the English on first use per page when it is this protocol role — MCP 主機（host） — because 主機 alone first suggests a machine; a network host or hostname is also 主機／主機名稱. When \"the host app\" means the outer ASGI application an MCP server is mounted into, write 外層應用程式 (or 主應用程式), not 主機. Never 宿主, the Mainland docs convention. Provisional pending native review.",
+      "avoid": ["宿主"]
+    },
+    {
+      "source": "context",
+      "target": "上下文",
+      "note": "The generic lower-case word (\"provide context to LLMs\" → 為 LLM 提供上下文). Provisional pending native review: 上下文 is widely understood in Taiwan developer writing; 脈絡 and 情境 are the candidates a reviewer may prefer. The capitalised `Context` is the SDK object injected as `ctx`; both are on the keep list and stay Latin in prose (\"The Context\" → Context). The idiom \"in this context\" is not this term and may be recast (在這裡, 這種情況下)."
+    },
+    {
+      "source": "request",
+      "target": "請求",
+      "note": "A JSON-RPC or HTTP request (\"the initialize request\" → initialize 請求; \"Multi-round-trip requests\" → 多輪往返請求). Provisional pending native review: some Taiwan vendor docs write 要求 for an HTTP request; 請求 is pinned here. `Request` types in code font stay Latin."
+    },
+    {
+      "source": "response",
+      "target": "回應",
+      "note": "A JSON-RPC or HTTP response; the verb \"respond\" is also 回應. Never 響應 (Mainland; in Taiwan it means answering a call to action) — it is not on the avoid list only because the characters also occur inside 影響應用程式. `Response` types in code font stay Latin. Provisional pending native review.",
+      "avoid": ["响应"]
+    },
+    {
+      "source": "callback",
+      "target": "回呼",
+      "note": "Client callbacks and OAuth redirect callbacks alike (\"the elicitation callback\" → 徵詢回呼; \"Callbacks\" page → 回呼); 回呼函式 where a countable noun reads better. Never the Mainland 回調. Parameter names such as `sampling_callback` stay Latin. Provisional pending native review.",
+      "avoid": ["回调"]
+    },
+    {
+      "source": "decorator",
+      "target": "裝飾器",
+      "note": "The Python decorators the SDK is built on; `@mcp.tool()` and its siblings are code and stay untouched. Provisional pending native review."
+    },
+    {
+      "source": "type hint",
+      "target": "型別提示",
+      "note": "Python type hints (\"from your type hints\" → 從型別提示; \"type annotation\" → 型別註記). Taiwan usage is 型別 for a data type; 類型 is the general word for \"kind\" and stays available for that sense. Provisional pending native review.",
+      "avoid": ["类型提示", "類型提示"]
+    },
+    {
+      "source": "notification",
+      "target": "通知",
+      "note": "A JSON-RPC notification (a message that expects no response); \"change notifications\" → 變更通知. Method strings such as `notifications/tools/list_changed` stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "multi-round-trip",
+      "target": "多輪往返",
+      "note": "The 2026-07-28 request pattern (\"Multi-round-trip requests\" → 多輪往返請求); a single \"round trip\" → 往返 (一次往返). Provisional coinage pending native review: gloss the English on first use per page — 多輪往返（multi-round-trip）. The abbreviation MRTR stays Latin."
+    },
+    {
+      "source": "lifespan",
+      "target": "生命週期",
+      "note": "The server's startup/shutdown scope (the \"Lifespan\" page → 生命週期), written with Taiwan's 週, not 周. The neighbouring word \"lifecycle\" also renders 生命週期 and the overlap is accepted. The `lifespan` parameter name stays Latin in code font. 壽命 is the biological sense and wrong here. Provisional pending native review; keeping the English word lifespan in prose is the alternative a reviewer may prefer.",
+      "avoid": ["生命周期"]
+    },
+    {
+      "source": "back-channel",
+      "target": "反向通道",
+      "note": "The server-to-client request channel that exists only on 2025-era, non-stateless connections. Provisional coinage pending native review: gloss the English on first use per page — 反向通道（back-channel）. A generic \"channel\" is 通道 or 管道, never the Mainland 渠道."
+    },
+    {
+      "source": "deprecated",
+      "target": "已棄用",
+      "note": "Advisory status: still works, scheduled for removal later. \"X is deprecated\" → X 已棄用; \"deprecation warning\" → 棄用警告; \"Deprecated features\" → 已棄用的功能; \"removed\" is a different word (已移除) and the corpus contrasts the two. Provisional pending native review: 已淘汰 is the rendering several Taiwan platform docs use and is the alternative to confirm against; do not mix the two families on one page. The `MCPDeprecationWarning` class stays Latin."
+    },
+    {
+      "source": "resolver",
+      "target": "解析器",
+      "note": "The function attached to a parameter with `Resolve(...)` that computes or asks for its value (\"an elicitation resolver\" → 徵詢解析器). The `Resolve` class stays Latin. Provisional pending native review, together with the handler entry."
+    },
+    {
+      "source": "wire",
+      "target": "線路",
+      "note": "The corpus's light metaphor for the byte stream between client and server (\"stdout is the wire\" → stdout 就是線路本身; \"invisible on the wire\" → 在線路上看不到; \"the JSON on the wire\" → 實際傳輸的 JSON). Never a literal 電線. Provisional pending native review.",
+      "avoid": ["电线", "電線"]
+    },
+    {
+      "source": "era",
+      "target": "世代",
+      "note": "\"Protocol era\" (\"a 2025-era client\", \"whatever era the client speaks\") → 協定世代, 2025 世代的用戶端. Provisional pending native review; not the literal 時代."
+    },
+    {
+      "source": "legacy",
+      "target": "舊版",
+      "note": "\"A legacy connection / client\" = one negotiated at spec version 2025-11-25 or earlier → 舊版連線, 舊版用戶端; \"Serving legacy clients\" → 服務舊版用戶端. Provisional pending native review."
+    },
+    {
+      "source": "handshake",
+      "target": "交握",
+      "note": "The initialization handshake (\"the classic handshake\" → 傳統的交握; \"three-way handshake\" is 三向交握 in Taiwan networking texts). Never the Mainland/literal 握手 — it is kept off the avoid list only because the characters also occur inside 掌握手動. Provisional pending native review."
+    },
+    {
+      "source": "protocol",
+      "target": "協定",
+      "note": "\"the protocol\" → 協定 (通訊協定 where the fuller form reads better); \"Protocol versions\" → 協定版本. The name Model Context Protocol is on the keep list and stays English. Never the Mainland 協議, which in Taiwan means an agreement. Provisional pending native review.",
+      "avoid": ["协议"]
+    },
+    {
+      "source": "extension",
+      "target": "擴充功能",
+      "note": "A protocol extension (the \"Extensions\" page, SEP-numbered extensions) → 擴充功能; \"declare an extension\" → 宣告一個擴充功能. A file extension is 副檔名; a pip extra such as `[cli]` is an extra, not this term. 擴展 stays available as the verb \"to scale / expand\" (\"Deploy & scale\" → 部署與擴展). Provisional pending native review.",
+      "avoid": ["扩展"]
+    },
+    {
+      "source": "completion",
+      "target": "自動完成",
+      "note": "The MCP feature that suggests values for prompt and resource-template arguments (the \"Completions\" page → 自動完成; `completion/complete` stays Latin). When \"completion\" means the text a model generates during sampling, write 生成結果 instead. Never the Mainland 補全. Provisional pending native review."
+    },
+    {
+      "source": "middleware",
+      "target": "中介軟體",
+      "note": "The \"Middleware\" page and `server.middleware` (code stays Latin). Provisional pending native review: 中介軟體 is the Taiwan form; 中間件 is Mainland; many Taiwanese developers keep middleware in English, which is the alternative to confirm against.",
+      "avoid": ["中间件"]
+    },
+    {
+      "source": "authorization",
+      "target": "授權",
+      "note": "OAuth authorization → 授權 (授權伺服器, 授權碼); authentication is a different word → 驗證／身分驗證, and identity is written 身分. The `Authorization` header and code identifiers stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "exception",
+      "target": "例外",
+      "note": "A raised Python exception (\"raises an exception\" → 引發例外; \"catch\" → 攔截／捕捉). Never 異常, which in Taiwan means \"abnormal\". Exception class names stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "argument",
+      "target": "引數",
+      "note": "A value passed in a call → 引數; the declared parameter → 參數 (\"tool arguments\" → 工具引數; \"a parameter with a default\" → 有預設值的參數). Provisional pending native review: everyday Taiwan writing often says 參數 for both; keep the distinction where the English makes it."
+    },
+    {
+      "source": "return value",
+      "target": "回傳值",
+      "note": "A function's return value; the verb \"return\" (a value) → 回傳. Use 回傳 consistently rather than alternating with 傳回. 返回 means \"go back\" (返回上一頁) and is never used for returning a value. The `return` keyword is code. Provisional pending native review."
+    },
+    {
+      "source": "async",
+      "target": "非同步",
+      "note": "The prose adjective (\"the async runtime\" → 非同步執行環境, \"an async callback\" → 非同步回呼); synchronous → 同步. Never the Mainland 異步. The `async` and `await` keywords in code font stay Latin. Provisional pending native review.",
+      "avoid": ["异步"]
+    },
+    {
+      "source": "function",
+      "target": "函式",
+      "note": "A Python function → 函式 (\"a plain Python function\" → 一個普通的 Python 函式). Provisional pending native review: 函數 is the mathematics word and common in older Taiwan programming texts; 函式 is pinned here and the two are never mixed on a page.",
+      "avoid": ["函数"]
+    },
+    {
+      "source": "object",
+      "target": "物件",
+      "note": "A Python or JSON object → 物件. Never 對象, which in Taiwan means a target audience or counterpart, not a programming object. Provisional pending native review.",
+      "avoid": ["对象"]
+    },
+    {
+      "source": "variable",
+      "target": "變數",
+      "note": "\"environment variable\" → 環境變數; a template variable → 變數. Never the Mainland 變量. Provisional pending native review.",
+      "avoid": ["变量"]
+    },
+    {
+      "source": "string",
+      "target": "字串",
+      "note": "A text string → 字串; a character → 字元. Never 字符串／字符. Provisional pending native review.",
+      "avoid": ["字符串"]
+    },
+    {
+      "source": "default",
+      "target": "預設",
+      "note": "\"the default\" → 預設值; \"by default\" / \"out of the box\" → 預設情況下; \"defaults to X\" → 預設為 X. Never 默認, which in Taiwan means \"to tacitly admit\". Provisional pending native review.",
+      "avoid": ["默认", "默認"]
+    },
+    {
+      "source": "data",
+      "target": "資料",
+      "note": "Computing data → 資料 (資料庫, 資料結構, 中繼資料 for metadata). 數據 in Taiwan means numeric figures or statistics and is not the general word; 数据 is Simplified. Provisional pending native review.",
+      "avoid": ["数据", "數據庫"]
+    },
+    {
+      "source": "file",
+      "target": "檔案",
+      "note": "A file on disk → 檔案 (\"Create a file `server.py`\" → 建立 `server.py` 檔案; \"config file\" → 設定檔). 文件 in Taiwan means a document or documentation (說明文件) and is used only in that sense. Provisional pending native review."
+    },
+    {
+      "source": "code",
+      "target": "程式碼",
+      "note": "Source code → 程式碼; a program → 程式; \"no validation code\" → 不用寫驗證程式碼. An error or status code is 錯誤碼／狀態碼. Never 代碼 for source code. Provisional pending native review.",
+      "avoid": ["代码"]
+    },
+    {
+      "source": "software",
+      "target": "軟體",
+      "note": "軟體, never the Mainland/Hong Kong 軟件; likewise 硬體 for hardware. Provisional pending native review.",
+      "avoid": ["软件", "軟件"]
+    },
+    {
+      "source": "network",
+      "target": "網路",
+      "note": "網路 (the Internet → 網際網路), never 網絡, which is the Mainland/Hong Kong form. Provisional pending native review.",
+      "avoid": ["网络", "網絡"]
+    },
+    {
+      "source": "memory",
+      "target": "記憶體",
+      "note": "RAM / process memory → 記憶體; \"in-memory\" (transport, client, token storage) → 記憶體內 (記憶體內傳輸, 存在記憶體內). Never the Mainland 內存. Provisional pending native review.",
+      "avoid": ["内存"]
+    },
+    {
+      "source": "message",
+      "target": "訊息",
+      "note": "A JSON-RPC, log or error message → 訊息; \"information\" → 資訊 (an `info` admonition title, when translated, is 資訊). Never 信息 (Mainland for both) and never 消息, which in Taiwan means news. Provisional pending native review.",
+      "avoid": ["信息"]
+    },
+    {
+      "source": "support",
+      "target": "支援",
+      "note": "Technical support of a feature or version (\"supports Python 3.10\" → 支援 Python 3.10; \"not supported\" → 不支援). In Taiwan 支持 means to endorse or back someone and is wrong for this sense; it is kept off the avoid list only because the characters also occur inside 分支持續. Provisional pending native review."
+    },
+    {
+      "source": "user",
+      "target": "使用者",
+      "note": "The person at the keyboard → 使用者 (\"ask the user\" → 詢問使用者). Not 用戶, which Taiwan reserves for an account holder or subscriber — except inside the fixed term 用戶端 (client). Provisional pending native review.",
+      "avoid": ["用户"]
+    },
+    {
+      "source": "cache",
+      "target": "快取",
+      "note": "Noun and verb (the \"Caching\" page → 快取; \"cached for 60 seconds\" → 快取 60 秒). Never the Mainland 緩存. Provisional pending native review.",
+      "avoid": ["缓存"]
+    },
+    {
+      "source": "logging",
+      "target": "記錄",
+      "note": "The activity and the \"Logging\" page → 記錄; \"the server log\" → 伺服器記錄; \"a log message\" → 記錄訊息; \"log level\" → 記錄層級. The `logging` module and logger names stay Latin. Provisional pending native review: 日誌 is common in Taiwan too and is the alternative to confirm against; do not mix the two on one page. 日志 is Simplified.",
+      "avoid": ["日志"]
+    },
+    {
+      "source": "schema",
+      "target": "schema",
+      "note": "Keep the English word in Chinese prose, singular and lower-case (輸入 schema, 從型別提示產生 schema; JSON Schema as a proper name keeps its capitals). Provisional pending native review: Taiwanese developers overwhelmingly say schema; 結構描述 is the formal vendor rendering a reviewer may prefer. Never 模式 (which means \"mode\", as in 無狀態模式) and never 架構 (architecture) for this word."
+    },
+    {
+      "source": "run",
+      "target": "執行",
+      "note": "\"Run the server\" → 執行伺服器; \"Running your server\" (nav section) → 執行伺服器; \"at runtime\" → 執行時. Never the Mainland 運行. A colloquial 跑 is acceptable once in a light aside, not as the standard verb. Provisional pending native review.",
+      "avoid": ["运行"]
+    },
+    {
+      "source": "call",
+      "target": "呼叫",
+      "note": "To call a tool or function → 呼叫 (\"call `add`\" → 呼叫 `add`; \"tool call\" → 工具呼叫; \"the caller\" → 呼叫端). Never the Mainland 調用 — it is kept off the avoid list only because the characters also occur inside 協調用戶端. Provisional pending native review.",
+      "avoid": ["调用"]
+    },
+    {
+      "source": "you",
+      "target": "你",
+      "note": "The register rule from instructions.md made machine-checkable: 您 must never appear on a page. Prefer dropping the pronoun; when one is needed it is 你.",
+      "avoid": ["您"]
+    },
+    {
+      "source": "Get started",
+      "target": "開始使用",
+      "note": "The nav section that opens the guide, and the title of its index page. \"First steps\" is a separate page inside that section (第一步), so the two need distinct renderings or the sidebar shows the same title twice. Provisional pending native review; 快速入門 is the alternative for the section."
+    },
+    {
+      "source": "First steps",
+      "target": "第一步",
+      "note": "The tutorial page inside the \"Get started\" section; never reuse this rendering for the section itself (see that entry). Provisional pending native review."
+    },
+    {
+      "source": "Recap",
+      "target": "重點回顧",
+      "note": "Recurring section heading that closes most pages; one rendering everywhere, not 重點回顧 on some pages and 小結 or 回顧 on others. Provisional pending native review."
+    },
+    {
+      "source": "Try it",
+      "target": "試試看",
+      "note": "Recurring section heading above a runnable example; one rendering everywhere, not 試一試 or 動手試試 on some pages. Provisional pending native review."
+    }
+  ]
+}

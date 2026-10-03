@@ -4,9 +4,8 @@ uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
 
 import asyncio
 
-import mcp_types as types
-
 import mcp.server.stdio
+import mcp.types as types
 from mcp.server import Server, ServerRequestContext
 
 
