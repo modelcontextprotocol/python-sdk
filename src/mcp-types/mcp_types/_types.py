@@ -389,9 +389,12 @@ class ClientTasksCapability(MCPModel):
 class ClientCapabilities(MCPModel):
     """Capabilities a client may support.
 
-    Not a closed set: any client can define additional capabilities. Sent once in
+    Not a closed set: any client can define additional capabilities. Unknown keys
+    are retained. Nested known capability objects stay closed. Sent once in
     `initialize` through 2025-11-25; per-request in `_meta` on 2026-07-28.
     """
+
+    model_config = ConfigDict(extra="allow")
 
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the client supports."""
@@ -483,7 +486,15 @@ class ServerTasksCapability(MCPModel):
 
 
 class ServerCapabilities(MCPModel):
-    """Capabilities that a server may support. Not a closed set."""
+    """Capabilities that a server may support. Not a closed set.
+
+    Unknown keys are retained (a draft `events` object, or any other
+    self-hosted capability). Nested known capability objects stay closed.
+    Names that belong only to another protocol era are removed when a result
+    is serialized for that era.
+    """
+
+    model_config = ConfigDict(extra="allow")
 
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the server supports."""

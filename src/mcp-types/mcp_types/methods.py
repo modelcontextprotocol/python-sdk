@@ -631,6 +631,47 @@ def parse_server_notification(
     return _monolith_row(monolith, method).model_validate(_body(method, params), by_name=False)
 
 
+def _wire_names(model: type[BaseModel]) -> frozenset[str]:
+    """Wire keys of `model`'s declared fields (alias when one is set)."""
+    return frozenset((field.alias or field.serialization_alias or name) for name, field in model.model_fields.items())
+
+
+# Pre-2026 versions share the 2025-11-25 surface (see the module docstring).
+_SERVER_CAPABILITY_MODEL: Final[Mapping[str, type[BaseModel]]] = MappingProxyType(
+    {"2025-11-25": v2025.ServerCapabilities, "2026-07-28": v2026.ServerCapabilities}
+)
+_ALL_SERVER_CAPABILITY_NAMES: Final[frozenset[str]] = _wire_names(v2025.ServerCapabilities) | _wire_names(
+    v2026.ServerCapabilities
+)
+# Results whose top-level `capabilities` object is `ServerCapabilities`.
+_CAPABILITY_RESULT_METHODS: Final[frozenset[str]] = frozenset({"initialize", "server/discover"})
+
+
+def _capability_era(version: str) -> str:
+    """Schema era for capability shape. Every pre-2026 version uses 2025-11-25."""
+    return "2026-07-28" if version >= "2026-07-28" else "2025-11-25"
+
+
+def _drop_cross_era_server_capability_keys(method: str, version: str, data: dict[str, Any]) -> None:
+    """Drop capability names declared only on another schema era.
+
+    `ServerCapabilities` is an open set, so the wire model keeps unknown keys.
+    A name that is a real field on the other era is still version vocabulary and
+    must not leak: `tasks` on 2026-07-28, `extensions` on every earlier version.
+    Truly unknown keys, such as a draft `events` object, stay. Known fields were
+    already validated by the surface model; this only removes the cross-era names.
+    """
+    if method not in _CAPABILITY_RESULT_METHODS:
+        return
+    capabilities = data.get("capabilities")
+    if not isinstance(capabilities, dict):
+        return
+    era_names = _wire_names(_SERVER_CAPABILITY_MODEL[_capability_era(version)])
+    owned = cast("dict[str, Any]", capabilities)
+    for name in _ALL_SERVER_CAPABILITY_NAMES - era_names:
+        owned.pop(name, None)
+
+
 def serialize_server_result(
     method: str,
     version: str,
@@ -640,8 +681,9 @@ def serialize_server_result(
 ) -> dict[str, Any]:
     """Validate `data` against `surface` and return its surface-shaped dump.
 
-    The surface model carries `extra="ignore"`, so fields not in `version`'s
-    schema are dropped from the returned dict.
+    Closed surface models carry `extra="ignore"`, so fields not in `version`'s
+    schema are dropped. `ServerCapabilities` is an open set: unknown keys are
+    kept, and names that belong only to another schema era are removed.
 
     Raises:
         ValueError: `version` is not a known protocol version.
@@ -650,9 +692,11 @@ def serialize_server_result(
     """
     _check_known_version(version)
     adapter = _adapter(surface[(method, version)])
-    return adapter.dump_python(
+    dumped = adapter.dump_python(
         adapter.validate_python(data, by_name=False), by_alias=True, mode="json", exclude_none=True
     )
+    _drop_cross_era_server_capability_keys(method, version, dumped)
+    return dumped
 
 
 def validate_server_result(

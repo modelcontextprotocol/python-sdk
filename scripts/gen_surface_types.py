@@ -96,12 +96,26 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
 }
 
 # Classes the spec defines as open key-value bags: `_meta` content, the
-# JSON-Schema-document fields on `Tool`, and the schemas with explicit
-# `additionalProperties: {}`. These keep `extra="allow"` so the sieve preserves
-# arbitrary keys; every other class ignores extras. Per-version because codegen
+# JSON-Schema-document fields on `Tool`, the schemas with explicit
+# `additionalProperties: {}`, and the capability objects whose descriptions say
+# they are not a closed set. These keep `extra="allow"` so the sieve preserves
+# arbitrary keys; every other class ignores extras. Capability names that are
+# real fields on another schema era are removed by `serialize_server_result`
+# (`tasks` at 2026-07-28, `extensions` before it). Per-version because codegen
 # reuses class names across versions for unrelated schemas (e.g. `Data`).
 OPEN_CLASSES: dict[str, frozenset[str]] = {
-    "2025-11-25": frozenset({"Meta", "InputSchema", "OutputSchema", "Result", "GetTaskPayloadResult", "Data"}),
+    "2025-11-25": frozenset(
+        {
+            "Meta",
+            "InputSchema",
+            "OutputSchema",
+            "Result",
+            "GetTaskPayloadResult",
+            "Data",
+            "ClientCapabilities",
+            "ServerCapabilities",
+        }
+    ),
     "2026-07-28": frozenset(
         {
             "MetaObject",
@@ -112,6 +126,8 @@ OPEN_CLASSES: dict[str, frozenset[str]] = {
             "InputSchema",
             "OutputSchema",
             "Result",
+            "ClientCapabilities",
+            "ServerCapabilities",
         }
     ),
 }

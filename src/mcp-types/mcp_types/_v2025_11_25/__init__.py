@@ -196,7 +196,7 @@ class ClientCapabilities(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="ignore",
+        extra="allow",
     )
     elicitation: Elicitation | None = None
     """
@@ -1102,7 +1102,7 @@ class ServerCapabilities(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="ignore",
+        extra="allow",
     )
     completions: dict[str, Any] | None = None
     """
