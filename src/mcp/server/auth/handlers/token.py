@@ -24,7 +24,10 @@ class AuthorizationCodeRequest(BaseModel):
     grant_type: Literal["authorization_code"]
     code: str = Field(..., description="The authorization code")
     redirect_uri: AnyUrl | None = Field(None, description="Must be the same as redirect URI provided in /authorize")
-    client_id: str
+    # Optional: a client_secret_basic client authenticates via the Authorization header and
+    # isn't required to repeat client_id in the body (RFC 6749 section 2.3). handle() backfills
+    # this from the already-authenticated client when the body omits it.
+    client_id: str | None = None
     # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str | None = None
     # See https://datatracker.ietf.org/doc/html/rfc7636#section-4.5
@@ -38,7 +41,8 @@ class RefreshTokenRequest(BaseModel):
     grant_type: Literal["refresh_token"]
     refresh_token: str = Field(..., description="The refresh token")
     scope: str | None = Field(None, description="Optional scope parameter")
-    client_id: str
+    # Optional, see AuthorizationCodeRequest.client_id above.
+    client_id: str | None = None
     # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str | None = None
     # RFC 8707 resource indicator
@@ -52,7 +56,8 @@ class JwtBearerRequest(BaseModel):
     # See https://datatracker.ietf.org/doc/html/rfc7523#section-2.1
     assertion: str = Field(..., description="The ID-JAG (a signed JWT) being presented as the grant")
     scope: str | None = Field(None, description="Optional scope parameter")
-    client_id: str
+    # Optional, see AuthorizationCodeRequest.client_id above.
+    client_id: str | None = None
     # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str | None = None
     # RFC 8707 resource indicator
@@ -121,6 +126,12 @@ class TokenHandler:
             form_data = await request.form()
             # TODO(Marcelo): Can someone check if this `dict()` wrapper is necessary?
             token_request = token_request_adapter.validate_python(dict(form_data))
+            # A client_secret_basic client authenticated via the Authorization header and may
+            # have omitted client_id from the body; client_info is already the verified identity
+            # (authenticate_request cross-checks any body-supplied client_id against it), so
+            # backfill from there rather than requiring the body to repeat it.
+            if token_request.client_id is None:
+                token_request.client_id = client_info.client_id
         except ValidationError as validation_error:
             return self.response(
                 TokenErrorResponse(
