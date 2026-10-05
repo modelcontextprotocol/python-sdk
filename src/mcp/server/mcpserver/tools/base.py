@@ -108,9 +108,9 @@ class Tool(BaseModel):
         if (reason := find_invalid_x_mcp_header(parameters)) is not None:
             raise InvalidSignature(f"Tool {func_name!r} has an invalid x-mcp-header annotation: {reason}")
 
-        # Match `model_dump_one_level`'s kwarg keys (alias when present, else field name)
-        # so a by-name resolver param resolves to a key that exists at call time.
-        tool_arg_names = {field.alias or name for name, field in func_arg_metadata.arg_model.model_fields.items()}
+        # Match `model_dump_one_level`'s kwarg keys (the real parameter names) so a
+        # by-name resolver param resolves to a key that exists at call time.
+        tool_arg_names = set(func_arg_metadata.arg_model.param_names.values())
         resolver_plans = build_resolver_plans(resolved_params, tool_arg_names)
 
         return cls(
