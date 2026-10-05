@@ -1,0 +1,6 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server.schema.json",
+  "name": "example-org/wrong-schema-name",
+  "version": "1.0.0",
+  "description": "References the removed registry server.json schema; only server-card.schema.json is valid in v1."
+}

@@ -69,6 +69,7 @@ nav:
       - Header parameters: advanced/header-parameters.md
       - Extensions: advanced/extensions.md
       - MCP Apps: advanced/apps.md
+      - Server Cards: advanced/server-cards.md
   - Troubleshooting: troubleshooting.md
   - Translations: translations.md
   - Migration Guide: migration.md
