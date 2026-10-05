@@ -1,4 +1,5 @@
 import contextlib
+import logging
 from unittest import mock
 
 import httpx2
@@ -140,6 +141,83 @@ async def test_client_session_group_connect_to_server(mock_exit_stack: contextli
     mock_session.list_tools.assert_awaited_once()
     mock_session.list_resources.assert_awaited_once()
     mock_session.list_prompts.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_client_session_group_connect_with_session_respects_negotiated_capabilities(
+    caplog: pytest.LogCaptureFixture,
+):
+    from mcp import Client
+    from mcp.server import Server, ServerRequestContext
+
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                types.Tool(
+                    name="ping",
+                    description="Ping",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            ]
+        )
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+        return types.CallToolResult(content=[types.TextContent(type="text", text="pong")])
+
+    server = Server(
+        "tools-only-server",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
+
+    group = ClientSessionGroup()
+
+    with caplog.at_level(logging.WARNING):
+        async with Client(server) as client:
+            assert client.server_capabilities.prompts is None
+            assert client.server_capabilities.resources is None
+
+            client.session.list_prompts = mock.AsyncMock(side_effect=AssertionError("list_prompts() was called"))
+            client.session.list_resources = mock.AsyncMock(side_effect=AssertionError("list_resources() was called"))
+
+            await group.connect_with_session(client.server_info, client.session)
+            await group.call_tool("ping")
+
+    assert not caplog.records
+
+
+@pytest.mark.anyio
+async def test_client_session_group_skips_unadvertised_tools_and_resources(
+    caplog: pytest.LogCaptureFixture,
+):
+    from mcp import Client
+    from mcp.server import Server, ServerRequestContext
+
+    async def handle_list_prompts(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        return types.ListPromptsResult(prompts=[types.Prompt(name="hello", description="Hello", arguments=[])])
+
+    server = Server(
+        "prompts-only-server",
+        on_list_prompts=handle_list_prompts,
+    )
+
+    group = ClientSessionGroup()
+
+    with caplog.at_level(logging.WARNING):
+        async with Client(server) as client:
+            assert client.server_capabilities.tools is None
+            assert client.server_capabilities.resources is None
+
+            client.session.list_tools = mock.AsyncMock(side_effect=AssertionError("list_tools() was called"))
+            client.session.list_resources = mock.AsyncMock(side_effect=AssertionError("list_resources() was called"))
+
+            await group.connect_with_session(client.server_info, client.session)
+
+    assert not caplog.records
 
 
 @pytest.mark.anyio
