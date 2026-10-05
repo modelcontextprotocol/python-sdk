@@ -40,9 +40,9 @@ JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
 CLIENT_ID = "enterprise-mcp-client"
 CLIENT_SECRET = "enterprise-secret"
-# The AS metadata issuer carries a trailing slash (built from an AnyHttpUrl object); the client
+# The AS metadata issuer is path-less and slash-free (matches build_metadata); the client
 # pins against exactly that.
-EXPECTED_ISSUER = f"{BASE_URL}/"
+EXPECTED_ISSUER = BASE_URL
 
 
 async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
@@ -215,7 +215,7 @@ async def test_unexpected_issuer_aborts_before_sending_credentials() -> None:
     provider = InMemoryAuthorizationServerProvider()
     preregister_confidential_client(provider)
     server = Server("guarded", on_list_tools=list_tools)
-    # The served AS metadata has issuer BASE_URL/, but the client is configured for a different one.
+    # The served AS metadata has issuer BASE_URL, but the client is configured for a different one.
     auth = identity_assertion_provider(InMemoryTokenStorage(), issuer="https://corp-as.example/", record=record)
 
     with anyio.fail_after(5):
