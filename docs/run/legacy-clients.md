@@ -66,6 +66,11 @@ On one worker that is invisible. On two, it is the whole problem: a request that
     events to a client reconnecting to the *same* session), not a session store. It never makes a
     session reachable from another process.
 
+!!! note "Request cleanup preserves newer streams"
+    Closing an HTTP request releases its own streams, including during cancellation.
+    If you reuse a JSON-RPC request ID after the previous request completes, cleanup from an
+    older connection does not close the newer request's streams. This does not reserve request IDs.
+
 ## Session lifetime and limits
 
 A legacy session does not live forever, and one process does not hold an unlimited number of
