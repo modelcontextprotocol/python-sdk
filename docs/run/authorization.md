@@ -104,6 +104,70 @@ Call `whoami` with `Authorization: Bearer alice-token` and the model reads:
 alice (scopes: notes:read)
 ```
 
+## Identity, discovery, and permission to execute
+
+A valid token identifies the caller; it does not grant every operation. `tools/list`
+controls what a client discovers. Each `tools/call` must still authorize the operation
+and the specific data it touches, even if the caller guesses a hidden tool's name.
+
+This local example has two tools with explicit arguments: `notes_read(note_id)` and
+`notes_update(note_id, text)`. The tenant comes from the verified token's claims,
+and note ownership comes from server data. Neither is a model-supplied argument.
+`client_id` identifies the OAuth client; it is not a tenant or necessarily an end user.
+
+```python title="server.py"
+--8<-- "docs_src/authorization/tutorial003.py"
+```
+
+The four decisions happen at different boundaries:
+
+| Boundary | Decision |
+| --- | --- |
+| HTTP authentication | Accept only a verified token issued for this resource. |
+| Tool discovery | List only tools whose operation scope the token carries. |
+| Tool dispatch | Refuse an unconfigured tool or a call without its required scope, before entering the handler. |
+| Tool execution | Check scope again and match the target note's tenant before reading or changing its contents. |
+
+`required_scopes=[]` keeps authentication mandatory while leaving operation scopes
+to the application. Requiring both `notes:read` and `notes:write` there would reject
+read-only callers at the HTTP boundary. The same `TOOL_SCOPES` mapping drives
+discovery and execution; a newly registered tool is denied until a rule is added.
+
+!!! warning
+    The [middleware API](../advanced/middleware.md) is provisional. This example
+    uses it to filter discovery and refuse calls early, and keeps authorization
+    in the tool handlers too. Hiding a tool is never the authorization boundary.
+    Do not share a filtered tool-list cache across callers or permission changes.
+
+Run the example with `uv run --frozen mcp run docs_src/authorization/tutorial003.py
+--transport streamable-http` (see [Running your server](index.md)). Connect an HTTP
+client with one of these **fake local demonstration tokens**:
+
+| Bearer token | Visible tools | Example outcome |
+| --- | --- | --- |
+| `reader-token` | `notes_read` | Reads `note-1`; a direct `notes_update` call is refused. |
+| `writer-token` | `notes_read`, `notes_update` | Can read or update `note-1`; access to `note-2` is refused. |
+| `other-tenant-token` | `notes_read` | Reads `note-2`; access to `note-1` is refused. |
+
+Missing or invalid tokens, including a token for another resource, receive HTTP
+401 before MCP dispatch. A valid token without an allowed operation or tenant gets
+the application's JSON-RPC error `PERMISSION_DENIED` (`1`), with
+`"Operation not permitted."`. This code is application-defined, not an MCP standard.
+Missing and foreign notes get the same error without resource details. `MCPError`
+goes to the client application; it is not a model-visible `is_error=True` tool result.
+The client should handle denial rather than repeatedly retrying with invented identity.
+
+!!! warning
+    Never deploy the static token table. A production verifier must validate the
+    issuer, signature or introspection response, expiry, audience, and trusted tenant
+    claims. This example is an authorization pattern, not a sandbox. For persistent
+    data, enforce ownership in the same database operation as the read or update
+    (for example, match both note ID and authenticated tenant) so it cannot change
+    between a permission check and a write. Keep tokens and note contents out of logs.
+
+Without HTTP authentication, including with `Client(mcp)` or over stdio, this
+example refuses note operations because it has no trusted identity.
+
 ## The half the SDK doesn't do
 
 The SDK gives you the resource-server half: verify, advertise, refuse. It does not give you a login page, a consent screen, or a token.
