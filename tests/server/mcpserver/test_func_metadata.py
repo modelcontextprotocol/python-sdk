@@ -11,7 +11,7 @@ import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
 from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequiredResult, TextContent
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, computed_field
 from typing_extensions import NotRequired, ReadOnly, Required
 
 from mcp import MCPDeprecationWarning
@@ -1520,3 +1520,23 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+def test_output_schema_matches_structured_content_for_serialization_aliases_and_computed_fields():
+    class Out(BaseModel):
+        user_id: int = Field(serialization_alias="userId")
+
+        @computed_field
+        @property
+        def doubled(self) -> int:
+            return self.user_id * 2
+
+    def tool() -> Out:  # pragma: no cover
+        return Out(user_id=3)
+
+    meta = func_metadata(tool)
+    assert meta.output_schema is not None
+    result = meta.convert_result(Out(user_id=3))
+    assert result.structured_content == {"userId": 3, "doubled": 6}
+    assert set(meta.output_schema["properties"]) == {"userId", "doubled"}
+    assert set(meta.output_schema["required"]) == {"userId", "doubled"}

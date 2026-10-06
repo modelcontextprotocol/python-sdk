@@ -127,7 +127,9 @@ class FuncMetadata(BaseModel):
     def model_post_init(self, context: Any, /) -> None:
         if self.output_model is not None and self.output_schema is None:
             # StrictJsonSchema raises instead of warning, so an unserializable return type fails construction.
-            schema = self._output_adapter(self.output_model).json_schema(schema_generator=StrictJsonSchema)
+            adapter = self._output_adapter(self.output_model)
+            # Serialization mode, so the schema describes the aliased/computed fields structured_content carries.
+            schema = adapter.json_schema(schema_generator=StrictJsonSchema, mode="serialization")
             self.output_schema = _inline_root_ref(schema)
 
     def _output_adapter(self, output_model: Any) -> TypeAdapter[Any]:
