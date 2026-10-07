@@ -1,5 +1,7 @@
 """Regression coverage for the StreamableHTTP per-session response router."""
 
+import logging
+
 import anyio
 import pytest
 from mcp_types import JSONRPCMessage, JSONRPCResponse
@@ -157,3 +159,39 @@ async def test_terminated_transport_answers_404() -> None:
 
     assert post.sent[0]["type"] == "http.response.start"
     assert post.sent[0]["status"] == 404
+
+
+@pytest.mark.anyio
+async def test_closed_writer_notification_post_sends_single_202(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A notification POST answered 202 before writer.send fails must not send a second response (#3651).
+
+    The 202 completes the ASGI response, so the closed-writer error is logged
+    and dropped instead of answered with a 500 that Uvicorn rejects.
+    """
+    transport = StreamableHTTPServerTransport(mcp_session_id="repro-session")
+    async with transport.connect():
+        pass
+    post = _AsgiPost(
+        b'{"jsonrpc": "2.0", "method": "notifications/initialized"}',
+        [
+            (b"accept", b"application/json, text/event-stream"),
+            (b"content-type", b"application/json"),
+            (b"mcp-session-id", b"repro-session"),
+        ],
+    )
+    sent: list[Message] = []
+
+    async def strict_send(message: Message) -> None:
+        if message["type"] == "http.response.start" and any(m["type"] == "http.response.start" for m in sent):
+            raise RuntimeError("Unexpected ASGI message after completed")
+        sent.append(message)
+
+    with caplog.at_level(logging.ERROR, logger="mcp.server.streamable_http"):
+        await transport.handle_request(post.scope, post.receive, strict_send)
+
+    starts = [m for m in sent if m["type"] == "http.response.start"]
+    assert len(starts) == 1
+    assert starts[0]["status"] == 202
+    assert "Error handling POST request" in caplog.text

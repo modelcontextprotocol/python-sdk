@@ -560,6 +560,7 @@ class StreamableHTTPServerTransport:
         writer = self._read_stream_writer
         if writer is None:  # pragma: no cover
             raise ValueError("No read stream writer available. Ensure connect() is called first.")
+        response_sent = False
         try:
             # Validate Accept header
             if not await self._validate_accept_header(request, scope, send):
@@ -623,6 +624,7 @@ class StreamableHTTPServerTransport:
                     HTTPStatus.ACCEPTED,
                 )
                 await response(scope, receive, send)
+                response_sent = True
 
                 # Process the message after sending the response
                 session_message = SessionMessage(message, metadata=self._message_metadata(request))
@@ -716,13 +718,19 @@ class StreamableHTTPServerTransport:
 
         except Exception as err:
             logger.exception("Error handling POST request")
-            response = self._create_error_response(
-                "Error handling POST request",
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                INTERNAL_ERROR,
-            )
-            await response(scope, receive, send)
-            await writer.send(Exception(err))
+            if response_sent:
+                logger.debug("Not sending error response: POST response already sent")
+            else:
+                response = self._create_error_response(
+                    "Error handling POST request",
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    INTERNAL_ERROR,
+                )
+                await response(scope, receive, send)
+            try:
+                await writer.send(Exception(err))
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                logger.debug("Writer closed while forwarding POST error; dropping exception")
             return
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:
