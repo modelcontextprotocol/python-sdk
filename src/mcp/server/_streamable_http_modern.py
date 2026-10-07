@@ -339,10 +339,12 @@ async def _mcp_param_rejection(
     """Validate a `tools/call` request's `Mcp-Param-*` headers against the called tool's schema.
 
     Runs pre-dispatch, before any SSE machinery, so a rejection is always a
-    plain `application/json` 400 (the spec's MUST). With no `tools/list` handler
-    the catalog is undiscoverable and there is no recognized header to validate.
+    plain `application/json` 400 (the spec's MUST). The schema comes from the
+    server's `get_tool_input_schema` when set, else from its `tools/list` handler;
+    with neither there is no recognized header to validate.
     """
-    if req.method != "tools/call" or app.get_request_handler("tools/list") is None:
+    lookup = app.get_tool_input_schema
+    if req.method != "tools/call" or (lookup is None and app.get_request_handler("tools/list") is None):
         return None
     params = req.params or {}
     name = params.get("name")
@@ -356,7 +358,15 @@ async def _mcp_param_rejection(
     if not arguments and not any(header.startswith(_MCP_PARAM_PREFIX_LOWER) for header in request.headers):
         # No argument values and no `Mcp-Param-*` headers: no declaration can be violated either way.
         return None
-    input_schema = await _tool_input_schema(app, request, req.id, verdict, lifespan_state, name)
+    if lookup is None:
+        input_schema = await _tool_input_schema(app, request, req.id, verdict, lifespan_state, name)
+    else:
+        try:
+            input_schema = lookup(name)
+        except Exception:
+            # Fail-open like a failed listing: header validation must never break a working call path.
+            logger.exception("Mcp-Param header validation skipped: get_tool_input_schema raised")
+            return None
     if input_schema is None:
         return None
     return validate_mcp_param_headers(input_schema, arguments, request.headers)

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # Bereitstellen und skalieren {#deploy-scale}
@@ -173,6 +173,7 @@ Dem Fan-out ist es egal, an welchem Server-Objekt ein Stream hängt. Zwei Server
 * Über echte Prozesse hinweg **liefert das SDK keinen Bus mit, der dir helfen kann.** `SubscriptionBus` ist ein `Protocol` mit zwei Methoden (`publish` und `subscribe`), das du über deinem eigenen Pub/Sub-Backend implementierst (Redis, NATS, was auch immer du schon betreibst) und als `MCPServer(subscriptions=...)` übergibst. Die Skizze und den Vertrag findest du in **[Abonnements](../handlers/subscriptions.md#scaling-past-one-process)**.
 * Der Bus transportiert vier kleine typisierte Events, nie JSON-RPC. Bestätigung, Filterung und Stream-Lebenszyklus bleiben im SDK, sodass dein Bus das Protokoll nicht kaputt machen kann; er kann nur Events zwischen Prozessen bewegen.
 * Streams sind **nicht** wiederaufnehmbar, und Events werden **nicht** erneut abgespielt. Fällt ein Replikat weg, fallen seine Streams weg; die Clients lauschen erneut und holen die Daten erneut ab. Es gibt keinen Event Store zu teilen und sonst nichts zu konfigurieren. Das ist die eine Stelle, an der horizontales Skalieren wirklich nur mehr vom Gleichen ist.
+* Ein Server, der keine Änderungsbenachrichtigungen braucht, lässt den Bus weg: **[schalte sie ab](../handlers/subscriptions.md#turning-it-off)**.
 
 ## Was das SDK dir nicht gibt {#what-the-sdk-does-not-give-you}
 

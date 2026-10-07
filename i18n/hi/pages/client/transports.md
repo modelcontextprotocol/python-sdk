@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 7c157764133fea1f, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 0aeca6145e7bd302]
+  sections: [9cac816674181eb0, 5619e950d206e6c8, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 991c10e47fda2636]
   tool: 1
 ---
 # Client transports {#client-transports}
@@ -44,23 +44,41 @@ URL string पास करें और आपको **Streamable HTTP** मि
 * `httpx2.AsyncClient` आपका है, इसलिए उसे enter और exit भी **आप** ही करते हैं। SDK कभी ऐसे client को बंद नहीं करता जो उसने नहीं बनाया।
 * `streamable_http_client(url, http_client=...)` एक transport लौटाता है, और `Client(transport)` उसे किसी भी दूसरी चीज़ की तरह स्वीकार करता है।
 
+`timeout=` को बनाए रखें। यह वही timeout है जो SDK का अपना client इस्तेमाल करता है (30 सेकंड, reads के लिए 300); इसके बिना बने `httpx2.AsyncClient` को `httpx2` का 5 सेकंड का default मिलता है, और उससे ज़्यादा देर चलने वाली tool call read timeout के साथ fail हो जाती है।
+
 TLS पर एक बात: `httpx2` certificates को operating system के trust store (
 [`truststore`](https://pypi.org/project/truststore/) के ज़रिए) से verify करता है, किसी bundled CA list से नहीं। ऐसे environment में जहाँ
 काम का system CA store न हो (कुछ minimal containers), standard `SSL_CERT_FILE`/`SSL_CERT_DIR`
 environment variables set करें या अपने `httpx2.AsyncClient` को explicit `verify=ssl_context` पास करें
 (पृष्ठभूमि
-[`httpx` and `httpx-sse` replaced by `httpx2`](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2) में है)।
+[`httpx` और `httpx-sse` की जगह `httpx2`](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2) में है)।
+
+### बड़े SSE events {#larger-sse-events}
+
+जब server कोई बड़ा tool result या notification एक ही SSE event में भेजता हो, तब `max_sse_event_size` पास करें:
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+default हर event के लिए 1 MiB है, जिसे event के parse होने से पहले bytes में नापा जाता है। यह सीमा
+POST responses, GET stream और resume हुए streams पर लागू होती है। POST response या resume हुए
+stream में सीमा से बड़ा event उस request को SSE error के साथ fail कर देता है। background GET stream पर client
+error को log करता है और stream को retry करता है। जब server पर भरोसा हो और बड़े events चाहिए हों, तो यह सीमा हटाने के लिए
+`max_sse_event_size=None` set करें। JSON responses पर इसका असर नहीं पड़ता। अगर आप `ClientSessionGroup` इस्तेमाल करते हैं, तो
+यही option `StreamableHttpParameters` पर set करें।
 
 !!! warning
     `streamable_http_client` पहले `headers=` और `timeout=` सीधे लेता था। अब नहीं लेता:
-    इसके parameters सिर्फ़ `url`, `http_client` और `terminate_on_close` हैं। आदत से `headers=`
+    इसके parameters `url`, `http_client`, `terminate_on_close` और `max_sse_event_size` हैं। आदत से `headers=`
     लिख दें तो यह मिलता है:
 
     ```text
     TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
     ```
 
-    HTTP से जुड़ी हर चीज़ अब उसी एक `httpx2.AsyncClient` पर रहती है जो आप पास करते हैं।
+    headers, authentication, proxies और timeouts उसी एक `httpx2.AsyncClient` पर रहते हैं जो आप पास करते हैं।
+    `max_sse_event_size` इसके बजाय MCP transport के SSE readers पर लागू होता है।
 
 !!! info
     `httpx2` जाना-पहचाना `httpx` API ही रखता है, इसलिए अगर आप `httpx` जानते हैं तो यहाँ auth,
@@ -136,8 +154,9 @@ test में न कुछ deploy करना है, न कुछ launch �
 ## सारांश {#recap}
 
 * `Client("http://.../mcp")` (URL) Streamable HTTP पर जुड़ता है, जो production transport है।
-* Headers, auth, proxies और timeouts उस `httpx2.AsyncClient` पर होने चाहिए जो आप `streamable_http_client(url, http_client=...)` को पास करते हैं। कोई `headers=` keyword नहीं है।
-* Redirects सिर्फ़ URL के अपने origin के भीतर follow होते हैं (trailing-slash वाला `307`/`308`), और उसी host पर `http`→`https`। बाकी सब `Redirect to … not followed` के साथ fail होता है; final URL configure करें।
+* headers, auth, proxies और timeouts उस `httpx2.AsyncClient` पर होने चाहिए जो आप `streamable_http_client(url, http_client=...)` को पास करते हैं। कोई `headers=` keyword नहीं है।
+* हर SSE event की byte सीमा बदलने के लिए `streamable_http_client(url, max_sse_event_size=...)` इस्तेमाल करें।
+* redirects सिर्फ़ URL के अपने origin के भीतर follow होते हैं (trailing-slash वाला `307`/`308`), और उसी host पर `http`→`https`। बाकी सब `Redirect to … not followed` के साथ fail होता है; final URL configure करें।
 * stdio है `Client(StdioServerParameters(...))`। इसे खुद `stdio_client(...)` में सिर्फ़ तब wrap करें जब child का stderr कहीं और भेजना हो।
 * subprocess को allow-list वाला environment मिलता है, आपका नहीं; `env=` उसमें जोड़ता है।
 * `Client(mcp)` (server object) memory में जुड़ता है। इसे tests में इस्तेमाल करें, या server को उसी application में embed करने के लिए जिसने उसे बनाया।

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, c1115cd005b81e8f, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # Outils {#tools}
@@ -141,7 +141,7 @@ Vous pouvez combiner librement : des paramètres simples à côté de paramètre
 
 Si un outil fait des E/S (appelle une API, lit un fichier, interroge une base de données), déclarez-le en `async def` et utilisez `await` à l’intérieur. Le SDK se charge de l’attendre.
 
-Un outil en simple `def` fonctionne aussi : le SDK l’exécute dans un thread, si bien qu’il ne bloque jamais le serveur.
+Un outil en simple `def` fonctionne aussi : le SDK l’exécute dans un thread, si bien qu’il ne bloque jamais le serveur. Un outil long peut vérifier si le client attend toujours ; consultez **[Annulation](../handlers/cancellation.md)**.
 
 Il n’y a rien d’autre à configurer.
 

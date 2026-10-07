@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # Déployer et passer à l’échelle {#deploy-scale}
@@ -176,6 +176,7 @@ Rien dans la diffusion ne se soucie de l’objet serveur auquel un flux est atta
 * Entre de vrais processus, **le SDK ne fournit aucun bus qui puisse vous aider.** `SubscriptionBus` est un `Protocol` à deux méthodes (`publish` et `subscribe`) que vous implémentez par-dessus votre propre backend pub/sub (Redis, NATS, ce que vous exploitez déjà) et passez sous la forme `MCPServer(subscriptions=...)`. **[Abonnements](../handlers/subscriptions.md#scaling-past-one-process)** contient l’esquisse et le contrat.
 * Le bus transporte quatre petits événements typés, jamais de JSON-RPC. L’accusé de réception, le filtrage et le cycle de vie des flux restent dans le SDK, si bien que votre bus ne peut pas casser le protocole ; il ne peut que déplacer des événements entre processus.
 * Les flux ne sont **pas** reprenables et les événements ne sont **pas** rejoués. Perdre une réplique abandonne ses flux ; les clients se remettent à l’écoute et récupèrent de nouveau les données. Il n’y a pas de magasin d’événements à partager et rien d’autre à configurer. C’est le seul endroit où la montée en charge horizontale revient réellement à faire la même chose en plus grand.
+* Un serveur qui n’a besoin d’aucune notification de changement se passe du bus : **[désactivez-les](../handlers/subscriptions.md#turning-it-off)**.
 
 ## Ce que le SDK ne vous donne pas {#what-the-sdk-does-not-give-you}
 

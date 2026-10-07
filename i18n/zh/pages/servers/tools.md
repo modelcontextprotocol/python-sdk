@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, c1115cd005b81e8f, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # 工具 {#tools}
@@ -137,7 +137,7 @@ Inspector 会渲染出一个表单，里面有一个必填的 `query` 文本字�
 
 如果工具要做 I/O（调用 API、读文件、查数据库），就把它声明为 `async def`，并在里面 `await`。SDK 会 await 它。
 
-普通的 `def` 工具也可以：SDK 会在线程里运行它，所以它永远不会阻塞服务器。
+普通的 `def` 工具也可以：SDK 会在线程里运行它，所以它永远不会阻塞服务器。运行时间长的工具可以检查客户端是否还在等待；参见 **[取消](../handlers/cancellation.md)**。
 
 没有别的需要配置。
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, bd42ee3a268f6ea4, 875eb2889263424e]
   tool: 1
 ---
 # v2 的新变化 {#whats-new-in-v2}
@@ -196,7 +196,7 @@ v2 实现了 2026-07-28 修订版，并且同时服务 **两个** 修订版：�
 ### 其余变化速览 {#the-rest-quickly}
 
 * **身份信息是可选的、按消息携带的元数据。** 请求侧的 `clientInfo` `_meta` 键是可选的（必需的一对是 `protocolVersion` + `clientCapabilities`），`serverInfo` 则从 `server/discover` 的结果体里搬了出来：服务器改为把它盖进每个 2026 版结果的 `_meta` 里（[规范 #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)）。SDK 总是会盖；服务器不表明身份时（比如某个中间件剥掉了这个键），`client.server_info` 就是 `None`。**[底层 Server](advanced/low-level-server.md)** 展示了线路上的这个印记。
-* **请求不用解析请求体就能路由。** 新版 HTTP 请求带有 `Mcp-Method`（对三个类似工具的调用，还有 `Mcp-Name`）；用 `x-mcp-header` 注解的工具输入模式属性会被镜像成一个 `Mcp-Param-*` 头，并由服务器交叉核对（[SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)）。网关和限流器单凭请求头就能路由；规则见 **[迁移指南](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)**。
+* **请求不用解析请求体就能路由。** 新版 HTTP 请求带有 `Mcp-Method`（对三个类似工具的调用，还有 `Mcp-Name`）；用 `x-mcp-header` 注解的工具输入模式属性会被镜像成一个 `Mcp-Param-*` 头，并由服务器交叉核对（[SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)）。网关和限流器单凭请求头就能路由。**[请求头参数](advanced/header-parameters.md)** 展示了如何标记参数。
 * **结果带有缓存提示。** 列表和读取结果声明 `ttlMs` 和 `cacheScope`（[SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)）；用 `cache_hints=` 按方法设置它们，`Client` 则用内置的响应缓存来遵守它们。不发送提示的服务器（所有 2026 之前的服务器）看到的是完全相同、未经缓存的流量。**[缓存提示](client/caching.md)**。
 * **扩展是一等公民。** 服务器和客户端在反向 DNS 标识符下声明可选的能力包（[SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)）；内置的 `Apps` 扩展（MCP Apps）是参考实现。**[扩展](advanced/extensions.md)** 和 **[MCP Apps](advanced/apps.md)**。
 * **错误码标准化了。** 不存在的资源是 `-32602`，URI 放在 `error.data` 里，新的规范保留码有 `-32020`（头不匹配）、`-32021`（缺少必需的能力）和 `-32022`（不支持的协议版本）。**[故障排查](troubleshooting.md)** 按确切的消息文本编排。

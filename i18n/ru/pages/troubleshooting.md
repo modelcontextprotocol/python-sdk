@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, fcf984fa0615ed11, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, cdc6d86a4dae8a34]
   tool: 1
 ---
 # Устранение неполадок {#troubleshooting}
@@ -127,6 +127,14 @@ TypeError: The @tool decorator was used incorrectly. Did you forget to call it? 
     у хоста, который показывает ваш сервер как *не запустившийся* (или *отключённый*), а не как
     подключённый с нулём инструментов, именно эта картина: запустите `python server.py` сами и
     прочитайте трассировку. Проверка типов тоже это ловит: функция — недопустимое значение для `name=`.
+
+## `InvalidSignature: Tool '<name>' has an invalid x-mcp-header annotation: <reason>` {#invalidsignature-tool-name-has-an-invalid-x-mcp-header-annotation-reason}
+
+Аргумент инструмента помечен `x-mcp-header` так, как спецификация не разрешает, а `<reason>` говорит, какое правило нарушено. Клиенты на `2026-07-28` не включили бы такой инструмент в свой список, поэтому SDK отказывается его регистрировать.
+
+Помечать можно только аргументы типов `str`, `int` и `bool`, а `str | None` не относится ни к одному из них. Как записать необязательный аргумент — на странице **[Параметры в заголовках](advanced/header-parameters.md)**.
+
+Как и в записи выше, исключение выбрасывается при **импорте** модуля, ещё до подключения любого клиента.
 
 ## `Tool already exists: <name>` {#tool-already-exists-name}
 
@@ -425,6 +433,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `ExceptionGroup: unhandled errors in a TaskGroup` — никогда не сама ошибка. Читайте **последнюю строку**; перехват `MCPError` *внутри* блока `async with Client(...)` полностью избавляет от обёртки.
 * `call_tool` не выбрасывает исключение для инструмента, завершившегося с ошибкой. `Error executing tool ...` и `Unknown tool: ...` — это результаты: проверяйте `result.is_error`. Нет сообщения после имени инструмента — значит, он упал, а трассировка в логе сервера.
 * `Client must be used within an async context manager` -> используйте `async with`. `Use @tool() instead of @tool` -> добавьте скобки.
+* `has an invalid x-mcp-header annotation` -> помечать можно только аргументы типов `str`, `int` и `bool`.
 * `Tool already exists:` в логе сервера — единственный признак того, что два одноимённых инструмента схлопнулись в один.
 * Один 421, три написания: `Server returned an error response` (`Client` на Python), `421 Misdirected Request` / `Invalid Host header` (всё остальное), `Invalid Host header: <host>` (лог сервера). Исправление: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> смонтированное приложение, жизненный цикл хоста которого так и не вошёл в `mcp.session_manager.run()`.

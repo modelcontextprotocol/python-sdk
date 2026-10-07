@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # 低階 Server {#the-low-level-server}
@@ -208,6 +208,7 @@ use Server.middleware to observe or wrap initialization
 * `on_call_tool`、`on_get_prompt` 和 `on_read_resource` 可以回傳 `InputRequiredResult` 取代正常結果，暫停呼叫並向用戶端要求輸入；請見 **[多輪往返（multi-round-trip）請求](../handlers/multi-round-trip.md)**。忠於這一層的風格，沒有任何東西會替你裝好：`MCPServer` 預設會封裝 `requestState`，在這裡你設定的 `request_state` 會一字不差地跨過線路，直到你用 `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))` 選擇加入：一行（兩個名稱都從 `mcp.server.request_state` 匯入）就能得到和 `MCPServer` 完全相同的封裝與驗證（**[保護 `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**）。
 * `on_list_resources`、`on_read_resource`、`on_list_prompts`、`on_get_prompt`、`on_completion` 是其他基本元件的同一個 `(ctx, params) -> result` 形狀。
 * `on_subscriptions_listen` 負責 2026-07-28 的 `subscriptions/listen` 串流。傳入一個建構在 `SubscriptionBus` 之上的 `ListenHandler`，並從其他處理函式把事件發佈到 bus；完整的組合方式請見 **[訂閱](../handlers/subscriptions.md)**。
+* `get_tool_input_schema` 讓 `on_list_tools` 不必出現在呼叫路徑上；請見 **[標頭參數](header-parameters.md#schemas-by-name)**。
 * `server.streamable_http_app()` 回傳的 Starlette 應用程式和 `MCPServer` 的一樣；照 **[執行伺服器](../run/index.md)** 部署其他 ASGI 應用程式的方式部署它。這一層沒有 `server.run(transport=...)`：`server.run(read_stream, write_stream, server.create_initialization_options())` 透過一對串流驅動一條連線，而這一行就是全部。
 
 ## 重點回顧 {#recap}

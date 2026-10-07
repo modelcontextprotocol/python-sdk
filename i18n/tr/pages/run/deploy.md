@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # Dağıtım ve ölçekleme {#deploy-scale}
@@ -174,6 +174,7 @@ Dağıtım (fan-out) tarafında hiçbir şey, bir akışın hangi sunucu nesnesi
 * Gerçek süreçler arasında **SDK size yardımcı olabilecek hiçbir bus sunmaz.** `SubscriptionBus`, kendi pub/sub altyapınız (Redis, NATS, zaten çalıştırdığınız her neyse) üzerinde gerçeklediğiniz ve `MCPServer(subscriptions=...)` olarak geçirdiğiniz iki metotlu bir `Protocol`'dür (`publish` ve `subscribe`). Taslak ve sözleşme **[Abonelikler](../handlers/subscriptions.md#scaling-past-one-process)** sayfasında.
 * Bus dört küçük tipli olay taşır, asla JSON-RPC taşımaz. Onaylama, filtreleme ve akış yaşam döngüsü SDK'da kalır; bu yüzden bus'ınız protokolü bozamaz, yalnızca olayları süreçler arasında taşıyabilir.
 * Akışlar devam ettirilebilir **değildir** ve olaylar yeniden **oynatılmaz**. Bir replikayı kaybetmek akışlarını düşürür; istemciler yeniden dinler ve yeniden getirir. Paylaşılacak bir olay deposu ve yapılandırılacak başka bir şey yoktur. Ölçeklemenin gerçekten yalnızca aynısının fazlası olduğu tek yer burası.
+* Değişiklik bildirimlerine ihtiyaç duymayan bir sunucu bus'ı atlar: **[bildirimleri kapatın](../handlers/subscriptions.md#turning-it-off)**.
 
 ## SDK'nın size vermedikleri {#what-the-sdk-does-not-give-you}
 

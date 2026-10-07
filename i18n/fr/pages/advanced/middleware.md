@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
+  sections: [58e1103d9a323ccf, 46056f318ef205e4, 812b414557fb0c35, 4df162eea2518d38, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -16,8 +16,8 @@ Vous l’écrivez sous la forme `async (ctx, call_next)` et vous l’ajoutez à 
     fondation sur laquelle repose votre serveur.
 
 `MCPServer` reçoit la liste à la construction (`MCPServer(name, middleware=[...])`) et l’expose sous
-`mcp.middleware` ; le `Server` bas niveau expose la même liste sous `server.middleware`. L’exemple
-ci-dessous utilise le `Server` bas niveau ; si `Server(name, on_call_tool=...)` est nouveau pour
+`mcp.middleware` ; le `Server` bas niveau expose la même liste sous `server.middleware`. Les exemples
+ci-dessous utilisent le `Server` bas niveau ; si `Server(name, on_call_tool=...)` est nouveau pour
 vous, lisez d’abord **[Le Server bas niveau](low-level-server.md)**.
 
 ## Un middleware de chronométrage {#a-timing-middleware}
@@ -65,15 +65,38 @@ C’est tout l’intérêt. Le middleware enveloppe **chaque** message entrant :
 * Même une méthode pour laquelle le serveur n’a pas de gestionnaire : `call_next` lève
   `MCPError(-32601, "Method not found")` *à travers* votre middleware en route vers le client.
 
+## Un plafond de concurrence {#a-concurrency-cap}
+
+Un middleware n’est pas obligé d’appeler `call_next(ctx)`. Levez une `MCPError` à la place et ce
+message-là est **refusé** : la connexion reste ouverte et le message suivant passe.
+
+Supposons que chaque recherche occupe une connexion d’un pool de quatre. Ce middleware laisse
+quatre appels d’outil s’exécuter en même temps et refuse le cinquième :
+
+```python title="server.py" hl_lines="15-16 40-55 59"
+--8<-- "docs_src/middleware/tutorial002.py"
+```
+
+* Seul `tools/call` est compté ; le serveur continue donc de répondre à `server/discover` et à
+  `tools/list` pendant qu’il refuse des appels d’outil.
+* MCP ne définit aucun code d’erreur « serveur occupé » ; `SERVER_BUSY` est donc propre à ce
+  serveur.
+* Refuser indique tout de suite au client que le serveur est surchargé. Si vous préférez faire
+  attendre les appelants, entourez plutôt `call_next(ctx)` d’un `anyio.CapacityLimiter`.
+
+Une `MCPError` levée parvient à l’application cliente, pas au modèle. Si le modèle doit lire le
+message, renvoyez plutôt un résultat d’outil avec `is_error=True` : c’est **Répondre**, plus bas.
+
 ## Ce que vous pouvez y faire {#what-you-can-do-inside-one}
 
 Du geste le plus anodin à celui devant lequel vous devriez le plus hésiter :
 
-* **Observer.** Chronométrer, compter, journaliser. C’est l’exemple ci-dessus.
+* **Observer.** Chronométrer, compter, journaliser. C’est le middleware de chronométrage ci-dessus.
 * **Refuser.** Levez une `MCPError` *au lieu* d’appeler `call_next(ctx)` et ce message-là
   reçoit pour réponse une erreur JSON-RPC. La connexion reste ouverte ; le message suivant passe.
-  C’est ainsi qu’un serveur contrôle l’accès à `subscriptions/listen` appelant par appelant : la
-  section **[Décider qui peut observer](../handlers/subscriptions.md#deciding-who-may-watch)** de
+  C’est le plafond de concurrence ci-dessus. C’est aussi ainsi qu’un serveur contrôle l’accès à
+  `subscriptions/listen` appelant par appelant : la section
+  **[Décider qui peut observer](../handlers/subscriptions.md#deciding-who-may-watch)** de
   la page Abonnements détaille la démarche.
 * **Réécrire.** `ctx` est une dataclass : `await call_next(dataclasses.replace(ctx, params=...))`
   transmet au reste de la chaîne d’autres paramètres que ceux envoyés par le client. Ne faites

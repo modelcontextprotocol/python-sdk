@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # デプロイとスケール {#deploy-scale}
@@ -157,6 +157,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 * 本物のプロセスをまたぐ場合、**SDK には役に立つバスが同梱されていません。** `SubscriptionBus` は 2 つのメソッド（`publish` と `subscribe`）からなる `Protocol` であり、自前の pub/sub バックエンド（Redis、NATS、そのほかすでに運用しているもの）の上に実装して、`MCPServer(subscriptions=...)` として渡します。スケッチと契約は **[サブスクリプション](../handlers/subscriptions.md#scaling-past-one-process)** にあります。
 * バスが運ぶのは 4 種類の小さな型付きイベントであり、JSON-RPC ではありません。確認応答、フィルタリング、ストリームのライフサイクルは SDK に残るので、バスがプロトコルを壊すことはできません。できるのはプロセス間でイベントを運ぶことだけです。
 * ストリームは再開可能**ではなく**、イベントはリプレイ**されません**。レプリカを失えばそのストリームは切れ、クライアントは listen し直し、取得し直します。共有すべきイベントストアはなく、ほかに設定するものもありません。スケールアウトが本当に「同じことを増やすだけ」で済むのは、ここだけです。
+* 変更通知が不要なサーバーにバスは必要ありません。**[変更通知を無効にしてください](../handlers/subscriptions.md#turning-it-off)**。
 
 ## SDK が提供しないもの {#what-the-sdk-does-not-give-you}
 

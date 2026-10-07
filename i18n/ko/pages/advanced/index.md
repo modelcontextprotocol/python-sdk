@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ca6988b7503cd2d3]
+  sections: [348f8697c6b12cd0]
   tool: 1
 ---
 # 고급 {#advanced}
@@ -9,6 +9,7 @@ translation:
 
 * **[저수준 Server](low-level-server.md)**: `MCPServer`가 기반으로 삼는 클래스입니다. 손으로 작성하는 스키마, `on_*` 핸들러, 아무것도 대신 검사해 주지 않는 구조, 그리고 직접 정의하는 커스텀 JSON-RPC 메서드를 다룹니다.
 * **[페이지네이션](pagination.md)**과 **[미들웨어](middleware.md)**: 저수준 `Server`에서**만** 할 수 있는 두 가지입니다.
+* **[헤더 매개변수](header-parameters.md)**: 게이트웨이가 도구 호출을 인수 중 하나를 기준으로 라우팅할 수 있게 합니다.
 * **[확장](extensions.md)**과 **[MCP Apps](apps.md)**: 프로토콜의 확장 지점입니다. 확장 패키지를 서버에 조합해 넣거나 직접 작성할 수 있습니다.
 
 여기서 찾을 법한 몇 가지 항목은 실제로 사용하는 곳에 배치되어 있습니다.

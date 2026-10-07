@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, e7828fd2729b2c9d, a03ec26bfc678b65, 1034c653c0bcf1b0]
+  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, 7cf38181f6c99fd5, 37804d4fb36d6302, 1034c653c0bcf1b0]
   tool: 1
 ---
 # Aserción de identidad {#identity-assertion}
@@ -65,7 +65,7 @@ La extensión no exige esto; es una elección deliberadamente más estricta. Est
 
 ### Un cliente confidencial {#a-confidential-client}
 
-`client_secret` es obligatorio; el constructor lanza `ValueError` si falta. El perfil del IETF que hay debajo de [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) reserva esta concesión para clientes confidenciales, SEP-990 exige que el cliente se autentique, y este SDK hace cumplir ambas cosas insistiendo en un secreto compartido. `token_endpoint_auth_method` elige por dónde viaja: `client_secret_post` (el valor por defecto, en el cuerpo del formulario) o `client_secret_basic` (una cabecera HTTP Basic). El perfil también permite `private_key_jwt`; este proveedor no lo admite.
+`client_secret` es obligatorio; el constructor lanza `ValueError` si falta. El perfil del IETF que hay debajo de [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) recomienda esta concesión solo para clientes confidenciales, y [RFC 7521](https://datatracker.ietf.org/doc/html/rfc7521) deja esa política en manos del servidor de autorización. Este SDK adopta la lectura conservadora en ambos lados: el servidor de autorización integrado rechaza a un cliente que no tiene secreto compartido, y este proveedor insiste en uno. `token_endpoint_auth_method` elige por dónde viaja: `client_secret_post` (el valor por defecto, en el cuerpo del formulario) o `client_secret_basic` (una cabecera HTTP Basic). El perfil también permite `private_key_jwt`; este proveedor no lo admite.
 
 !!! tip
     Lee `client_secret` del entorno o de un gestor de secretos, nunca del control de versiones.
@@ -92,6 +92,7 @@ El SDK también puede *ser* el servidor de autorización: `create_auth_routes` d
 
 * `identity_assertion_enabled=True` lo controla todo. Desactivado, que es el valor por defecto, `/token` responde a esta concesión con `unsupported_grant_type` aunque hayas implementado el hook, y los metadatos no la mencionan. Activado, los metadatos ganan el tipo de concesión `jwt-bearer` y listan `urn:ietf:params:oauth:grant-profile:id-jag` en `authorization_grant_profiles_supported`, el campo que la extensión usa para anunciar la compatibilidad. (El cliente de este SDK nunca lo lee: está aprovisionado para un solo emisor y simplemente pregunta.)
 * **`exchange_identity_assertion`** es el hook. Antes de que se ejecute, el SDK ha autenticado al cliente, ha rechazado los clientes públicos y ha rechazado los clientes cuyo registro no lista la concesión. Recibes un `IdentityAssertionParams` (la `assertion` sin procesar, los `scopes` solicitados y el `resource`) y devuelves un `OAuthToken` simple.
+* Rechazar los clientes públicos es una política del SDK, no un requisito de la especificación. El servidor integrado autentica a los clientes solo mediante secreto compartido: no admite `private_key_jwt` y todavía no resuelve los Client ID Metadata Documents ([#1801](https://github.com/modelcontextprotocol/python-sdk/issues/1801)), así que un cliente identificado por uno no puede usar esta concesión aquí. Un despliegue que quiera una política distinta puede sustituir la ruta `/token` que devuelve `create_auth_routes` por la suya propia.
 * El registro dinámico de clientes rechaza esta concesión sin excepciones, así que `get_client` aquí sirve un cliente aprovisionado a mano. Un cliente ID-JAG no puede registrarse a sí mismo para existir.
 * La mitad de la clase son rechazos. `OAuthAuthorizationServerProvider` es el servidor de autorización *completo*, así que también pide el flujo de código de autorización; un servidor que además inicia la sesión de los usuarios implementa esos de verdad, y este tiene exactamente una puerta.
 

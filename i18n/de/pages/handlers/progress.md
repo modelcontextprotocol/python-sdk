@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2e9aff14d3a882c0]
   tool: 1
 ---
 # Fortschritt {#progress}
@@ -120,4 +120,4 @@ Der Callback erhält `total=None`. Ein Client kann weiterhin *Aktivität* anzeig
 * Kein Callback am Aufruf heißt: `report_progress` tut nichts. Melde bedingungslos.
 * Lass `total` weg, wenn du es nicht kennst; der Callback bekommt `None`.
 
-Fortschritt ist das, was ein laufendes Tool der *Person am Host* zeigt. Die Zeilen, die es für *dich* loggt – für dich, weil du den Server betreibst –, sind ein anderer Kanal: **[Logging](logging.md)**.
+Fortschritt ist für einen Client gedacht, der noch wartet. Was dein Tool sieht, wenn der Client nicht mehr wartet, ist der **[Abbruch](cancellation.md)**.

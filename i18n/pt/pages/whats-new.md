@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, bd42ee3a268f6ea4, 875eb2889263424e]
   tool: 1
 ---
 # O que há de novo na v2 {#whats-new-in-v2}
@@ -205,7 +205,7 @@ Na 2026-07-28, o stream HTTP GET avulso e `resources/subscribe` são substituíd
 ### O resto, rapidamente {#the-rest-quickly}
 
 * **A identidade é um metadado opcional, por mensagem.** A chave `clientInfo` de `_meta` no lado da requisição é opcional (o par obrigatório é `protocolVersion` + `clientCapabilities`), e `serverInfo` saiu do corpo do resultado de `server/discover`: em vez disso, os servidores o carimbam no `_meta` de todo resultado da era 2026 ([especificação #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). O SDK sempre carimba; `client.server_info` é `None` quando um servidor não se identifica (por exemplo, um middleware removeu a chave). **[O Server de baixo nível](advanced/low-level-server.md)** mostra o carimbo no tráfego real.
-* **As requisições são roteáveis sem fazer parse do corpo.** Requisições HTTP modernas carregam `Mcp-Method` (e, para as três chamadas no estilo de ferramenta, `Mcp-Name`); uma propriedade do schema de entrada de uma ferramenta anotada com `x-mcp-header` é espelhada em um cabeçalho `Mcp-Param-*` e conferida pelo servidor ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Gateways e rate limiters podem rotear só pelos cabeçalhos; o **[Guia de migração](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)** tem as regras.
+* **As requisições são roteáveis sem fazer parse do corpo.** Requisições HTTP modernas carregam `Mcp-Method` (e, para as três chamadas no estilo de ferramenta, `Mcp-Name`); uma propriedade do schema de entrada de uma ferramenta anotada com `x-mcp-header` é espelhada em um cabeçalho `Mcp-Param-*` e conferida pelo servidor ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Gateways e rate limiters podem rotear só pelos cabeçalhos. **[Parâmetros de cabeçalho](advanced/header-parameters.md)** mostra como marcar um argumento.
 * **Os resultados carregam dicas de cache.** Resultados de listagem e de leitura declaram `ttlMs` e `cacheScope` ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)); você os define por método com `cache_hints=`, e `Client` os respeita com um cache de respostas embutido. Um servidor que não envia dicas (todo servidor pré-2026) vê tráfego idêntico, sem cache. **[Dicas de cache](client/caching.md)**.
 * **Extensões são de primeira classe.** Servidores e clientes declaram conjuntos opcionais de capacidades sob identificadores em DNS reverso ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)); a extensão embutida `Apps` (MCP Apps) é a referência. **[Extensões](advanced/extensions.md)** e **[MCP Apps](advanced/apps.md)**.
 * **Os códigos de erro foram padronizados.** Um recurso inexistente é `-32602` com a URI em `error.data`, e os novos códigos reservados pela especificação aparecem como `-32020` (cabeçalho divergente), `-32021` (capacidade obrigatória ausente) e `-32022` (versão de protocolo não suportada). **[Solução de problemas](troubleshooting.md)** é organizada pelas mensagens exatas.

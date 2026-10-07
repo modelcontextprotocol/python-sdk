@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, fcf984fa0615ed11, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, cdc6d86a4dae8a34]
   tool: 1
 ---
 # Sorun giderme {#troubleshooting}
@@ -128,6 +128,14 @@ Parantezleri ekleyin. `@mcp.resource(...)` ve `@mcp.prompt()` de aynı sürçme 
     olarak gösteren bir host bu biçimdedir: `python server.py` komutunu kendiniz çalıştırın ve
     traceback'i okuyun. Bir tür denetleyicisi de bunu yakalar: bir fonksiyon geçerli bir
     `name=` değildir.
+
+## `InvalidSignature: Tool '<name>' has an invalid x-mcp-header annotation: <reason>` {#invalidsignature-tool-name-has-an-invalid-x-mcp-header-annotation-reason}
+
+Bir araç argümanı `x-mcp-header` ile spesifikasyonun izin vermediği bir biçimde işaretlenmiş; hangi kuralı çiğnediğini `<reason>` söyler. `2026-07-28` üzerindeki istemciler böyle bir aracı listelerinin dışında bırakırdı; bu yüzden SDK onu kaydetmeyi reddeder.
+
+Yalnızca `str`, `int` ve `bool` argümanlar işaretlenebilir ve `str | None` bunların hiçbiri değildir. İsteğe bağlı bir argümanın nasıl yazılacağı **[Başlık parametreleri](advanced/header-parameters.md)** sayfasında.
+
+Yukarıdaki girdi gibi bu da, herhangi bir istemci bağlanmadan önce, modül **içe aktarıldığında** fırlatılır.
 
 ## `Tool already exists: <name>` {#tool-already-exists-name}
 
@@ -426,6 +434,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `ExceptionGroup: unhandled errors in a TaskGroup` hiçbir zaman asıl hata değildir. **Son satırı** okuyun; `MCPError`'ı `async with Client(...)` bloğunun *içinde* yakalamak sarmalamayı tamamen atlar.
 * `call_tool` başarısız olan bir araç için istisna fırlatmaz. `Error executing tool ...` ve `Unknown tool: ...` birer sonuçtur: `result.is_error`'ı kontrol edin. Araç adından sonra mesaj yoksa araç çökmüş demektir ve traceback sunucu log'undadır.
 * `Client must be used within an async context manager` -> `async with` kullanın. `Use @tool() instead of @tool` -> parantezleri ekleyin.
+* `has an invalid x-mcp-header annotation` -> yalnızca `str`, `int` ve `bool` argümanlar işaretlenebilir.
 * Sunucu log'undaki `Tool already exists:`, aynı adlı iki aracın teke indiğinin tek işaretidir.
 * Tek 421, üç yazım: `Server returned an error response` (python `Client`), `421 Misdirected Request` / `Invalid Host header` (geri kalan her şey), `Invalid Host header: <host>` (sunucu log'u). Çözüm: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> ana uygulamanın lifespan'i `mcp.session_manager.run()`'a hiç girmemiş, bağlanmış bir uygulama.

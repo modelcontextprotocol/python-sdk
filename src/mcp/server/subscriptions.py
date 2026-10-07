@@ -10,8 +10,8 @@ the stream. This module provides the two pieces a server needs:
   pub/sub for multi-replica deployments) never sees JSON-RPC. The in-process
   default is `InMemorySubscriptionBus`.
 - `ListenHandler`: the request handler that serves `subscriptions/listen`.
-  `MCPServer` registers one automatically; lowlevel `Server` users pass an
-  instance as `on_subscriptions_listen=`.
+  `MCPServer` registers one unless constructed with `subscriptions=False`;
+  lowlevel `Server` users pass an instance as `on_subscriptions_listen=`.
 
 The event vocabulary lives in `mcp.shared.subscriptions`, shared with the client driver, and is re-exported here.
 

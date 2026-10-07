@@ -40,6 +40,7 @@ nav:
       - Multi-round-trip requests: handlers/multi-round-trip.md
       - Sampling and roots: handlers/sampling-and-roots.md
       - Progress: handlers/progress.md
+      - Cancellation: handlers/cancellation.md
       - Logging: handlers/logging.md
       - Subscriptions: handlers/subscriptions.md
   - Running your server:
@@ -65,6 +66,7 @@ nav:
       - The low-level Server: advanced/low-level-server.md
       - Pagination: advanced/pagination.md
       - Middleware: advanced/middleware.md
+      - Header parameters: advanced/header-parameters.md
       - Extensions: advanced/extensions.md
       - MCP Apps: advanced/apps.md
       - Skills: advanced/skills.md

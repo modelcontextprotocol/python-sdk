@@ -156,13 +156,17 @@ async def request_within_origin(
 
 @asynccontextmanager
 async def sse_within_origin(
-    client: httpx2.AsyncClient, url: httpx2.URL | str, *, headers: dict[str, str] | None = None
+    client: httpx2.AsyncClient,
+    url: httpx2.URL | str,
+    *,
+    headers: dict[str, str] | None = None,
+    max_event_size: int | None = 1024 * 1024,
 ) -> AsyncGenerator[httpx2.EventSource]:
     """`client.sse(url)` with the redirect handling of `stream_within_origin`."""
     merged = httpx2.Headers(_SSE_HEADERS)
     merged.update(headers or {})
     async with stream_within_origin(client, "GET", url, headers=merged) as response:
-        yield httpx2.EventSource(response)
+        yield httpx2.EventSource(response, max_event_size=max_event_size)
 
 
 def redirect_location(response: httpx2.Response) -> httpx2.URL | None:

@@ -91,9 +91,9 @@ class RegistrationHandler:
                 status_code=400,
             )
 
-        # SEP-990 §5.1 / draft-ietf-oauth-identity-assertion-authz-grant §8.1: the ID-JAG flow is
-        # for confidential clients provisioned out of band. Refuse to grant it through DCR so a
-        # self-registered client cannot reach the identity-assertion provider hook.
+        # SDK policy: the ID-JAG flow is for confidential clients (a SHOULD in
+        # draft-ietf-oauth-identity-assertion-authz-grant-04 §9.1) provisioned out of band. Refuse to
+        # grant it through DCR so a self-registered client cannot reach the provider hook.
         if JWT_BEARER_GRANT_TYPE in client_metadata.grant_types:
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(

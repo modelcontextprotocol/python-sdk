@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # 低レベルの Server {#the-low-level-server}
@@ -208,6 +208,7 @@ use Server.middleware to observe or wrap initialization
 * `on_call_tool`、`on_get_prompt`、`on_read_resource` は、通常の結果の代わりに `InputRequiredResult` を返して呼び出しを一時停止し、クライアントに入力を求めることができます。**[マルチラウンドトリップ（multi-round-trip）リクエスト](../handlers/multi-round-trip.md)** を参照してください。この層らしく、何も代わりにインストールされません。`MCPServer` はデフォルトで `requestState` を封印しますが、ここでは設定した `request_state` は書いたとおりに通信路を渡ります。`server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))` でオプトインするまではそうです。この 1 行（どちらの名前も `mcp.server.request_state` からインポートします）で、`MCPServer` が行うのとまったく同じ封印と検証が得られます（**[`requestState` の保護](../handlers/multi-round-trip.md#protecting-requeststate)**）。
 * `on_list_resources`、`on_read_resource`、`on_list_prompts`、`on_get_prompt`、`on_completion` は、ほかのプリミティブ向けの同じ `(ctx, params) -> result` の形です。
 * `on_subscriptions_listen` は 2026-07-28 の `subscriptions/listen` ストリームを提供します。`SubscriptionBus` の上に構築した `ListenHandler` を渡し、ほかのハンドラーからバスにイベントを発行してください。全体の組み立て方については **[サブスクリプション](../handlers/subscriptions.md)** を参照してください。
+* `get_tool_input_schema` は `on_list_tools` を呼び出し経路から外します。**[ヘッダーパラメーター](header-parameters.md#schemas-by-name)** を参照してください。
 * `server.streamable_http_app()` は `MCPServer` のものと同じ Starlette アプリを返します。**[サーバーの実行](../run/index.md)** がほかの ASGI アプリをデプロイするのと同じ方法でデプロイしてください。この層には `server.run(transport=...)` はありません。`server.run(read_stream, write_stream, server.create_initialization_options())` が 1 組のストリーム上で 1 つの接続を駆動し、その 1 行がすべてです。
 
 ## まとめ {#recap}

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, fcf984fa0615ed11, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, cdc6d86a4dae8a34]
   tool: 1
 ---
 # 疑難排解 {#troubleshooting}
@@ -122,6 +122,14 @@ TypeError: The @tool decorator was used incorrectly. Did you forget to call it? 
 
 !!! note
     這在模組**匯入**時就會引發，早於任何用戶端連線。所以如果主機（host）把伺服器顯示成「failed to start」（或「disconnected」），而不是已連線但零個工具，就是這種情況：自己執行 `python server.py`，讀 traceback。型別檢查器也抓得到：函式不是合法的 `name=`。
+
+## `InvalidSignature: Tool '<name>' has an invalid x-mcp-header annotation: <reason>` {#invalidsignature-tool-name-has-an-invalid-x-mcp-header-annotation-reason}
+
+某個工具引數標記 `x-mcp-header` 的方式是規格不允許的，`<reason>` 會說明違反了哪一條規則。`2026-07-28` 的用戶端會把這樣的工具排除在清單之外，所以 SDK 拒絕註冊它。
+
+只有 `str`、`int` 和 `bool` 引數可以標記，而 `str | None` 不屬於其中任何一種。選用引數的寫法請見 **[標頭參數](advanced/header-parameters.md)**。
+
+和上面那一則一樣，這在模組**匯入**時就會引發，早於任何用戶端連線。
 
 ## `Tool already exists: <name>` {#tool-already-exists-name}
 
@@ -409,6 +417,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `ExceptionGroup: unhandled errors in a TaskGroup` 永遠不是錯誤本身。讀**最後一行**；在 `async with Client(...)` 區塊**裡面**攔截 `MCPError` 就完全跳過包裝。
 * `call_tool` 不會因為工具失敗而引發例外。`Error executing tool ...` 和 `Unknown tool: ...` 是結果：檢查 `result.is_error`。工具名稱後面沒有訊息表示它當掉了，traceback 在伺服器記錄裡。
 * `Client must be used within an async context manager` -> 用 `async with`。`Use @tool() instead of @tool` -> 加上括號。
+* `has an invalid x-mcp-header annotation` -> 只有 `str`、`int` 和 `bool` 引數可以標記。
 * 伺服器記錄裡的 `Tool already exists:` 是兩個同名工具合併成一個的唯一跡象。
 * 一個 421，三種寫法：`Server returned an error response`（python `Client`）、`421 Misdirected Request` / `Invalid Host header`（其他所有東西）、`Invalid Host header: <host>`（伺服器記錄）。修正：`transport_security=TransportSecuritySettings(allowed_hosts=[...])`。
 * `Task group is not initialized` -> 掛載的應用程式，其外層生命週期從未進入 `mcp.session_manager.run()`。

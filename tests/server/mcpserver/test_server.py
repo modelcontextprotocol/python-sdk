@@ -1,5 +1,8 @@
 import base64
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated, Any
@@ -13,6 +16,7 @@ from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
+    METHOD_NOT_FOUND,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     AudioContent,
     BlobResourceContents,
@@ -1337,6 +1341,45 @@ class TestContextInjection:
             assert content.text == "Prompt 'test' works"
 
 
+async def test_parameterized_context_carries_the_request_into_templates_and_prompts():
+    """`ctx: Context[AppState]` on a resource template or a sync or async prompt is the request's own
+    context, as it is on a tool: lifespan state and the negotiated protocol version are readable."""
+
+    @dataclass
+    class AppState:
+        greeting: str
+
+    @asynccontextmanager
+    async def lifespan(_: MCPServer[AppState]) -> AsyncIterator[AppState]:
+        yield AppState(greeting="Hello")
+
+    mcp = MCPServer(lifespan=lifespan)
+
+    @mcp.resource("greeting://{name}")
+    def greeting(name: str, ctx: Context[AppState]) -> str:
+        return f"{ctx.request_context.lifespan_context.greeting}, {name} ({ctx.protocol_version})"
+
+    @mcp.prompt()
+    def greet_sync(name: str, ctx: Context[AppState]) -> str:
+        return f"{ctx.request_context.lifespan_context.greeting}, {name} ({ctx.protocol_version})"
+
+    @mcp.prompt()
+    async def greet_async(name: str, ctx: Context[AppState]) -> str:
+        return f"{ctx.request_context.lifespan_context.greeting}, {name} ({ctx.protocol_version})"
+
+    async with Client(mcp, mode="2026-07-28") as client:
+        resource = await client.read_resource("greeting://Alice")
+        sync_prompt = await client.get_prompt("greet_sync", {"name": "Alice"})
+        async_prompt = await client.get_prompt("greet_async", {"name": "Alice"})
+
+    assert resource.contents == [
+        TextResourceContents(uri="greeting://Alice", mime_type="text/plain", text="Hello, Alice (2026-07-28)")
+    ]
+    expected = [PromptMessage(role="user", content=TextContent(type="text", text="Hello, Alice (2026-07-28)"))]
+    assert sync_prompt.messages == expected
+    assert async_prompt.messages == expected
+
+
 class TestServerPrompts:
     """Test prompt functionality in MCPServer server."""
 
@@ -2149,6 +2192,35 @@ async def test_prompt_reads_input_responses_and_request_state_from_context_on_re
     block = r2.messages[0].content
     assert isinstance(block, TextContent)
     assert block.text == "Brief Alice (state=r1)"
+
+
+async def test_prompt_with_parameterized_context_reads_input_responses_on_retry():
+    """A prompt annotated `ctx: Context[T]` sees the retry's input_responses and request_state, so the
+    multi-round-trip flow completes instead of asking the same question again."""
+    mcp = MCPServer()
+
+    @mcp.prompt()
+    async def briefing(ctx: Context[dict[str, Any]]) -> list[UserMessage] | InputRequiredResult:
+        responses = ctx.input_responses
+        if responses and "who" in responses:
+            who = responses["who"]
+            assert isinstance(who, ElicitResult) and who.content is not None
+            return [UserMessage(content=f"Brief {who.content['name']} (state={ctx.request_state})")]
+        return InputRequiredResult(input_requests={"who": _ask_who()}, request_state="r1")
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            r1 = await client.session.get_prompt("briefing", allow_input_required=True)
+            assert isinstance(r1, InputRequiredResult)
+
+            r2 = await client.session.get_prompt(
+                "briefing",
+                input_responses={"who": ElicitResult(action="accept", content={"name": "Alice"})},
+                request_state=r1.request_state,
+                allow_input_required=True,
+            )
+    assert isinstance(r2, GetPromptResult)
+    assert r2.messages == [PromptMessage(role="user", content=TextContent(type="text", text="Brief Alice (state=r1)"))]
 
 
 async def test_prompt_input_required_result_on_legacy_session_is_a_serialization_error():
@@ -3109,9 +3181,69 @@ async def test_programmatic_entry_points_carry_the_subscription_bus() -> None:
     assert seen == [ToolsListChanged(), ResourcesListChanged(), PromptsListChanged()]
 
 
+async def test_server_advertises_change_notifications_on_the_modern_wire_by_default() -> None:
+    """SDK-defined: a default `MCPServer` serves `subscriptions/listen`, so `server/discover`
+    reports every change-notification flag true."""
+    mcp = MCPServer("board")
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            assert client.server_capabilities.model_dump(by_alias=True, exclude_none=True) == snapshot(
+                {
+                    "prompts": {"listChanged": True},
+                    "resources": {"subscribe": True, "listChanged": True},
+                    "tools": {"listChanged": True},
+                }
+            )
+
+
+async def test_subscriptions_false_neither_advertises_nor_serves_listen() -> None:
+    """SDK-defined: `MCPServer(subscriptions=False)` registers no `subscriptions/listen` handler,
+    so `server/discover` reports every change-notification flag false and a listen request is
+    refused with method-not-found instead of opening a stream."""
+    mcp = MCPServer("static", subscriptions=False)
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            assert client.server_capabilities.model_dump(by_alias=True, exclude_none=True) == snapshot(
+                {
+                    "prompts": {"listChanged": False},
+                    "resources": {"subscribe": False, "listChanged": False},
+                    "tools": {"listChanged": False},
+                }
+            )
+            # Entering is where the request is sent; `__aenter__` directly avoids an unreachable with-body.
+            with pytest.raises(MCPError) as exc_info:
+                await client.listen(tools_list_changed=True).__aenter__()
+            assert exc_info.value.error.code == METHOD_NOT_FOUND
+
+
+async def test_notify_still_succeeds_when_subscriptions_are_off() -> None:
+    """SDK-defined: with `subscriptions=False` a handler that publishes a change completes as
+    usual; the event has no stream to reach."""
+    mcp = MCPServer("static", subscriptions=False)
+
+    @mcp.tool()
+    async def touch(ctx: Context) -> str:
+        await ctx.notify_tools_changed()
+        return "ok"
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            result = await client.call_tool("touch")
+
+    assert result.is_error is False
+    assert result.content == [TextContent(type="text", text="ok")]
+
+
 def test_context_mcp_server_outside_request_raises() -> None:
     with pytest.raises(ValueError, match="outside of a request"):
         _ = Context().mcp_server
+
+
+def test_context_request_context_outside_request_raises() -> None:
+    with pytest.raises(ValueError, match="outside of a request"):
+        _ = Context().request_context
 
 
 async def test_context_notify_outside_a_request_raises() -> None:

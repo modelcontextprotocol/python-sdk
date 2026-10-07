@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, fcf984fa0615ed11, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, cdc6d86a4dae8a34]
   tool: 1
 ---
 # トラブルシューティング {#troubleshooting}
@@ -122,6 +122,14 @@ TypeError: The @tool decorator was used incorrectly. Did you forget to call it? 
 
 !!! note
     これはモジュールが**インポート**された時点で送出されます。どのクライアントが接続するよりも前です。そのため、ホストがサーバーを「接続済みでツール 0 個」ではなく「起動失敗」（または「切断」）と表示している場合は、この形を疑ってください。自分で `python server.py` を実行し、トレースバックを読んでください。型チェッカーでも検出できます。関数は有効な `name=` ではないからです。
+
+## `InvalidSignature: Tool '<name>' has an invalid x-mcp-header annotation: <reason>` {#invalidsignature-tool-name-has-an-invalid-x-mcp-header-annotation-reason}
+
+ツールの引数が、仕様の認めていない形で `x-mcp-header` によってマークされています。どの規則に違反しているかは `<reason>` に書かれています。`2026-07-28` のクライアントはそのようなツールを一覧から外してしまうので、SDK は登録を拒否します。
+
+マークできるのは `str`、`int`、`bool` の引数だけで、`str | None` はそのどれでもありません。オプションの引数の書き方は **[ヘッダーパラメーター](advanced/header-parameters.md)** にあります。
+
+上の項目と同じく、これはモジュールが**インポート**された時点で送出されます。どのクライアントが接続するよりも前です。
 
 ## `Tool already exists: <name>` {#tool-already-exists-name}
 
@@ -409,6 +417,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `ExceptionGroup: unhandled errors in a TaskGroup` がエラーであることは決してありません。**最後の行**を読んでください。`async with Client(...)` ブロックの「内側」で `MCPError` を捕まえれば、包まれること自体を完全に避けられます。
 * `call_tool` は、ツールが失敗しても例外を送出しません。`Error executing tool ...` と `Unknown tool: ...` は結果です。`result.is_error` を確認してください。ツール名の後にメッセージがなければクラッシュしたという意味で、トレースバックはサーバーログにあります。
 * `Client must be used within an async context manager` -> `async with` を使ってください。`Use @tool() instead of @tool` -> 括弧を付けてください。
+* `has an invalid x-mcp-header annotation` -> マークできるのは `str`、`int`、`bool` の引数だけです。
 * サーバーログの `Tool already exists:` は、同名の 2 つのツールが 1 つに潰れた唯一の合図です。
 * 1 つの 421、3 つの綴り：`Server returned an error response`（python の `Client`）、`421 Misdirected Request` / `Invalid Host header`（それ以外すべて）、`Invalid Host header: <host>`（サーバーログ）。直し方：`transport_security=TransportSecuritySettings(allowed_hosts=[...])`。
 * `Task group is not initialized` -> マウントされたアプリで、ホストのライフスパンが `mcp.session_manager.run()` に入っていません。

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2e9aff14d3a882c0]
   tool: 1
 ---
 # Progress {#progress}
@@ -115,9 +115,9 @@ Callback को `total=None` मिलता है। Client अब भी **ac
 ## सारांश {#recap}
 
 * `Context` लेने वाले किसी भी tool से `await ctx.report_progress(progress, total=None, message=None)`।
-* Client `call_tool` को `progress_callback=` देता है: हर call पर, कभी `Client` पर नहीं।
-* Callback `async (progress, total, message) -> None` है और tool के चलते रहने के दौरान ही fire होता है।
-* Call पर callback न हो तो `report_progress` कुछ नहीं करता। बिना शर्त report करें।
+* client `call_tool` को `progress_callback=` देता है: हर call पर, कभी `Client` पर नहीं।
+* callback `async (progress, total, message) -> None` है और tool के चलते रहने के दौरान ही fire होता है।
+* call पर callback न हो तो `report_progress` कुछ नहीं करता। बिना शर्त report करें।
 * जब `total` पता न हो तो उसे छोड़ दें; callback को `None` मिलता है।
 
-Progress वह है जो चलता हुआ tool **user** को दिखाता है। जो lines वह **आपके** लिए, यानी server चलाने वाले व्यक्ति के लिए log करता है, वे एक अलग channel हैं: **[Logging](logging.md)**।
+progress उस client के लिए है जो अब भी इंतज़ार कर रहा है। client के इंतज़ार करना छोड़ देने पर आपके tool को जो दिखता है, वह **[Cancellation](cancellation.md)** है।

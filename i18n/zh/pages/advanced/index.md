@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ca6988b7503cd2d3]
+  sections: [348f8697c6b12cd0]
   tool: 1
 ---
 # 进阶 {#advanced}
@@ -9,6 +9,7 @@ translation:
 
 * **[底层 Server](low-level-server.md)**：`MCPServer` 构建于其上的类。手写模式、`on_*` 处理函数、没有任何替你做的检查，还可以定义你自己的 JSON-RPC 方法。
 * **[分页](pagination.md)** 和 **[中间件](middleware.md)**：两件**只能**在底层 `Server` 上做的事。
+* **[请求头参数](header-parameters.md)**：让网关根据工具调用的某个参数来路由这次调用。
 * **[扩展](extensions.md)** 和 **[MCP Apps](apps.md)**：协议的扩展面。把扩展包组合进服务器，或者自己写一个。
 
 有几样东西你可能理所当然地想在这里找，但它们其实放在实际用到它们的地方：

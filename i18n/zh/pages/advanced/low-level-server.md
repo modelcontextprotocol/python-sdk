@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # 底层 Server {#the-low-level-server}
@@ -208,6 +208,7 @@ use Server.middleware to observe or wrap initialization
 * `on_call_tool`、`on_get_prompt` 和 `on_read_resource` 可以返回 `InputRequiredResult` 而不是正常结果，来暂停调用并向客户端索要输入；见 **[多轮往返（multi-round-trip）请求](../handlers/multi-round-trip.md)**。符合这一层的风格，没有任何东西替你装好：`MCPServer` 默认会密封 `requestState`，而在这里，你设置的 `request_state` 按原样穿过线路，直到你用 `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))` 主动启用：一行代码（两个名字都从 `mcp.server.request_state` 导入），得到和 `MCPServer` 完全相同的密封与验证（**[保护 `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**）。
 * `on_list_resources`、`on_read_resource`、`on_list_prompts`、`on_get_prompt`、`on_completion` 是针对其他原语的同样 `(ctx, params) -> result` 形状。
 * `on_subscriptions_listen` 提供 2026-07-28 的 `subscriptions/listen` 流。传入一个构建在 `SubscriptionBus` 之上的 `ListenHandler`，并从其他处理函数向总线发布事件；完整的组合方式见 **[订阅](../handlers/subscriptions.md)**。
+* `get_tool_input_schema` 让 `on_list_tools` 不出现在调用路径上；见 **[请求头参数](header-parameters.md#schemas-by-name)**。
 * `server.streamable_http_app()` 返回的 Starlette 应用和 `MCPServer` 的一样；按 **[运行你的服务器](../run/index.md)** 部署任何其他 ASGI 应用的方式部署它。这一层没有 `server.run(transport=...)`：`server.run(read_stream, write_stream, server.create_initialization_options())` 在一对流上驱动一个连接，整件事就是这一行。
 
 ## 回顾 {#recap}

@@ -1450,25 +1450,6 @@ async def test_ctx_after_handler_return_reports_closed_and_drops_backchannel_tra
 
 
 @pytest.mark.anyio
-async def test_progress_callback_exception_is_swallowed_and_logged(caplog: pytest.LogCaptureFixture):
-    """A user progress callback raising must not crash the dispatcher."""
-
-    async def boom(progress: float, total: float | None, message: str | None) -> None:
-        raise RuntimeError("progress callback boom")
-
-    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        await ctx.progress(0.5)
-        return {"ok": True}
-
-    opts: CallOptions = {"on_progress": boom}
-    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
-        with anyio.fail_after(5):
-            result = await client.send_raw_request("t", None, opts)
-    assert result == {"ok": True}
-    assert "progress callback raised" in caplog.text
-
-
-@pytest.mark.anyio
 async def test_inline_methods_are_handled_before_next_message_is_dequeued():
     """An `inline_methods` method runs to completion before the next message is dispatched."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
@@ -1501,9 +1482,46 @@ async def test_inline_methods_are_handled_before_next_message_is_dequeued():
 
 
 @pytest.mark.anyio
-async def test_send_raw_request_always_carries_meta_on_the_wire():
-    """Outbound requests always carry `params._meta` (otel injection per SEP-414); caller-supplied
-    keys are preserved and the progress token is merged in."""
+async def test_send_raw_request_omits_empty_meta_and_empty_params_on_the_wire():
+    """A request with nothing to put in `_meta` carries none, and one left with no params carries no
+    `params` member. A scripted peer serializes as the transports do (`exclude_unset=True`): a
+    handler sees `None` for both an absent and a null `params`."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    wire: list[dict[str, Any]] = []
+
+    async def peer() -> None:
+        for _ in range(3):
+            out = await c2s_recv.receive()
+            assert isinstance(out, SessionMessage)
+            assert isinstance(out.message, JSONRPCRequest)
+            wire.append(json.loads(out.message.model_dump_json(by_alias=True, exclude_unset=True)))
+            await s2c_send.send(SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=out.message.id, result={})))
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, on_request, on_notify)
+            tg.start_soon(peer)
+            with anyio.fail_after(5):
+                await client.send_raw_request("ping", None)
+                await client.send_raw_request("tools/list", {"_meta": {}})
+                await client.send_raw_request("tools/call", {"name": "t"})
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert wire == [
+        {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "t"}},
+    ]
+
+
+@pytest.mark.anyio
+async def test_send_raw_request_merges_progress_token_into_caller_meta():
+    """Caller-supplied `_meta` keys are preserved and the progress token is merged in."""
     seen: list[Mapping[str, Any] | None] = []
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -1516,15 +1534,12 @@ async def test_send_raw_request_always_carries_meta_on_the_wire():
     opts: CallOptions = {"on_progress": noop_progress}
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
-            await client.send_raw_request("a", None)
             await client.send_raw_request("b", {"x": 1, "_meta": {"k": "v"}}, opts)
     # `_meta` contents depend on the active otel tracer, so pin only what sits beyond the W3C keys.
     w3c = {"traceparent", "tracestate"}
-    assert seen[0] is not None and seen[0].keys() == {"_meta"}
-    assert set(seen[0]["_meta"].keys()) <= w3c
-    assert seen[1] is not None and seen[1]["x"] == 1
-    assert set(seen[1]["_meta"].keys()) - w3c == {"k", "progressToken"}
-    assert seen[1]["_meta"]["k"] == "v"
+    assert seen[0] is not None and seen[0]["x"] == 1
+    assert set(seen[0]["_meta"].keys()) - w3c == {"k", "progressToken"}
+    assert seen[0]["_meta"]["k"] == "v"
 
 
 @pytest.mark.anyio

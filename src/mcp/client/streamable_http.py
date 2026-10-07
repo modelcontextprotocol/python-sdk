@@ -58,6 +58,7 @@ LAST_EVENT_ID = "last-event-id"
 # Reconnection defaults
 DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
 MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
+DEFAULT_MAX_SSE_EVENT_SIZE = 1024 * 1024
 
 
 class StreamableHTTPError(Exception):
@@ -110,13 +111,17 @@ class _InFlightPost:
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, *, max_sse_event_size: int | None = DEFAULT_MAX_SSE_EVENT_SIZE) -> None:
         """Initialize the StreamableHTTP transport.
 
         Args:
             url: The endpoint URL.
+            max_sse_event_size: Maximum bytes in one SSE event. None disables the limit.
         """
+        if max_sse_event_size is not None and max_sse_event_size <= 0:
+            raise ValueError("max_sse_event_size must be positive or None")
         self.url = url
+        self.max_sse_event_size = max_sse_event_size
         self.session_id: str | None = None
         # Captured from each stamped message's metadata, synchronously in the
         # post_writer loop so the cache always reflects wire order (a POST task's
@@ -231,7 +236,9 @@ class StreamableHTTPTransport:
                 if last_event_id:
                     headers[LAST_EVENT_ID] = last_event_id
 
-                async with sse_within_origin(client, self.url, headers=headers) as event_source:
+                async with sse_within_origin(
+                    client, self.url, headers=headers, max_event_size=self.max_sse_event_size
+                ) as event_source:
                     if (redirect := _unfollowed_redirect(event_source.response)) is not None:
                         # The same GET would be redirected again, so retrying cannot help.
                         logger.warning(f"GET stream not opened: {redirect}")
@@ -278,7 +285,9 @@ class StreamableHTTPTransport:
         if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
             original_request_id = ctx.session_message.message.id
 
-        async with sse_within_origin(ctx.client, self.url, headers=headers) as event_source:
+        async with sse_within_origin(
+            ctx.client, self.url, headers=headers, max_event_size=self.max_sse_event_size
+        ) as event_source:
             if (redirect := _unfollowed_redirect(event_source.response)) is not None:
                 logger.warning(redirect)
                 assert original_request_id is not None
@@ -289,16 +298,22 @@ class StreamableHTTPTransport:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
-            async for sse in event_source:  # pragma: no branch
-                is_complete = await self._handle_sse_event(
-                    sse,
-                    ctx.read_stream_writer,
-                    original_request_id,
-                    ctx.metadata.on_resumption_token_update if ctx.metadata else None,
+            try:
+                async for sse in event_source:  # pragma: no branch
+                    is_complete = await self._handle_sse_event(
+                        sse,
+                        ctx.read_stream_writer,
+                        original_request_id,
+                        ctx.metadata.on_resumption_token_update if ctx.metadata else None,
+                    )
+                    if is_complete:
+                        await event_source.response.aclose()
+                        break
+            except httpx2.SSEError as exc:
+                assert original_request_id is not None
+                await self._resolve_abandoned_request(
+                    ctx.read_stream_writer, original_request_id, f"SSE stream failed: {exc}"
                 )
-                if is_complete:
-                    await event_source.response.aclose()
-                    break
 
     def _consume_modern_cancellation(self, session_message: SessionMessage) -> bool:
         """Translate an outbound `notifications/cancelled` at 2026; True means "do not POST".
@@ -464,7 +479,7 @@ class StreamableHTTPTransport:
         original_request_id = ctx.session_message.message.id
 
         try:
-            event_source = EventSource(response)
+            event_source = EventSource(response, max_event_size=self.max_sse_event_size)
             async for sse in event_source:  # pragma: no branch
                 # Track last event ID for potential reconnection
                 if sse.id:
@@ -485,6 +500,11 @@ class StreamableHTTPTransport:
                 if is_complete:
                     await response.aclose()
                     return  # Normal completion, no reconnect needed
+        except httpx2.SSEError as exc:
+            await self._resolve_abandoned_request(
+                ctx.read_stream_writer, original_request_id, f"SSE stream failed: {exc}"
+            )
+            return
         except Exception:
             logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover
 
@@ -541,9 +561,14 @@ class StreamableHTTPTransport:
         headers = self._prepare_headers()
         headers[LAST_EVENT_ID] = last_event_id
 
+        is_sse_response = False
         try:
-            async with sse_within_origin(ctx.client, self.url, headers=headers) as event_source:
+            async with sse_within_origin(
+                ctx.client, self.url, headers=headers, max_event_size=self.max_sse_event_size
+            ) as event_source:
                 event_source.response.raise_for_status()
+                content_type = event_source.response.headers.get("content-type", "").partition(";")[0]
+                is_sse_response = content_type.strip().lower() == "text/event-stream"
                 logger.info("Reconnected to SSE stream")
 
                 # Track for potential further reconnection
@@ -569,6 +594,13 @@ class StreamableHTTPTransport:
                 # Stream ended again without response - reconnect again (reset attempt counter)
                 logger.info("SSE stream disconnected, reconnecting...")
                 await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
+        except httpx2.SSEError as exc:
+            if is_sse_response:
+                await self._resolve_abandoned_request(
+                    ctx.read_stream_writer, original_request_id, f"SSE stream failed: {exc}"
+                )
+            else:
+                await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
         except Exception as e:  # pragma: no cover
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
@@ -683,6 +715,7 @@ async def streamable_http_client(
     *,
     http_client: httpx2.AsyncClient | None = None,
     terminate_on_close: bool = True,
+    max_sse_event_size: int | None = DEFAULT_MAX_SSE_EVENT_SIZE,
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 
@@ -699,6 +732,8 @@ async def streamable_http_client(
             client's `follow_redirects` setting is not consulted; the SDK's OAuth providers apply the
             same rule to the requests they make.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
+        max_sse_event_size: Maximum bytes buffered for one SSE event. None disables the limit.
+            JSON responses are not affected.
 
     Yields:
         Tuple containing:
@@ -716,7 +751,7 @@ async def streamable_http_client(
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    transport = StreamableHTTPTransport(url)
+    transport = StreamableHTTPTransport(url, max_sse_event_size=max_sse_event_size)
 
     logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 

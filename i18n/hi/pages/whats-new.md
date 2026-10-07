@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, bd42ee3a268f6ea4, 875eb2889263424e]
   tool: 1
 ---
 # v2 में नया क्या है {#whats-new-in-v2}
@@ -204,7 +204,7 @@ publishing और serving **[Subscriptions](handlers/subscriptions.md)** मे�
 ### बाकी, फटाफट {#the-rest-quickly}
 
 * **identity optional, per-message metadata है।** request-side `clientInfo` `_meta` key optional है (ज़रूरी जोड़ी `protocolVersion` + `clientCapabilities` है), और `serverInfo` `server/discover` result body से बाहर चला गया: servers इसके बजाय उसे हर 2026 पीढ़ी के result के `_meta` में stamp करते हैं ([spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002))। SDK हमेशा stamp करता है; जब server अपनी पहचान नहीं बताता (उदाहरण के लिए, किसी middleware ने key हटा दी) तो `client.server_info` `None` होता है। **[The low-level Server](advanced/low-level-server.md)** wire पर stamp दिखाता है।
-* **requests bodies parse किए बिना route हो सकती हैं।** modern HTTP requests `Mcp-Method` ले जाती हैं (और तीन tool जैसी calls के लिए `Mcp-Name`); `x-mcp-header` से annotate की गई tool input-schema property को `Mcp-Param-*` header में mirror किया जाता है और server उसे cross-check करता है ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243))। gateways और rate limiters सिर्फ़ headers पर route कर सकते हैं; नियम **[Migration Guide](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)** में हैं।
+* **requests bodies parse किए बिना route हो सकती हैं।** modern HTTP requests `Mcp-Method` ले जाती हैं (और तीन tool जैसी calls के लिए `Mcp-Name`); `x-mcp-header` से annotate की गई tool input-schema property को `Mcp-Param-*` header में mirror किया जाता है और server उसे cross-check करता है ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243))। gateways और rate limiters सिर्फ़ headers पर route कर सकते हैं। **[Header parameters](advanced/header-parameters.md)** दिखाता है कि किसी argument को कैसे mark करें।
 * **results cache hints ले जाते हैं।** list और read results `ttlMs` और `cacheScope` declare करते हैं ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)); आप उन्हें `cache_hints=` से हर method के लिए set करते हैं, और `Client` built-in response cache के साथ उनका मान रखता है। जो server कोई hints नहीं भेजता (हर pre-2026 server), उसे जस का तस, uncached traffic दिखता है। **[Caching hints](client/caching.md)**।
 * **extensions first class हैं।** servers और clients reverse-DNS identifiers के नीचे optional capability bundles declare करते हैं ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)); built-in `Apps` extension (MCP Apps) reference है। **[Extensions](advanced/extensions.md)** और **[MCP Apps](advanced/apps.md)**।
 * **error codes standardized हो गए।** गायब resource `-32602` है, `error.data` में URI के साथ, और नए spec-reserved codes `-32020` (header mismatch), `-32021` (ज़रूरी capability गायब) और `-32022` (unsupported protocol version) के रूप में दिखते हैं। **[Troubleshooting](troubleshooting.md)** ठीक उन्हीं messages के हिसाब से व्यवस्थित है।

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, c1115cd005b81e8f, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # Tools {#tools}
@@ -141,7 +141,7 @@ Du kannst frei kombinieren: einfache Parameter neben Modell-Parametern, verschac
 
 Macht ein Tool I/O (ruft eine API auf, liest eine Datei, fragt eine Datenbank ab), deklariere es als `async def` und verwende `await` darin. Das SDK wartet darauf.
 
-Ein Tool mit einfachem `def` funktioniert auch: Das SDK führt es in einem Thread aus, damit es den Server nie blockiert.
+Ein Tool mit einfachem `def` funktioniert auch: Das SDK führt es in einem Thread aus, damit es den Server nie blockiert. Ein lang laufendes Tool kann prüfen, ob der Client noch wartet; siehe **[Abbruch](../handlers/cancellation.md)**.
 
 Mehr gibt es nicht zu konfigurieren.
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # Le Server de bas niveau {#the-low-level-server}
@@ -209,6 +209,7 @@ Chacun d’eux correspond à une idée pour laquelle vous avez désormais le voc
 * `on_call_tool`, `on_get_prompt` et `on_read_resource` peuvent renvoyer un `InputRequiredResult` au lieu de leur résultat normal pour mettre l’appel en pause et demander une saisie au client ; voir **[Requêtes à plusieurs allers-retours (multi-round-trip)](../handlers/multi-round-trip.md)**. Fidèle à ce niveau, rien n’est installé pour vous : là où `MCPServer` scelle `requestState` par défaut, ici le `request_state` que vous définissez traverse la liaison exactement tel qu’écrit, jusqu’à ce que vous optiez pour `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))` : une seule ligne (les deux noms s’importent depuis `mcp.server.request_state`) pour un scellement et une vérification identiques à ceux qu’effectue `MCPServer` (**[Protéger `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion` ont la même forme `(ctx, params) -> result` pour les autres primitives.
 * `on_subscriptions_listen` sert le flux `subscriptions/listen` de la version 2026-07-28. Passez un `ListenHandler` construit sur un `SubscriptionBus` et publiez des événements sur le bus depuis vos autres gestionnaires ; voir **[Abonnements](../handlers/subscriptions.md)** pour la composition complète.
+* `get_tool_input_schema` maintient `on_list_tools` hors du chemin d’appel ; voir **[Paramètres d’en-tête](header-parameters.md#schemas-by-name)**.
 * `server.streamable_http_app()` renvoie la même application Starlette que celle de `MCPServer` ; déployez-la comme **[Exécuter votre serveur](../run/index.md)** déploie n’importe quelle autre application ASGI. Il n’y a pas de `server.run(transport=...)` à ce niveau : `server.run(read_stream, write_stream, server.create_initialization_options())` pilote une connexion sur une paire de flux, et cette seule ligne dit tout.
 
 ## Récapitulatif {#recap}

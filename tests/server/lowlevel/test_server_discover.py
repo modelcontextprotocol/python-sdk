@@ -2,10 +2,12 @@
 
 These call the registered handler via the public `Server.get_request_handler`
 accessor without spinning up a `ServerRunner` or any transport, so they verify
-the handler's contract in isolation from the dispatch pipeline. The exception
-is the server-identity pair: the serverInfo `_meta` stamp is applied by the
-runner (spec 2026-07-28, #3002), not the handler, so those two drive one
-request through `serve_one` to observe it.
+the handler's contract in isolation from the dispatch pipeline. The exceptions
+are the server-identity pair and the handshake comparison. The serverInfo
+`_meta` stamp is applied by the runner (spec 2026-07-28, #3002), not the
+handler, so that pair drives one request through `serve_one` to observe it.
+The handshake comparison needs a real `initialize` result to set beside the
+`server/discover` one, so it connects a `Client` in each mode.
 """
 
 from collections.abc import Mapping
@@ -15,8 +17,9 @@ from typing import Any, cast
 import anyio
 import mcp_types as types
 import pytest
-from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 
+from mcp import Client
 from mcp.server import NotificationOptions, Server, ServerRequestContext
 from mcp.server.connection import Connection
 from mcp.server.runner import serve_one
@@ -271,3 +274,22 @@ async def test_legacy_capability_derivation_ignores_listen() -> None:
 
     opted_in = server.get_capabilities(NotificationOptions(tools_changed=True))
     assert opted_in.tools is not None and opted_in.tools.list_changed is True
+
+
+@pytest.mark.anyio
+async def test_unconfigured_experimental_is_omitted_from_both_initialize_and_discover() -> None:
+    """SDK-defined: a server with no experimental capabilities configured leaves
+    `experimental` out of the `initialize` result as well as the `server/discover`
+    result, so a client reads the same thing whichever way it connects."""
+    server = Server("bare")
+
+    async with Client(server, mode="legacy") as legacy:
+        assert legacy.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
+        initialize_capabilities = legacy.server_capabilities
+
+    async with Client(server, mode="auto") as modern:
+        assert modern.protocol_version in MODERN_PROTOCOL_VERSIONS
+        discover_capabilities = modern.server_capabilities
+
+    assert initialize_capabilities.experimental is None
+    assert discover_capabilities.experimental is None

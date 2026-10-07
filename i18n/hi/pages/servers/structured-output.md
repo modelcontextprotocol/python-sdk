@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
+  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 7608fc5ebc31d6ea, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
   tool: 1
 ---
 # Structured output {#structured-output}
@@ -173,6 +173,8 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 ```
 
 keys का `str` होना ज़रूरी है। `dict[int, float]` JSON object नहीं बन सकता, इसलिए यह वापस `{"result": ...}` wrapper पर आ जाता है।
+
+dictionary results के validation और serialization के लिए Pydantic का `TypeAdapter` इस्तेमाल होता है। अगर आप किसी tool का `FuncMetadata.output_model` देखें, तो उसमें dictionary का type annotation अपने schema title के साथ होता है।
 
 ## Validation {#validation}
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
+  sections: [58e1103d9a323ccf, 46056f318ef205e4, 812b414557fb0c35, 4df162eea2518d38, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # 미들웨어 {#middleware}
@@ -62,14 +62,37 @@ tools/call took 0.1 ms
   `MCPError(-32601, "Method not found")`를 일으키고, 이 예외는 클라이언트로 가는 길에
   미들웨어를 **통과합니다**.
 
+## 동시 실행 상한 {#a-concurrency-cap}
+
+미들웨어가 반드시 `call_next(ctx)`를 호출해야 하는 것은 아닙니다. 대신 `MCPError`를 일으키면
+그 메시지 하나가 **거부**됩니다. 연결은 유지되고 다음 메시지는 그대로 통과합니다.
+
+검색 한 번마다 4개짜리 풀에서 연결 하나를 점유한다고 가정해 보겠습니다. 이 미들웨어는 도구 호출
+4개까지 동시에 실행하게 두고 다섯 번째는 거부합니다.
+
+```python title="server.py" hl_lines="15-16 40-55 59"
+--8<-- "docs_src/middleware/tutorial002.py"
+```
+
+* `tools/call`만 세므로, 서버는 도구 호출을 거부하는 동안에도 `server/discover`와 `tools/list`에는
+  계속 응답합니다.
+* MCP는 "서버가 바쁨"을 뜻하는 오류 코드를 정의하지 않으므로 `SERVER_BUSY`는 이 서버가 자체적으로
+  정한 코드입니다.
+* 거부하면 서버가 과부하 상태라는 사실을 클라이언트에 곧바로 알릴 수 있습니다. 호출자를 기다리게
+  하고 싶다면 대신 `call_next(ctx)`를 호출하는 동안 `anyio.CapacityLimiter`를 잡아 두세요.
+
+일으킨 `MCPError`는 모델이 아니라 클라이언트 애플리케이션으로 전달됩니다. 모델이 메시지를 읽어야
+한다면 대신 `is_error=True`인 도구 결과를 반환하세요. 이것이 아래의 **응답**에 해당합니다.
+
 ## 미들웨어 안에서 할 수 있는 일 {#what-you-can-do-inside-one}
 
 망설임이 적게 필요한 것부터 순서대로 나열합니다.
 
-* **관찰.** 시간을 재고, 횟수를 세고, 로그를 남기세요. 위의 예제가 이에 해당합니다.
+* **관찰.** 시간을 재고, 횟수를 세고, 로그를 남기세요. 위의 시간을 재는 미들웨어가 이에 해당합니다.
 * **거부.** `call_next(ctx)`를 호출하는 **대신** `MCPError`를 일으키면 그 메시지 하나에
-  JSON-RPC 오류로 응답합니다. 연결은 유지되고 다음 메시지는 그대로 통과합니다. 서버가
-  호출자별로 `subscriptions/listen`을 제한하는 방법이 바로 이것입니다. 구독 페이지의
+  JSON-RPC 오류로 응답합니다. 연결은 유지되고 다음 메시지는 그대로 통과합니다. 위의 동시 실행
+  상한이 이에 해당합니다. 서버가
+  호출자별로 `subscriptions/listen`을 제한하는 방법도 바로 이것입니다. 구독 페이지의
   **[누가 지켜볼 수 있는지 정하기](../handlers/subscriptions.md#deciding-who-may-watch)**에서
   단계별로 설명합니다.
 * **재작성.** `ctx`는 데이터클래스입니다. `await call_next(dataclasses.replace(ctx, params=...))`는

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, bd42ee3a268f6ea4, 875eb2889263424e]
   tool: 1
 ---
 # v2 の新機能 {#whats-new-in-v2}
@@ -196,7 +196,7 @@ Streamable HTTP では、2026 の経路に `Mcp-Session-Id` がありません�
 ### そのほかを手短に {#the-rest-quickly}
 
 * **識別情報は省略可能な、メッセージごとのメタデータです。** リクエスト側の `clientInfo` `_meta` キーは省略可能で（必須の組は `protocolVersion` と `clientCapabilities` です）、`serverInfo` は `server/discover` の結果本体の外に出ました。サーバーは代わりに、2026 年世代のすべての結果の `_meta` にそれを書き込みます（[spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)）。SDK は常に書き込みます。サーバーが自身を名乗らない場合（たとえばミドルウェアがキーを取り除いた場合）、`client.server_info` は `None` です。通信路上での書き込みの様子は**[低レベルの Server](advanced/low-level-server.md)** が示します。
-* **リクエストは本体をパースしなくてもルーティングできます。** 新世代の HTTP リクエストは `Mcp-Method`（と、ツール系の 3 つの呼び出しでは `Mcp-Name`）を運びます。`x-mcp-header` で注釈したツールの入力スキーマのプロパティは `Mcp-Param-*` ヘッダーに写され、サーバーが本体と突き合わせて検査します（[SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)）。ゲートウェイやレートリミッターはヘッダーだけでルーティングできます。ルールは**[移行ガイド](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)**にあります。
+* **リクエストは本体をパースしなくてもルーティングできます。** 新世代の HTTP リクエストは `Mcp-Method`（と、ツール系の 3 つの呼び出しでは `Mcp-Name`）を運びます。`x-mcp-header` で注釈したツールの入力スキーマのプロパティは `Mcp-Param-*` ヘッダーに写され、サーバーが本体と突き合わせて検査します（[SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)）。ゲートウェイやレートリミッターはヘッダーだけでルーティングできます。引数に印を付ける方法は**[ヘッダーパラメーター](advanced/header-parameters.md)**が示します。
 * **結果はキャッシュのヒントを運びます。** 一覧と読み取りの結果は `ttlMs` と `cacheScope` を宣言します（[SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)）。メソッドごとに `cache_hints=` で設定し、`Client` は組み込みのレスポンスキャッシュでそれに従います。ヒントを送らないサーバー（2026 より前のサーバーはすべてそうです）には、これまでと同じキャッシュされない通信が届きます。詳しくは**[キャッシュのヒント](client/caching.md)**を参照してください。
 * **拡張は第一級です。** サーバーとクライアントは、逆引き DNS 形式の識別子の下に省略可能なケイパビリティの束を宣言します（[SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)）。組み込みの `Apps` 拡張（MCP Apps）がそのリファレンスです。詳しくは**[拡張](advanced/extensions.md)**と **[MCP Apps](advanced/apps.md)** を参照してください。
 * **エラーコードが標準化されました。** 存在しないリソースは `-32602` で、URI が `error.data` に入ります。仕様で新たに予約されたコードは `-32020`（ヘッダーの不一致）、`-32021`（必須のケイパビリティの欠如）、`-32022`（未対応のプロトコルバージョン）として現れます。**[トラブルシューティング](troubleshooting.md)**は正確なメッセージで引けるようになっています。

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [424930166c4bc6f3]
+  sections: [22ca41e50cc1b536]
   tool: 1
 ---
 # आपके handler के अंदर {#inside-your-handler}
@@ -18,6 +18,7 @@ handler के arguments client से आते हैं। इसके **अ
 * **[Elicitation](elicitation.md)** से user से और input माँगना, और **[Multi-round-trip requests](multi-round-trip.md)**, 2026-07-28 का वह pattern जो इसे ले जाता है।
 * **[Sampling और roots](sampling-and-roots.md)** से client से LLM completion या उसके workspace folders माँगना; ये deprecated हैं पर अब भी serve होते हैं।
 * किसी धीमे काम पर **[Progress](progress.md)** बताना।
+* client के call छोड़ देने पर **[Cancellation](cancellation.md)** से clean up करना, या पहले ही रुक जाना।
 * **[Logging](logging.md)** से logs लिखना (standard error पर, server चलाने वाले के लिए)।
 * **[Subscriptions](subscriptions.md)** से subscribe किए हुए clients को बताना कि कुछ बदला है।
 

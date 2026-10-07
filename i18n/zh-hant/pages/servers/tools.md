@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, c1115cd005b81e8f, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # 工具 {#tools}
@@ -137,7 +137,7 @@ schema 跟著變：
 
 如果工具會做 I/O（呼叫 API、讀檔案、查資料庫），就宣告成 `async def`，在裡面 `await`。SDK 會 await 它。
 
-一般的 `def` 工具也可以：SDK 會在執行緒裡執行它，所以永遠不會阻塞伺服器。
+一般的 `def` 工具也可以：SDK 會在執行緒裡執行它，所以永遠不會阻塞伺服器。執行時間長的工具可以檢查用戶端是否還在等待；請見 **[取消](../handlers/cancellation.md)**。
 
 沒有其他要設定的東西。
 

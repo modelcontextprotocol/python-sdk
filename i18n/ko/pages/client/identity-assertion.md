@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, e7828fd2729b2c9d, a03ec26bfc678b65, 1034c653c0bcf1b0]
+  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, 7cf38181f6c99fd5, 37804d4fb36d6302, 1034c653c0bcf1b0]
   tool: 1
 ---
 # ID 어설션 {#identity-assertion}
@@ -64,7 +64,7 @@ translation:
 
 ### 기밀 클라이언트 {#a-confidential-client}
 
-`client_secret`은 필수이며, 없으면 생성자가 `ValueError`를 발생시킵니다. [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990)의 기반이 되는 IETF 프로파일은 이 그랜트를 기밀 클라이언트 전용으로 두고, SEP-990은 클라이언트가 인증할 것을 요구하며, 이 SDK는 공유 시크릿을 반드시 요구함으로써 둘 다 강제합니다. `token_endpoint_auth_method`는 시크릿이 어디에 실려 가는지를 고릅니다. `client_secret_post`(기본값, 폼 본문에)나 `client_secret_basic`(HTTP Basic 헤더) 중 하나입니다. 프로파일은 `private_key_jwt`도 허용하지만, 이 공급자는 지원하지 않습니다.
+`client_secret`은 필수이며, 없으면 생성자가 `ValueError`를 발생시킵니다. [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990)의 기반이 되는 IETF 프로파일은 이 그랜트를 기밀 클라이언트에만 권장하고, [RFC 7521](https://datatracker.ietf.org/doc/html/rfc7521)은 그 정책을 인가 서버에 맡깁니다. 이 SDK는 양쪽 모두에서 보수적인 해석을 택합니다. 내장 인가 서버는 공유 시크릿이 없는 클라이언트를 거부하고, 이 공급자는 공유 시크릿을 반드시 요구합니다. `token_endpoint_auth_method`는 시크릿이 어디에 실려 가는지를 고릅니다. `client_secret_post`(기본값, 폼 본문에)나 `client_secret_basic`(HTTP Basic 헤더) 중 하나입니다. 프로파일은 `private_key_jwt`도 허용하지만, 이 공급자는 지원하지 않습니다.
 
 !!! tip
     `client_secret`은 환경 변수나 시크릿 관리자에서 읽어 오세요. 소스 관리에서 읽어서는 절대 안 됩니다.
@@ -91,6 +91,7 @@ SDK가 직접 인가 서버가 **될** 수도 있습니다. `create_auth_routes`
 
 * `identity_assertion_enabled=True`가 모든 것의 관문입니다. 꺼져 있으면(기본값), 훅을 구현했더라도 `/token`은 이 그랜트에 `unsupported_grant_type`으로 응답하고 메타데이터에도 언급되지 않습니다. 켜면 메타데이터에 `jwt-bearer` 그랜트 유형이 추가되고, 확장이 지원을 알리는 데 쓰는 필드인 `authorization_grant_profiles_supported`에 `urn:ietf:params:oauth:grant-profile:id-jag`가 나열됩니다. (이 SDK의 클라이언트는 이 필드를 읽지 않습니다. 발급자 하나에 맞춰 프로비저닝되어 있으므로 그냥 요청할 뿐입니다.)
 * **`exchange_identity_assertion`**이 훅입니다. 이 훅이 실행되기 전에 SDK는 이미 클라이언트를 인증하고, 공개 클라이언트를 거부하고, 등록 정보에 이 그랜트가 나열되지 않은 클라이언트를 거부한 상태입니다. `IdentityAssertionParams`(원시 `assertion`, 요청된 `scopes`와 `resource`)를 받아 평범한 `OAuthToken`을 반환합니다.
+* 공개 클라이언트를 거부하는 것은 사양의 요구 사항이 아니라 SDK의 정책입니다. 내장 서버는 공유 시크릿으로만 클라이언트를 인증합니다. `private_key_jwt`를 지원하지 않고 Client ID Metadata Document도 아직 해석하지 않으므로([#1801](https://github.com/modelcontextprotocol/python-sdk/issues/1801)), 그런 문서로 식별되는 클라이언트는 여기서 이 그랜트를 사용할 수 없습니다. 다른 정책이 필요한 배포 환경이라면 `create_auth_routes`가 반환하는 `/token` 라우트를 자체 라우트로 교체할 수 있습니다.
 * 동적 클라이언트 등록은 이 그랜트를 무조건 거부하므로, 여기서 `get_client`는 수동으로 프로비저닝한 클라이언트를 내줍니다. ID-JAG 클라이언트는 스스로 등록해서 생겨날 수 없습니다.
 * 클래스의 절반은 거부 코드입니다. `OAuthAuthorizationServerProvider`는 인가 서버 **전체**이므로 인가 코드 흐름도 요구합니다. 사용자 로그인까지 처리하는 서버라면 그 부분을 실제로 구현하지만, 이 서버에는 문이 정확히 하나뿐입니다.
 

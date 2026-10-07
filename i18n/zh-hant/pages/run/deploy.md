@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # 部署與擴展 {#deploy-scale}
@@ -157,6 +157,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 * 跨真正的處理程序時，**SDK 沒有附任何幫得上忙的 bus。**`SubscriptionBus` 是一個只有兩個方法的 `Protocol`（`publish` 和 `subscribe`），由你在自己的 pub/sub 後端（Redis、NATS，或你已經在跑的任何東西）上實作，再以 `MCPServer(subscriptions=...)` 傳入。草稿與契約請見 **[訂閱](../handlers/subscriptions.md#scaling-past-one-process)**。
 * bus 載的是四種小型的有型別事件，從來不是 JSON-RPC。確認、過濾和串流生命週期都留在 SDK 裡，所以你的 bus 不可能破壞協定；它只能在處理程序之間搬運事件。
 * 串流**不能**續傳，事件也**不會**重播。失去一個副本就丟掉它的串流；用戶端會重新 listen、重新抓取。沒有要共用的事件儲存區，也沒有別的要設定。這是唯一一個向外擴展真的只是「多幾台一樣的」的地方。
+* 不需要變更通知的伺服器可以略過 bus：**[把通知關掉](../handlers/subscriptions.md#turning-it-off)**。
 
 ## SDK 不提供的東西 {#what-the-sdk-does-not-give-you}
 

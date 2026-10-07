@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # Düşük seviyeli Server {#the-low-level-server}
@@ -209,6 +209,7 @@ Bunların her biri, artık kavramlarını bildiğiniz birer fikir; her birinin k
 * `on_call_tool`, `on_get_prompt` ve `on_read_resource`, çağrıyı duraklatıp istemciden girdi istemek için normal sonuçları yerine bir `InputRequiredResult` döndürebilir; bkz. **[Çok turlu istekler](../handlers/multi-round-trip.md)** (multi-round-trip). Bu katmanın ruhuna uygun olarak sizin için hiçbir şey kurulmaz: `MCPServer` varsayılan olarak `requestState`'i mühürlerken burada ayarladığınız `request_state`, siz `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))` ile katılana kadar ağı tam yazıldığı gibi geçer: `MCPServer`'ın yaptığı mühürleme ve doğrulamanın aynısı için tek satır (iki ad da `mcp.server.request_state`'ten içe aktarılır) (**[`requestState`'i koruma](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion`, diğer ilkel öğeler için aynı `(ctx, params) -> result` biçimidir.
 * `on_subscriptions_listen`, 2026-07-28 `subscriptions/listen` akışını sunar. Bir `SubscriptionBus` üzerine kurulu bir `ListenHandler` geçirin ve olayları diğer işleyicilerinizden veri yoluna yayımlayın; bileşimin tamamı için bkz. **[Abonelikler](../handlers/subscriptions.md)**.
+* `get_tool_input_schema`, `on_list_tools`'u çağrı yolunun dışında tutar; bkz. **[Başlık parametreleri](header-parameters.md#schemas-by-name)**.
 * `server.streamable_http_app()`, `MCPServer`'ınkiyle aynı Starlette uygulamasını döndürür; onu **[Sunucunuzu çalıştırma](../run/index.md)** sayfasının herhangi bir ASGI uygulamasını dağıttığı gibi dağıtın. Burada `server.run(transport=...)` yoktur: `server.run(read_stream, write_stream, server.create_initialization_options())` bir akış çifti üzerinden tek bir bağlantıyı yürütür ve bu tek satır işin tamamıdır.
 
 ## Özet {#recap}

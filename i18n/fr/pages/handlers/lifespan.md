@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f3ca8ac5f90f2dfa, 85a1ef3588ba0736, 563346d4d5804933, 9e3528340d0bab53]
+  sections: [f3ca8ac5f90f2dfa, 48e478ef7bd688b1, 563346d4d5804933, 52ac6a7734d6f581]
   tool: 1
 ---
 # Cycle de vie {#lifespan}
@@ -46,7 +46,7 @@ Rien de nouveau. `ctx` est un paramètre **Context** : le SDK l’injecte et il 
 
 `genre` est le seul argument que le modèle peut passer. Le cycle de vie, c’est l’affaire de votre serveur.
 
-Les fonctions `@mcp.resource()` et `@mcp.prompt()` peuvent elles aussi prendre un paramètre `ctx`, annoté d’un simple `Context` pour une raison que la section suivante explique. Tout ce que transporte `ctx` est décrit dans **[L’objet Context](context.md)**.
+Les fonctions `@mcp.resource()` et `@mcp.prompt()` peuvent elles aussi prendre un paramètre `ctx`. Tout ce que transporte `ctx` est décrit dans **[L’objet Context](context.md)**.
 
 ### C’est réellement typé {#it-really-is-typed}
 
@@ -55,19 +55,6 @@ Regardez de nouveau l’annotation : `ctx: Context[AppContext]`.
 Ce seul paramètre de type est la raison pour laquelle `ctx.request_context.lifespan_context` **est** un `AppContext` pour votre vérificateur de types. `.db` s’autocomplète ; `.dbb` est une erreur avant même que vous n’ayez lancé le serveur.
 
 Écrivez un simple `Context` à la place et `lifespan_context` est typé `dict[str, Any]` : le vérificateur de types n’a aucun moyen de savoir ce que votre cycle de vie a produit. L’objet est toujours là à l’exécution ; vous avez perdu l’assistance.
-
-!!! warning
-    `Context[AppContext]` est une écriture **réservée aux outils**. Mettez-la sur une fonction
-    `@mcp.resource()` ou `@mcp.prompt()` et chaque appel à ce gestionnaire échoue. Le client
-    reçoit une erreur en retour, et le journal du serveur montre pourquoi :
-
-    ```text
-    Context is not available outside of a request
-    ```
-
-    Dans les ressources et les prompts, écrivez simplement `ctx: Context`. L’objet produit par
-    votre cycle de vie reste `ctx.request_context.lifespan_context` à l’exécution ; vous renoncez
-    au paramètre de type, pas à l’objet.
 
 !!! tip
     Il y a toujours un cycle de vie. Si vous n’en passez pas, celui par défaut du SDK produit un
@@ -101,7 +88,7 @@ Réduisez le serveur à son cycle de vie : donnez à `Database` un indicateur `c
 * Le code avant le `yield` est le démarrage. Le `finally` qui suit est l’arrêt.
 * Il s’exécute une seule fois, autour de toute la vie du serveur, pas à chaque requête.
 * Ce que vous produisez avec `yield` est `ctx.request_context.lifespan_context` dans chaque outil, ressource et prompt.
-* `ctx: Context[AppContext]` rend cet accès entièrement typé dans les outils. Les ressources et les prompts prennent le simple `Context`.
+* `ctx: Context[AppContext]` rend cet accès entièrement typé.
 * Pas de `lifespan=` signifie un `dict` vide, jamais `None`.
 
 Un gestionnaire qui s’interrompt en plein appel pour demander à l’utilisateur quelque chose que lui seul connaît, c’est l’**[Élicitation](elicitation.md)**.

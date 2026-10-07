@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
+  sections: [58e1103d9a323ccf, 46056f318ef205e4, 812b414557fb0c35, 4df162eea2518d38, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -15,8 +15,8 @@ Você o escreve como `async (ctx, call_next)` e o adiciona ao fim de `server.mid
     para *recusar* mensagens; não faça dela o alicerce sobre o qual o seu servidor se apoia.
 
 `MCPServer` recebe a lista na construção (`MCPServer(name, middleware=[...])`) e a expõe como
-`mcp.middleware`; o `Server` de baixo nível expõe a mesma lista como `server.middleware`. O exemplo
-abaixo usa o `Server` de baixo nível; se `Server(name, on_call_tool=...)` é novidade para você, leia
+`mcp.middleware`; o `Server` de baixo nível expõe a mesma lista como `server.middleware`. Os exemplos
+abaixo usam o `Server` de baixo nível; se `Server(name, on_call_tool=...)` é novidade para você, leia
 **[O Server de baixo nível](low-level-server.md)** primeiro.
 
 ## Um middleware de medição de tempo {#a-timing-middleware}
@@ -61,14 +61,37 @@ cliente enviou para estabelecer a conexão, antes de você pedir qualquer coisa.
 * Até um método para o qual o servidor não tem handler: `call_next` lança o
   `MCPError(-32601, "Method not found")` *através* do seu middleware a caminho do cliente.
 
+## Um limite de concorrência {#a-concurrency-cap}
+
+Um middleware não precisa chamar `call_next(ctx)`. Em vez disso, lance um `MCPError` e essa única
+mensagem é **recusada**: a conexão continua de pé e a próxima mensagem passa.
+
+Digamos que cada busca ocupe uma conexão de um pool de quatro. Este middleware deixa quatro
+chamadas de ferramenta rodarem ao mesmo tempo e recusa a quinta:
+
+```python title="server.py" hl_lines="15-16 40-55 59"
+--8<-- "docs_src/middleware/tutorial002.py"
+```
+
+* Só `tools/call` é contado, então o servidor continua respondendo a `server/discover` e
+  `tools/list` enquanto recusa chamadas de ferramenta.
+* O MCP não define nenhum código de erro de "servidor ocupado", então `SERVER_BUSY` é um código
+  próprio deste servidor.
+* Recusar avisa o cliente na hora de que o servidor está sobrecarregado. Se você prefere fazer os
+  chamadores esperarem, segure um `anyio.CapacityLimiter` em volta de `call_next(ctx)`.
+
+Um `MCPError` lançado vai para a aplicação cliente, não para o modelo. Se o modelo deve ler a
+mensagem, retorne um resultado de ferramenta com `is_error=True`: esse é o **Responder**, mais abaixo.
+
 ## O que você pode fazer dentro de um {#what-you-can-do-inside-one}
 
 Em ordem crescente do quanto você deveria hesitar:
 
-* **Observar.** Cronometre, conte, registre no log. O exemplo acima.
+* **Observar.** Cronometre, conte, registre no log. O middleware de medição de tempo acima.
 * **Recusar.** Lance um `MCPError` *em vez de* chamar `call_next(ctx)` e essa única mensagem é
-  respondida com um erro JSON-RPC. A conexão continua de pé; a próxima mensagem passa. É assim
-  que um servidor controla o acesso a `subscriptions/listen` por chamador:
+  respondida com um erro JSON-RPC. A conexão continua de pé; a próxima mensagem passa. O limite
+  de concorrência acima. É também assim que um servidor controla o acesso a
+  `subscriptions/listen` por chamador:
   **[Decidindo quem pode observar](../handlers/subscriptions.md#deciding-who-may-watch)**, na
   página de Assinaturas, percorre o passo a passo.
 * **Reescrever.** `ctx` é uma dataclass: `await call_next(dataclasses.replace(ctx, params=...))`
