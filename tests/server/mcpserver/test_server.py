@@ -1849,6 +1849,57 @@ async def test_completion_decorator() -> None:
         assert result.completion.values == ["bold", "italic", "underline"]
 
 
+async def test_completion_handler_more_than_100_values_paginates() -> None:
+    """Issue #3649: When a completion handler returns >100 values, MCPServer caps values at 100
+    and sets total to the full count and has_more=True across both modern and legacy sessions.
+    """
+    mcp = MCPServer()
+
+    @mcp.completion()
+    async def complete(
+        ref: PromptReference, argument: CompletionArgument, context: CompletionContext | None
+    ) -> Completion:
+        return Completion(values=[f"option-{i:03}" for i in range(150)])
+
+    ref = PromptReference(type="ref/prompt", name="test")
+
+    # auto mode (2026-07-28 protocol with 100-item Field constraint)
+    async with Client(mcp, mode="auto") as client:
+        result = await client.complete(ref=ref, argument={"name": "field", "value": ""})
+        assert len(result.completion.values) == 100
+        assert result.completion.values[0] == "option-000"
+        assert result.completion.values[-1] == "option-099"
+        assert result.completion.total == 150
+        assert result.completion.has_more is True
+
+    # legacy mode (2025-11-25 protocol)
+    async with Client(mcp, mode="legacy") as client:
+        result = await client.complete(ref=ref, argument={"name": "field", "value": ""})
+        assert len(result.completion.values) == 100
+        assert result.completion.values[0] == "option-000"
+        assert result.completion.values[-1] == "option-099"
+        assert result.completion.total == 150
+        assert result.completion.has_more is True
+
+
+async def test_completion_handler_more_than_100_values_preserves_explicit_total_and_has_more() -> None:
+    """Issue #3649: When a handler returns >100 values with explicit total or has_more, those values win."""
+    mcp = MCPServer()
+
+    @mcp.completion()
+    async def complete(
+        ref: PromptReference, argument: CompletionArgument, context: CompletionContext | None
+    ) -> Completion:
+        return Completion(values=[f"item-{i}" for i in range(120)], total=500, has_more=False)
+
+    ref = PromptReference(type="ref/prompt", name="test")
+    async with Client(mcp) as client:
+        result = await client.complete(ref=ref, argument={"name": "field", "value": ""})
+        assert len(result.completion.values) == 100
+        assert result.completion.total == 500
+        assert result.completion.has_more is False
+
+
 async def test_custom_resource_returning_the_wrong_type_is_a_crash(caplog: pytest.LogCaptureFixture) -> None:
     """SDK-defined: a Resource subclass whose read() returns something other than str or bytes is the
     server's bug, so it is logged as a crash and answered with the generic -32603, not with

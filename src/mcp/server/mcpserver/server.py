@@ -761,8 +761,20 @@ class MCPServer(Generic[LifespanResultT]):
             ) -> CompleteResult:
                 try:
                     result = await func(params.ref, params.argument, params.context)
+                    if result is None:
+                        completion = Completion(values=[], total=None, has_more=None)
+                    elif hasattr(result, "values") and len(result.values) > 100:
+                        total = result.total if getattr(result, "total", None) is not None else len(result.values)
+                        has_more = result.has_more if getattr(result, "has_more", None) is not None else True
+                        completion = Completion(
+                            values=result.values[:100],
+                            total=total,
+                            has_more=has_more,
+                        )
+                    else:
+                        completion = result
                     return CompleteResult(
-                        completion=result if result is not None else Completion(values=[], total=None, has_more=None),
+                        completion=completion,
                     )
                 except MCPError:
                     raise
