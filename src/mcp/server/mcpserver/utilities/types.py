@@ -63,8 +63,10 @@ class Audio:
         data: bytes | None = None,
         format: str | None = None,
     ):
-        if not bool(path) ^ bool(data):  # pragma: no cover
-            raise ValueError("Either path or data can be provided")
+        if path is None and data is None:  # pragma: no cover
+            raise ValueError("Either path or data must be provided")
+        if path is not None and data is not None:  # pragma: no cover
+            raise ValueError("Only one of path or data can be provided")
 
         self.path = Path(path) if path else None
         self.data = data
