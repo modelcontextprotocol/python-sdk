@@ -303,9 +303,6 @@ _FORM = "application/x-www-form-urlencoded"
         ("POST", "/register", "application/json"),
         ("POST", "/authorize", _FORM),
         # The other methods these routes accept reach the same body-reading handlers.
-        ("OPTIONS", "/token", _FORM),
-        ("OPTIONS", "/revoke", _FORM),
-        ("OPTIONS", "/register", "application/json"),
         ("HEAD", "/authorize", _FORM),
     ],
 )
@@ -347,3 +344,35 @@ async def test_oversized_cross_origin_request_gets_413_with_cors_headers(client:
     )
     assert response.status_code == 413
     assert response.headers["access-control-allow-origin"] == "*"
+
+
+@pytest.mark.anyio
+async def test_plain_options_on_token_is_405_not_500(client: httpx2.AsyncClient):
+    """Non-preflight OPTIONS on /token must not be routed into the body reader."""
+    resp = await client.request("OPTIONS", "/token")
+    assert resp.status_code == 405
+    assert resp.headers.get("allow") == "POST, OPTIONS"
+
+
+@pytest.mark.anyio
+async def test_preflight_options_on_token_still_gets_cors_204(
+    client: httpx2.AsyncClient,
+):
+    """CORS preflight on /token keeps working."""
+    resp = await client.request(
+        "OPTIONS",
+        "/token",
+        headers={
+            "Origin": "https://inspector.example.com",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert resp.status_code in (200, 204)
+    assert "access-control-allow-origin" in {k.lower() for k in resp.headers.keys()}
+
+
+@pytest.mark.anyio
+async def test_plain_options_on_register_is_405_not_500(client: httpx2.AsyncClient):
+    """Non-preflight OPTIONS on /register must not be routed into the body reader."""
+    resp = await client.request("OPTIONS", "/register")
+    assert resp.status_code == 405

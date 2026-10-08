@@ -7,7 +7,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route, request_response  # type: ignore
-from starlette.types import ASGIApp
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mcp.server.auth.handlers.authorize import AuthorizationHandler
 from mcp.server.auth.handlers.metadata import MetadataHandler, ProtectedResourceMetadataHandler
@@ -59,6 +59,40 @@ def _cors(app: ASGIApp, allow_methods: list[str]) -> ASGIApp:
         allow_methods=allow_methods,
         allow_headers=[MCP_PROTOCOL_VERSION_HEADER],
     )
+
+
+def _reject_non_preflight_options(app: ASGIApp) -> ASGIApp:
+    """Reject OPTIONS requests that are not CORS preflights.
+
+    CORSMiddleware only answers *preflight* OPTIONS requests (those carrying
+    Access-Control-Request-Method). Any other OPTIONS request is forwarded to
+    the wrapped handler, which would then try to read a body and fail (400/500).
+    These routes only accept POST, so a plain OPTIONS should get a 405 instead
+    of being routed into the body-reading handler.
+    """
+
+    async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["method"] == "OPTIONS":
+            headers = scope.get("headers") or []
+            is_preflight = any(
+                k == b"access-control-request-method" for k, _v in headers
+            )
+            if not is_preflight:
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 405,
+                        "headers": [
+                            (b"content-length", b"0"),
+                            (b"allow", b"POST, OPTIONS"),
+                        ],
+                    }
+                )
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+                return
+        await app(scope, receive, send)
+
+    return wrapped
 
 
 def _body_limited(app: ASGIApp) -> ASGIApp:
@@ -117,7 +151,7 @@ def create_auth_routes(
         ),
         Route(
             TOKEN_PATH,
-            endpoint=_cors(_body_limited(request_response(token_handler.handle)), ["POST", "OPTIONS"]),
+            endpoint=_cors(_reject_non_preflight_options(_body_limited(request_response(token_handler.handle))), ["POST", "OPTIONS"]),
             methods=["POST", "OPTIONS"],
         ),
     ]
@@ -130,7 +164,7 @@ def create_auth_routes(
         routes.append(
             Route(
                 REGISTRATION_PATH,
-                endpoint=_cors(_body_limited(request_response(registration_handler.handle)), ["POST", "OPTIONS"]),
+                endpoint=_cors(_reject_non_preflight_options(_body_limited(request_response(registration_handler.handle))), ["POST", "OPTIONS"]),
                 methods=["POST", "OPTIONS"],
             )
         )
@@ -140,7 +174,7 @@ def create_auth_routes(
         routes.append(
             Route(
                 REVOCATION_PATH,
-                endpoint=_cors(_body_limited(request_response(revocation_handler.handle)), ["POST", "OPTIONS"]),
+                endpoint=_cors(_reject_non_preflight_options(_body_limited(request_response(revocation_handler.handle))), ["POST", "OPTIONS"]),
                 methods=["POST", "OPTIONS"],
             )
         )
