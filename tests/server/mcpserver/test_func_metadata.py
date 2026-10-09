@@ -3,6 +3,7 @@
 # pyright: reportMissingParameterType=false
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownLambdaType=false
+import base64
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, TypedDict
@@ -17,7 +18,12 @@ from typing_extensions import NotRequired, ReadOnly, Required
 from mcp import MCPDeprecationWarning
 from mcp.server.mcpserver import Audio, Image
 from mcp.server.mcpserver.exceptions import InvalidSignature
-from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata, func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import (
+    ArgModelBase,
+    FuncMetadata,
+    _convert_to_content,
+    func_metadata,
+)
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -722,6 +728,72 @@ def test_structured_output_primitives():
         "required": ["result"],
         "title": "func_bytesOutput",
     }
+
+
+def test_convert_to_content_base64_encodes_non_utf8_bytes():
+    """Non-UTF-8 `bytes` (e.g. PNG magic bytes) base64-encode instead of crashing in `to_json`."""
+    png = b"\x89PNG\r\n\x1a\n"
+    content = _convert_to_content(png)
+    assert len(content) == 1
+    assert isinstance(content[0], TextContent)
+    assert content[0].text == base64.b64encode(png).decode()
+
+
+def test_convert_to_content_base64_encodes_utf8_bytes():
+    """UTF-8-decodable `bytes` are base64-encoded too, consistent with the advertised `format: binary`."""
+    content = _convert_to_content(b"hello")
+    assert len(content) == 1
+    assert isinstance(content[0], TextContent)
+    assert content[0].text == base64.b64encode(b"hello").decode()
+
+
+def test_structured_output_bytes_return_is_base64():
+    """A `-> bytes` tool returning non-UTF-8 bytes yields base64 in both unstructured and structured output."""
+    png = b"\x89PNG\r\n\x1a\n"
+    expected = base64.b64encode(png).decode()
+
+    def func_bytes() -> bytes:
+        return png
+
+    meta = func_metadata(func_bytes)
+    # Schema stays `format: binary` (regression guard).
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "string", "format": "binary"}},
+        "required": ["result"],
+        "title": "func_bytesOutput",
+    }
+
+    result = meta.convert_result(png)
+    assert isinstance(result, CallToolResult)
+    assert not result.is_error
+    assert result.structured_content == {"result": expected}
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == expected
+
+
+def test_structured_output_bytes_field_round_trips():
+    """A `bytes` field in an output model (ordinary class) serializes to base64 and round-trips back."""
+    png = b"\x89PNG\r\n\x1a\n"
+
+    class Thumb:
+        data: bytes
+
+        def __init__(self, data: bytes) -> None:
+            self.data = data
+
+    def make_thumb() -> Thumb:
+        return Thumb(png)
+
+    meta = func_metadata(make_thumb)
+    result = meta.convert_result(Thumb(png))
+    assert isinstance(result, CallToolResult)
+    assert not result.is_error
+    assert result.structured_content == {"data": base64.b64encode(png).decode()}
+
+    # The base64 structured content decodes back to the original bytes.
+    assert result.structured_content is not None
+    assert base64.b64decode(result.structured_content["data"]) == png
 
 
 def test_structured_output_generic_types():

@@ -1,3 +1,4 @@
+import base64
 import functools
 import inspect
 import json
@@ -22,7 +23,8 @@ from pydantic import (
     create_model,
 )
 from pydantic.fields import FieldInfo
-from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
+from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue, JsonSchemaWarningKind
+from pydantic_core import core_schema
 from typing_extensions import NotRequired, ReadOnly, TypedDict, deprecated, get_type_hints, is_typeddict
 from typing_inspection.introspection import (
     UNKNOWN,
@@ -72,6 +74,11 @@ class StrictJsonSchema(GenerateJsonSchema):
     def emit_warning(self, kind: JsonSchemaWarningKind, detail: str) -> None:
         # Raise an exception instead of emitting a warning
         raise ValueError(f"JSON schema warning: {kind} - {detail}")
+
+    def bytes_schema(self, schema: core_schema.BytesSchema) -> JsonSchemaValue:
+        # `bytes` output is serialized to base64 (see `_create_wrapped_model`), but the advertised
+        # schema keeps the plain `format: binary` regardless of the serializer's `ser_json_bytes`.
+        return {"type": "string", "format": "binary"}
 
 
 _LOCAL_DEFS_PREFIX = "#/$defs/"
@@ -577,7 +584,11 @@ def _create_model_from_class(cls: type[Any], type_hints: dict[str, Any]) -> type
         else:
             model_fields[field_name] = (field_type, default)
 
-    return create_model(cls.__name__, __config__=ConfigDict(from_attributes=True), **model_fields)
+    return create_model(
+        cls.__name__,
+        __config__=ConfigDict(from_attributes=True, ser_json_bytes="base64"),
+        **model_fields,
+    )
 
 
 def _pydantic_readable_typeddict(output_model: type[Any]) -> type[Any]:
@@ -618,7 +629,14 @@ def _create_wrapped_model(func_name: str, annotation: Any) -> type[BaseModel]:
     """
     model_name = f"{func_name}Output"
 
-    return create_model(model_name, result=annotation)
+    # Serialize any `bytes` field (e.g. a `-> bytes` return) as base64 for JSON so structured output
+    # does not crash on non-UTF-8 data. Only the serializer is changed, so the advertised schema keeps
+    # its `format: binary`.
+    return create_model(
+        model_name,
+        __config__=ConfigDict(ser_json_bytes="base64"),
+        result=annotation,
+    )
 
 
 def _convert_to_content(result: Any) -> list[ContentBlock]:
@@ -648,6 +666,11 @@ def _convert_to_content(result: Any) -> list[ContentBlock]:
                 for item in result  # type: ignore
             )
         )
+
+    # `bytes` advertise `format: binary`; base64-encode them (matching `Image`/`Audio` and the lowlevel
+    # server) rather than letting `to_json` UTF-8-decode them and raise on non-UTF-8 data.
+    if isinstance(result, bytes):
+        result = base64.b64encode(result).decode()
 
     if not isinstance(result, str):
         result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
