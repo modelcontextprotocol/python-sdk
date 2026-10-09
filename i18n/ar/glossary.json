@@ -1,0 +1,294 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "أداة",
+      "note": "MCP callable primitive; plural أدوات. Keep Tools when naming the Inspector UI tab, and all code identifiers unchanged."
+    },
+    {
+      "source": "resource",
+      "target": "مورد",
+      "note": "Readable MCP data; plural موارد. A resource template is قالب مورد. Keep Resources and Resource Templates when naming actual UI tabs."
+    },
+    {
+      "source": "prompt",
+      "target": "قالب توجيه",
+      "note": "Reusable MCP message template, plural قوالب توجيه. First prose mention on a page may include (prompt). A general instruction to an LLM is توجيه; a UI confirmation prompt is مطالبة. Keep Prompts as a literal UI label."
+    },
+    {
+      "source": "sampling",
+      "target": "أخذ العينات",
+      "note": "MCP model-generation feature; first prose occurrence takes (sampling). Do not suggest it merely samples existing data. Wire identifiers remain unchanged."
+    },
+    {
+      "source": "roots",
+      "target": "المجلدات الجذرية",
+      "note": "Client-exposed directory roots; first prose mention takes (roots). Not mathematical roots or administrator privileges."
+    },
+    {
+      "source": "elicitation",
+      "target": "استقاء المعلومات",
+      "note": "Server requests user input through the client; first prose mention takes (elicitation). Preserve form/URL and push/pull distinctions."
+    },
+    {
+      "source": "capability",
+      "target": "قدرة",
+      "note": "Declared protocol capability; plural قدرات. A feature is ميزة, not necessarily a declared capability."
+    },
+    {
+      "source": "transport",
+      "target": "وسيلة نقل",
+      "note": "Protocol connection mechanism; plural وسائل نقل. stdio, Streamable HTTP, and SSE stay unchanged."
+    },
+    {
+      "source": "session",
+      "target": "جلسة",
+      "note": "Plural جلسات. Session identifiers and class names stay unchanged."
+    },
+    {
+      "source": "handler",
+      "target": "دالة معالجة",
+      "note": "Registered handler function; plural دوال معالجة. A handler body is جسم دالة المعالجة; avoid the hardware sense of processor."
+    },
+    {
+      "source": "dependency",
+      "target": "اعتمادية",
+      "note": "Plural اعتماديات, for packages and injected dependencies. Dependency injection is حقن الاعتماديات."
+    },
+    {
+      "source": "resolver",
+      "target": "دالة حل الاعتمادية",
+      "note": "Function supplying an injected parameter. Shorten to دالة الحل after the role is clear; preserve Resolve identifiers."
+    },
+    {
+      "source": "client",
+      "target": "عميل",
+      "note": "Plural عملاء; the MCP component inside a host, distinct from the user and host application."
+    },
+    {
+      "source": "server",
+      "target": "خادم",
+      "note": "Plural خوادم. Class and module names remain unchanged."
+    },
+    {
+      "source": "host",
+      "target": "تطبيق مضيف",
+      "note": "The user-facing MCP application containing clients, not the MCP server or a hosting machine. Shorten to المضيف when unambiguous."
+    },
+    {
+      "source": "request",
+      "target": "طلب",
+      "note": "Protocol/HTTP request; plural طلبات. A response is استجابة, a result is نتيجة."
+    },
+    {
+      "source": "token",
+      "target": "رمز",
+      "note": "OAuth: access token رمز وصول, refresh token رمز تحديث, bearer token رمز حامل. LLM token: وحدة نصية (token) on first use, then وحدة نصية. Do not conflate the two."
+    },
+    {
+      "source": "lifespan",
+      "target": "دورة الحياة",
+      "note": "Server startup/shutdown feature. Preserve lifespan= and other identifiers."
+    },
+    {
+      "source": "callback",
+      "target": "دالة رد نداء",
+      "note": "Plural دوال رد نداء. OAuth callback URL is عنوان URL لرد النداء. First prose mention may take (callback)."
+    },
+    {
+      "source": "deploy",
+      "target": "نشر",
+      "note": "Deploy a server: انشر الخادم. Deployment نشر; distinct from running locally, تشغيل."
+    },
+    {
+      "source": "library",
+      "target": "مكتبة",
+      "note": "Software library; plural مكتبات."
+    },
+    {
+      "source": "back-channel",
+      "target": "قناة عكسية",
+      "note": "Server-to-client calls during a request; first prose mention takes (back-channel). Preserve NoBackChannelError."
+    },
+    { "source": "file", "target": "ملف", "note": "Plural ملفات." },
+    {
+      "source": "user",
+      "target": "مستخدم",
+      "note": "Plural مستخدمون / مستخدمين according to case. Distinct from client."
+    },
+    {
+      "source": "escape hatch",
+      "target": "منفذ للتحكم المباشر",
+      "note": "Lower-level API mechanism for bypassing convenience-layer restrictions. Translate metaphor by its function."
+    },
+    {
+      "source": "type hint",
+      "target": "تلميح نوع",
+      "note": "Python typing hint; plural تلميحات الأنواع. Type annotation is تعليق نوع when distinction matters; do not translate the identifier."
+    },
+    {
+      "source": "Get started",
+      "target": "ابدأ هنا",
+      "note": "Guide section/index title; distinct from First steps."
+    },
+    {
+      "source": "First steps",
+      "target": "الخطوات الأولى",
+      "note": "Tutorial page inside Get started."
+    },
+    {
+      "source": "authentication",
+      "target": "مصادقة",
+      "note": "Verifying identity, distinct from authorization."
+    },
+    {
+      "source": "authorization",
+      "target": "تفويض",
+      "note": "Granting/checking permission, distinct from authentication."
+    },
+    {
+      "source": "middleware",
+      "target": "برمجيات وسيطة",
+      "note": "Request-processing middleware. A single middleware component is مكوّن وسيط."
+    },
+    {
+      "source": "schema",
+      "target": "مخطط",
+      "note": "Data/type schema; JSON Schema remains the name JSON Schema."
+    },
+    {
+      "source": "structured output",
+      "target": "مخرجات منظّمة",
+      "note": "Tool output matching a schema; structured content is محتوى منظّم."
+    },
+    {
+      "source": "pagination",
+      "target": "تقسيم النتائج إلى صفحات",
+      "note": "Protocol list pagination, not printed-page numbering."
+    },
+    {
+      "source": "subscription",
+      "target": "اشتراك",
+      "note": "Plural اشتراكات. Subscribe اشترك; unsubscribe ألغِ الاشتراك."
+    },
+    {
+      "source": "notification",
+      "target": "إشعار",
+      "note": "Protocol notification distinct from request and response."
+    },
+    {
+      "source": "cancellation",
+      "target": "إلغاء",
+      "note": "Cancelling a request/task; preserve cooperative cancellation semantics."
+    },
+    {
+      "source": "stateless",
+      "target": "عديم الحالة",
+      "note": "No server-side state required between requests; statelessness انعدام الحالة."
+    },
+    {
+      "source": "stateful",
+      "target": "ذو حالة",
+      "note": "Preserves state across requests; inflect for gender and number."
+    },
+    {
+      "source": "identity assertion",
+      "target": "إفادة الهوية",
+      "note": "Signed assertion carrying authenticated identity; first prose occurrence may take (identity assertion)."
+    },
+    {
+      "source": "completion",
+      "target": "إكمال",
+      "note": "MCP argument autocomplete إكمال تلقائي للوسائط; LLM completion استكمال يولّده النموذج. Preserve protocol/class identifiers."
+    },
+    {
+      "source": "in-memory",
+      "target": "داخل الذاكرة",
+      "note": "Direct in-process test connection, without network transport or subprocess."
+    },
+    {
+      "source": "legacy",
+      "target": "قديم",
+      "note": "Older protocol path, not a judgement about quality. Legacy client عميل قديم. Preserve mode=\"legacy\"."
+    },
+    {
+      "source": "pull",
+      "target": "سحب",
+      "note": "New protocol where clients fetch outstanding requests; contrast with server-initiated دفع (push)."
+    },
+    {
+      "source": "argument",
+      "target": "وسيطة",
+      "note": "Passed call value; plural وسائط. Parameter is مَعلمة, plural مَعلمات; preserve identifiers."
+    },
+    {
+      "source": "stream",
+      "target": "تدفّق",
+      "note": "Streaming تَدَفّق / بث according to context; never translate the name Streamable HTTP."
+    },
+    {
+      "source": "cache",
+      "target": "ذاكرة تخزين مؤقت",
+      "note": "Caching تخزين مؤقت; cached result نتيجة مخزّنة مؤقتًا."
+    }
+  ]
+}

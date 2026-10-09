@@ -2,6 +2,10 @@
 model: claude-opus-5 # public model id; used for every translation call
 exclude: [migration.md] # nav pages never translated (exact path or "dir/**")
 languages:
+  - code: ar
+    name: العربية
+    theme: ar
+    hreflang: ar
   - code: de # directory under i18n/ and URL prefix /de/
     name: Deutsch # switcher label (shown as "de - Deutsch")
     theme: de # theme `language` (UI strings, search)
