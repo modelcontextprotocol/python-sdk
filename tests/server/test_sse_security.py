@@ -88,6 +88,12 @@ async def test_sse_security_invalid_host_header() -> None:
         assert response.status_code == 421
         assert response.text == "Invalid Host header"
 
+        # The server process must stay alive after the rejected request: a
+        # subsequent request to the message endpoint is still served (the
+        # unknown-session 404 proves routing works rather than hanging).
+        response = await client.post("/messages/?session_id=12345678123456781234567812345678")
+        assert response.status_code == 404
+
 
 @pytest.mark.anyio
 async def test_sse_security_invalid_origin_header() -> None:
