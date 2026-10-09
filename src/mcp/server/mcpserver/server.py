@@ -1175,10 +1175,20 @@ class MCPServer(Generic[LifespanResultT]):
         async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available
 
-            async with sse.connect_sse(scope, receive, send) as streams:
-                await self._lowlevel_server.run(
-                    streams[0], streams[1], self._lowlevel_server.create_initialization_options()
-                )
+            try:
+                async with sse.connect_sse(scope, receive, send) as streams:
+                    await self._lowlevel_server.run(
+                        streams[0], streams[1], self._lowlevel_server.create_initialization_options()
+                    )
+            except ValueError as exc:
+                # connect_sse rejects a request failing the transport-security
+                # checks (e.g. a disallowed Host/Origin) by sending the error
+                # response itself and then raising ValueError. Without a handler
+                # here the exception escapes the ASGI callable and crashes the
+                # whole server process, so swallow it: the rejection response
+                # (421/403) has already been sent to this one client.
+                logger.debug(f"SSE connection rejected during validation: {exc}")
+                return
             return Response()
 
         # Create routes

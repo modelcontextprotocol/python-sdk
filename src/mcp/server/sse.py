@@ -144,6 +144,11 @@ class SseServerTransport:
         request = Request(scope, receive)
         error_response = await self._security.validate_request(request, is_post=False)
         if error_response:
+            # The rejection response (e.g. 421 invalid Host) is sent to the
+            # client here, then ValueError is raised to signal the caller that
+            # no SSE session was established. Callers driving the ASGI
+            # application (FastMCP.sse_app's handle_sse) must catch this to
+            # avoid crashing the server process on a single bad request.
             await error_response(scope, receive, send)
             raise ValueError("Request validation failed")
 

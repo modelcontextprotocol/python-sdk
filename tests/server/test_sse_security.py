@@ -551,3 +551,27 @@ async def _no_receive() -> Message:
 
 async def _no_send(message: Message) -> None:
     raise NotImplementedError
+
+
+@pytest.mark.anyio
+async def test_fastmcp_handle_sse_does_not_crash_on_invalid_host() -> None:
+    """A disallowed Host on /sse must reject that request (421) without
+    crashing the server process: connect_sse sends the rejection response and
+    raises ValueError, and FastMCP's handle_sse swallows it (see #3661)."""
+    from mcp.server.mcpserver import MCPServer
+
+    mcp = MCPServer("sse-crash-guard")
+    app = mcp.sse_app(
+        message_path="/messages/",
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True, allowed_hosts=["allowed.example.com"]
+        ),
+    )
+    transport = StreamingASGITransport(app, cancel_on_close=False)
+
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+        # The GET would otherwise hang until disconnect; the rejection path
+        # returns before any session is created, so a plain GET suffices.
+        response = await client.get("/sse", headers={"Host": "evil.com"})
+        assert response.status_code == 421
+        assert response.text == "Invalid Host header"
