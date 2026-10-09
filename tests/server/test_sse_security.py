@@ -91,7 +91,10 @@ async def test_sse_security_invalid_host_header() -> None:
         # The server process must stay alive after the rejected request: a
         # subsequent request to the message endpoint is still served (the
         # unknown-session 404 proves routing works rather than hanging).
-        response = await client.post("/messages/?session_id=12345678123456781234567812345678")
+        response = await client.post(
+            "/messages/?session_id=12345678123456781234567812345678",
+            headers={"Content-Type": "application/json"},
+        )
         assert response.status_code == 404
 
 
