@@ -17,7 +17,7 @@ from typing_extensions import assert_type
 
 from mcp.client import ClaimContext, ClientExtension, NotificationBinding, ResultClaim, advertise
 from mcp.client.client import Client
-from mcp.client.session import ClientRequestContext, _CallToolResultAdapter
+from mcp.client.session import ClientRequestContext, ClientSession, _CallToolResultAdapter
 from mcp.server import Server, ServerRequestContext
 from mcp.server.context import CallNext, HandlerResult
 from mcp.server.extension import Extension
@@ -57,6 +57,13 @@ class _VoucherExtension(ClientExtension):
 
     def claims(self) -> Sequence[ResultClaim[Any]]:
         return [ResultClaim(result_type="voucher", model=VoucherResult, resolve=self._resolve)]
+
+
+class _SessionExtension(ClientExtension):
+    identifier = "com.example/session"
+
+    def bind(self, session: ClientSession) -> ClientSession:
+        return session
 
 
 class _VoucherIssuer(Extension):
@@ -164,6 +171,30 @@ def test_mapping_extensions_get_the_migration_error() -> None:
         "extensions= takes a sequence of ClientExtension instances. The mapping form was "
         "replaced: use advertise(identifier, settings) for advertise-only entries"
     )
+
+
+async def test_extension_returns_a_custom_extensions_typed_binding() -> None:
+    """SDK-defined: custom extensions can expose typed methods through Client.extension."""
+    async with Client(_add_server(), extensions=[advertise("com.example/other"), _SessionExtension()]) as client:
+        bound = client.extension(_SessionExtension)
+        assert_type(bound, ClientSession)
+        assert bound is client.session
+
+
+async def test_extension_rejects_an_unregistered_type() -> None:
+    """SDK-defined: a client cannot bind an extension it did not register."""
+    async with Client(_add_server()) as client:
+        with pytest.raises(ValueError) as exc_info:
+            client.extension(_SessionExtension)
+    assert str(exc_info.value) == snapshot("client extension '_SessionExtension' is not registered")
+
+
+def test_extension_requires_a_connected_client() -> None:
+    """SDK-defined: extension methods require a live session."""
+    client = Client(_add_server(), extensions=[_SessionExtension()])
+    with pytest.raises(RuntimeError) as exc_info:
+        client.extension(_SessionExtension)
+    assert str(exc_info.value) == snapshot("Client must be used within an async context manager")
 
 
 def test_one_extension_claiming_a_tag_twice_reads_as_one_owner() -> None:

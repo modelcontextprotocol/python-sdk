@@ -190,6 +190,30 @@ that did not declare it (error -32021), and a claimed shape from a server that
 skips the gate fails validation, exactly as the spec requires for an
 unrecognized `resultType`. Off by default, on both ends of the wire.
 
+An extension can also expose methods of its own. Pass its type to `client.extension()`
+after connecting to get the API bound to that connection:
+
+```python
+import anyio
+
+from mcp import Client
+from mcp.client.skills import Skills
+
+
+async def main() -> None:
+    async with Client("http://localhost:8000/mcp", extensions=[Skills()]) as client:
+        for skill in await client.extension(Skills).list_skills():
+            print(skill.uri)
+
+
+if __name__ == "__main__":
+    anyio.run(main)
+```
+
+`client.extension(Skills)` returns the type produced by `Skills.bind(session)`. Your own
+extension can define the same hook. The client raises `ValueError` when the type was not
+registered and `RuntimeError` when it is not connected.
+
 To advertise an identifier with **no** client-side behaviour (the server gates on
 the capability, the client does nothing, as in the search client above), use
 `advertise()`:
