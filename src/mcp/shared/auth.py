@@ -27,7 +27,7 @@ class OAuthToken(BaseModel):
     """See https://datatracker.ietf.org/doc/html/rfc6749#section-5.1"""
 
     access_token: str
-    token_type: Literal["Bearer"] = "Bearer"
+    token_type: Literal["Bearer", "DPoP"] = "Bearer"
     expires_in: int | None = None
     scope: str | None = None
     refresh_token: str | None = None
@@ -36,9 +36,9 @@ class OAuthToken(BaseModel):
     @classmethod
     def normalize_token_type(cls, v: str | None) -> str | None:
         if isinstance(v, str):
-            # Bearer is title-cased in the spec, so we normalize it
-            # https://datatracker.ietf.org/doc/html/rfc6750#section-4
-            return v.title()
+            # Bearer is title-cased in the spec (RFC 6750 §4);
+            # DPoP is always exactly "DPoP" (RFC 9449 §5).
+            return "Bearer" if v.lower() == "bearer" else v
         return v  # pragma: no cover
 
 

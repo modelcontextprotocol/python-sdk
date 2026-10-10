@@ -8,8 +8,10 @@ from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import httpx2
+import jwt
 import pytest
 from inline_snapshot import Is, snapshot
+from jwt.algorithms import ECAlgorithm
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
@@ -3665,5 +3667,368 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
     final_req = await auth_flow.asend(token_response)
     try:
         await auth_flow.asend(httpx2.Response(200, request=final_req))
+    except StopAsyncIteration:
+        pass
+
+
+# --- DPoP (RFC 9449) ----------------------------------------------------------
+
+
+def _dpop_prm() -> ProtectedResourceMetadata:
+    """PRM advertising ES256 DPoP support (the SDK surfaces the flag here)."""
+    return ProtectedResourceMetadata(
+        resource="https://api.example.com/v1/mcp",
+        authorization_servers=["https://auth.example.com"],
+        dpop_signing_alg_values_supported=["ES256"],
+    )
+
+
+def _dpop_oauth_metadata() -> OAuthMetadata:
+    return OAuthMetadata(
+        issuer="https://auth.example.com",
+        authorization_endpoint="https://auth.example.com/authorize",
+        token_endpoint="https://auth.example.com/token",
+    )
+
+
+def _dpop_client_info() -> OAuthClientInformationFull:
+    return OAuthClientInformationFull(
+        client_id="test_client",
+        client_secret="test_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+
+
+def _verified_dpop_claims(request: httpx2.Request) -> dict:
+    """Decode the DPoP proof on a request, verifying its signature."""
+    proof = request.headers["DPoP"]
+    jwk = jwt.get_unverified_header(proof)["jwk"]
+    key = ECAlgorithm.from_jwk(json.dumps(jwk))
+    return jwt.decode(proof, key, algorithms=["ES256"])
+
+
+@pytest.mark.anyio
+async def test_token_exchange_attaches_dpop_proof_when_server_advertises_es256(
+    oauth_provider: OAuthClientProvider,
+):
+    """The authorization_code exchange carries a DPoP proof bound to the token URL.
+
+    Provenance: RFC 9449 §4.2 — proofs are required on token requests when the
+    server advertises DPoP support.
+    """
+    oauth_provider.context.client_info = _dpop_client_info()
+    oauth_provider.context.protected_resource_metadata = _dpop_prm()
+    oauth_provider.context.oauth_metadata = _dpop_oauth_metadata()
+
+    request = await oauth_provider._exchange_token_authorization_code("code", "verifier")
+
+    claims = _verified_dpop_claims(request)
+    assert claims["htm"] == "POST"
+    assert claims["htu"] == "https://auth.example.com/token"
+    assert "nonce" not in claims
+
+
+@pytest.mark.anyio
+async def test_token_exchange_omits_dpop_header_when_server_silent(
+    oauth_provider: OAuthClientProvider,
+):
+    """No DPoP advertisement means no DPoP header — plain servers are untouched.
+
+    Provenance: SDK-defined back-compat; the feature must be purely additive.
+    """
+    oauth_provider.context.client_info = _dpop_client_info()
+    oauth_provider.context.oauth_metadata = _dpop_oauth_metadata()
+
+    request = await oauth_provider._exchange_token_authorization_code("code", "verifier")
+
+    assert "DPoP" not in request.headers
+
+
+@pytest.mark.anyio
+async def test_dpop_key_is_reused_across_token_requests(oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
+    """One keypair per client: the embedded JWK is stable across requests.
+
+    Provenance: SDK-defined; rotating the key per request would break the
+    server's key binding.
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.client_info = _dpop_client_info()
+    oauth_provider.context.protected_resource_metadata = _dpop_prm()
+    oauth_provider.context.oauth_metadata = _dpop_oauth_metadata()
+
+    first = await oauth_provider._exchange_token_authorization_code("c1", "v1")
+    second = await oauth_provider._refresh_token()
+
+    jwk1 = jwt.get_unverified_header(first.headers["DPoP"])["jwk"]
+    jwk2 = jwt.get_unverified_header(second.headers["DPoP"])["jwk"]
+    assert jwk1 == jwk2
+
+
+@pytest.mark.anyio
+async def test_refresh_request_attaches_dpop_proof_when_server_advertises_es256(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """The refresh_token grant carries a DPoP proof like the initial exchange.
+
+    Provenance: RFC 9449 §4.2 — every token request is proof-bound.
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.client_info = _dpop_client_info()
+    oauth_provider.context.protected_resource_metadata = _dpop_prm()
+    oauth_provider.context.oauth_metadata = _dpop_oauth_metadata()
+
+    request = await oauth_provider._refresh_token()
+
+    claims = _verified_dpop_claims(request)
+    assert claims["htm"] == "POST"
+    assert claims["htu"] == "https://auth.example.com/token"
+
+
+@pytest.mark.anyio
+async def test_dpop_nonce_challenge_rebuilds_request_with_nonce(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """A 400 + DPoP-Nonce answer rebuilds the request with a nonce-bound proof.
+
+    Provenance: RFC 9449 §9.1 — the client retries once with the server nonce.
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.client_info = _dpop_client_info()
+    oauth_provider.context.protected_resource_metadata = _dpop_prm()
+    oauth_provider.context.oauth_metadata = _dpop_oauth_metadata()
+
+    request = await oauth_provider._refresh_token()
+    challenge = httpx2.Response(400, headers={"DPoP-Nonce": "srv-nonce-1"}, request=request)
+
+    retry = await oauth_provider._dpop_nonce_retry(challenge, oauth_provider._refresh_token)
+
+    assert retry is not None
+    assert _verified_dpop_claims(retry)["nonce"] == "srv-nonce-1"
+
+
+@pytest.mark.anyio
+async def test_dpop_nonce_retry_ignores_non_challenge_responses(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """Only a real nonce challenge (400 + DPoP-Nonce on a DPoP request) retries.
+
+    Provenance: SDK-defined; a stray header must never trigger a token-request retry.
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.client_info = _dpop_client_info()
+    oauth_provider.context.protected_resource_metadata = _dpop_prm()
+    oauth_provider.context.oauth_metadata = _dpop_oauth_metadata()
+
+    dpop_request = await oauth_provider._refresh_token()
+    plain_request = httpx2.Request("POST", "https://auth.example.com/token")
+    build = oauth_provider._refresh_token
+
+    assert await oauth_provider._dpop_nonce_retry(httpx2.Response(200, request=dpop_request), build) is None
+    assert await oauth_provider._dpop_nonce_retry(httpx2.Response(400, request=dpop_request), build) is None
+    assert (
+        await oauth_provider._dpop_nonce_retry(
+            httpx2.Response(400, headers={"DPoP-Nonce": "n"}, request=plain_request), build
+        )
+        is None
+    )
+
+    oauth_provider.context.protected_resource_metadata = None
+    assert (
+        await oauth_provider._dpop_nonce_retry(
+            httpx2.Response(400, headers={"DPoP-Nonce": "n"}, request=dpop_request), build
+        )
+        is None
+    )
+
+
+def _dpop_e2e_provider(
+    client_metadata: OAuthClientMetadata,
+    mock_storage: MockTokenStorage,
+    redirect_handler,
+    callback_handler,
+) -> OAuthClientProvider:
+    return OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+        redirect_handler=redirect_handler,
+        callback_handler=callback_handler,
+    )
+
+
+@pytest.mark.anyio
+async def test_token_flow_retries_with_server_provided_nonce(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+):
+    """Full flow: the token endpoint's nonce challenge triggers one proof-bound retry.
+
+    Provenance: RFC 9449 §9.1, driven through _auth_flow against an in-memory
+    mock AS that advertises DPoP in its protected resource metadata.
+    """
+    captured: dict[str, str] = {}
+
+    async def redirect_handler(url: str) -> None:
+        captured["state"] = parse_qs(urlparse(url).query)["state"][0]
+
+    async def callback_handler() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="test_auth_code", state=captured["state"])
+
+    provider = _dpop_e2e_provider(client_metadata, mock_storage, redirect_handler, callback_handler)
+    provider._initialized = True
+    provider.context.client_info = _dpop_client_info()
+
+    test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
+    auth_flow = provider.async_auth_flow(test_request)
+    assert "Authorization" not in (await auth_flow.__anext__()).headers
+
+    prm_request = await auth_flow.asend(httpx2.Response(401, headers={}, request=test_request))
+    assert "oauth-protected-resource" in str(prm_request.url)
+
+    prm_response = httpx2.Response(
+        200,
+        content=json.dumps(
+            {
+                "resource": "https://api.example.com/v1/mcp",
+                "authorization_servers": ["https://auth.example.com"],
+                "dpop_signing_alg_values_supported": ["ES256"],
+            }
+        ).encode(),
+        request=prm_request,
+    )
+    metadata_request = await auth_flow.asend(prm_response)
+    assert metadata_request.method == "GET"
+
+    metadata_response = httpx2.Response(
+        200,
+        content=json.dumps(
+            {
+                "issuer": "https://auth.example.com",
+                "authorization_endpoint": "https://auth.example.com/authorize",
+                "token_endpoint": "https://auth.example.com/token",
+            }
+        ).encode(),
+        request=metadata_request,
+    )
+    token_request = await auth_flow.asend(metadata_response)
+    assert token_request.method == "POST"
+    assert "nonce" not in _verified_dpop_claims(token_request)
+
+    retry_request = await auth_flow.asend(
+        httpx2.Response(400, headers={"DPoP-Nonce": "e2e-nonce"}, request=token_request)
+    )
+    assert _verified_dpop_claims(retry_request)["nonce"] == "e2e-nonce"
+    assert (
+        jwt.get_unverified_header(retry_request.headers["DPoP"])["jwk"]
+        == jwt.get_unverified_header(token_request.headers["DPoP"])["jwk"]
+    )
+
+    final_request = await auth_flow.asend(
+        httpx2.Response(
+            200,
+            content=json.dumps({"access_token": "dpop-bound-at", "token_type": "DPoP", "expires_in": 3600}).encode(),
+            request=retry_request,
+        )
+    )
+    assert final_request.headers["Authorization"] == "Bearer dpop-bound-at"
+
+    try:
+        await auth_flow.asend(httpx2.Response(200, request=final_request))
+    except StopAsyncIteration:
+        pass
+
+
+@pytest.mark.anyio
+async def test_refresh_flow_retries_with_server_provided_nonce(
+    client_metadata: OAuthClientMetadata,
+    mock_storage: MockTokenStorage,
+    valid_tokens: OAuthToken,
+):
+    """An expired DPoP-bound session refreshes through the same nonce retry.
+
+    Provenance: RFC 9449 §9.1 applied to the refresh_token grant.
+    """
+
+    async def callback_handler() -> AuthorizationCodeResult:
+        raise AssertionError("full re-auth must not trigger here")
+
+    async def redirect_handler(url: str) -> None:
+        pass
+
+    provider = _dpop_e2e_provider(client_metadata, mock_storage, redirect_handler, callback_handler)
+    provider._initialized = True
+    provider.context.current_tokens = valid_tokens
+    provider.context.token_expiry_time = time.time() - 1
+    provider.context.client_info = _dpop_client_info()
+    provider.context.protected_resource_metadata = _dpop_prm()
+    provider.context.oauth_metadata = _dpop_oauth_metadata()
+
+    test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
+    auth_flow = provider.async_auth_flow(test_request)
+
+    refresh_request = await auth_flow.__anext__()
+    assert refresh_request.method == "POST"
+    assert "nonce" not in _verified_dpop_claims(refresh_request)
+
+    retry_request = await auth_flow.asend(
+        httpx2.Response(400, headers={"DPoP-Nonce": "refresh-nonce"}, request=refresh_request)
+    )
+    assert _verified_dpop_claims(retry_request)["nonce"] == "refresh-nonce"
+
+    final_request = await auth_flow.asend(
+        httpx2.Response(
+            200,
+            content=json.dumps({"access_token": "new-at", "token_type": "DPoP", "expires_in": 3600}).encode(),
+            request=retry_request,
+        )
+    )
+    assert final_request.headers["Authorization"] == "Bearer new-at"
+
+    try:
+        await auth_flow.asend(httpx2.Response(200, request=final_request))
+    except StopAsyncIteration:
+        pass
+
+
+@pytest.mark.anyio
+async def test_refresh_flow_succeeds_without_nonce_challenge(
+    client_metadata: OAuthClientMetadata,
+    mock_storage: MockTokenStorage,
+    valid_tokens: OAuthToken,
+):
+    """A cooperative AS refreshes in one round trip — no retry is attempted.
+
+    Provenance: SDK-defined; the retry path must stay dormant without a challenge.
+    """
+
+    async def callback_handler() -> AuthorizationCodeResult:
+        raise AssertionError("full re-auth must not trigger here")
+
+    async def redirect_handler(url: str) -> None:
+        pass
+
+    provider = _dpop_e2e_provider(client_metadata, mock_storage, redirect_handler, callback_handler)
+    provider._initialized = True
+    provider.context.current_tokens = valid_tokens
+    provider.context.token_expiry_time = time.time() - 1
+    provider.context.client_info = _dpop_client_info()
+    provider.context.protected_resource_metadata = _dpop_prm()
+    provider.context.oauth_metadata = _dpop_oauth_metadata()
+
+    test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
+    auth_flow = provider.async_auth_flow(test_request)
+
+    refresh_request = await auth_flow.__anext__()
+    final_request = await auth_flow.asend(
+        httpx2.Response(
+            200,
+            content=json.dumps({"access_token": "new-at", "token_type": "Bearer", "expires_in": 3600}).encode(),
+            request=refresh_request,
+        )
+    )
+    assert final_request.headers["Authorization"] == "Bearer new-at"
+
+    try:
+        await auth_flow.asend(httpx2.Response(200, request=final_request))
     except StopAsyncIteration:
         pass

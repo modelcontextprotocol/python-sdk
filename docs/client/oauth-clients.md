@@ -87,6 +87,15 @@ One transport rule applies to all of these requests: like the MCP request they r
 
 You wrote none of it. Two keyword arguments remain (`client_metadata_url` and `validate_resource_url`), and this file needs neither. `client_metadata_url` is the one worth knowing about; it gets its own section below.
 
+## DPoP
+
+When the server's protected resource metadata advertises `dpop_signing_alg_values_supported` containing `ES256`, the provider speaks [DPoP](https://datatracker.ietf.org/doc/html/rfc9449): every token request (the authorization-code exchange and every refresh) carries a `DPoP` proof header, a short-lived JWT signed by a P-256 key the provider generates for this client. The issued tokens are bound to that key, so a stolen authorization code or refresh token cannot be redeemed by anyone else. Servers that don't advertise DPoP get byte-identical requests to before; nothing changes for them.
+
+Two behaviours to know about:
+
+* The provider answers a server nonce challenge (`DPoP-Nonce` on a `400`) by rebuilding the proof with that nonce and retrying once, by itself.
+* The key lives in memory. Restart the process and the next refresh fails once, after which the provider re-runs the authorization flow with a fresh key. Persisting the key across restarts is planned; DPoP proofs on resource requests (the `DPoP` authorization scheme) are likewise future work — API calls still send `Authorization: Bearer ...`.
+
 ### Try it
 
 The in-memory `Client(server)` your tests use is no help here: the whole point of the flow is an HTTP `401`, and there is no HTTP between an in-memory client and its server.
