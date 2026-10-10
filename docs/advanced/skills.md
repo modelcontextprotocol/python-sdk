@@ -49,14 +49,14 @@ And that's it. `Skills(list_skills=..., get_skill=...)` is all a server needs;
 ## Fetching a skill
 
 On the client side, `Skills` is a [`ClientExtension`](extensions.md). You register it the same way
-you register any other one — by passing it to `Client(extensions=[...])` — and then call `bind` to
+you register any other one — by passing it to `Client(extensions=[...])` — and then call `extension` to
 get the verbs tied to that connection:
 
 ```python title="client.py" hl_lines="9-11"
 --8<-- "docs_src/skills/tutorial001_client.py"
 ```
 
-`skills.bind(client)` hands you a `BoundSkills`, and its methods are the SEP-2640 verbs:
+`client.extension(Skills)` hands you a `BoundSkills`, and its methods are the SEP-2640 verbs:
 
 * `list_skills` and `read_directory` follow `nextCursor` to completion, so a single call gives you
   every page's skills or resources.
@@ -124,8 +124,9 @@ setting.
 In protocol version `2026-07-28` and later, `skills/list` and `skills/get` results carry the base
 protocol's caching fields, [`ttlMs` and `cacheScope`](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549) —
 the same freshness hint `tools/list`, `resources/list`, and `resources/read` carry. `Skills` fills
-`cacheScope` with `"public"` when your handler leaves it unset, and omits both fields entirely on an
-older connection. So you don't have to branch on protocol version yourself.
+`cacheScope` with `"private"` when your handler leaves it unset, and omits both fields entirely on an
+older connection. Set `cache_scope="public"` only when the result is the same for every user.
+You don't have to branch on protocol version yourself.
 
 ## What this SDK doesn't do
 

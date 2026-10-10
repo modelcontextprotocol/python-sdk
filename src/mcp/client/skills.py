@@ -2,14 +2,14 @@
 
 `Skills` is an opt-in [`ClientExtension`](../advanced/extensions.md) for talking
 to a skills catalog server. Register it with `Client(extensions=[Skills()])`,
-then call `bind(client)` for the SEP-2640 verbs — `list_skills`, `get_skill`,
+then call `client.extension(Skills)` for the SEP-2640 verbs — `list_skills`, `get_skill`,
 `read_skill_uri`, and `read_directory` — tied to that connection:
 
-    async with Client("http://localhost:8000/mcp", extensions=[skills := Skills()]) as client:
-        for skill in await skills.bind(client).list_skills():
+    async with Client("http://localhost:8000/mcp", extensions=[Skills()]) as client:
+        for skill in await client.extension(Skills).list_skills():
             print(skill.uri, skill.frontmatter["description"])
 
-`bind(client)` returns a `BoundSkills`. Its catalog verbs — `list_skills`,
+`client.extension(Skills)` returns a `BoundSkills`. Its catalog verbs — `list_skills`,
 `get_skill`, and `read_directory` — check that the server advertises the
 extension and validate its response; `list_skills` and `read_directory` follow
 `nextCursor` to completion, so one call returns every page's results.
@@ -18,8 +18,6 @@ result with `verify_skill_resource`.
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 from mcp_types import ReadResourceResult, Resource
 
@@ -41,35 +39,28 @@ from mcp.shared.skills import (
 )
 from mcp.shared.skills import verify_skill_resource as verify_skill_resource
 
-if TYPE_CHECKING:
-    from mcp.client.client import Client
-
 __all__ = ["BoundSkills", "Skills", "verify_skill_resource"]
 
 
 class Skills(ClientExtension):
-    """The client-side Skills extension: register, then `bind` for typed verbs.
+    """The client-side Skills extension: register, then access its typed verbs.
 
     Pass an instance to `Client(extensions=[Skills()])` — this advertises
     `io.modelcontextprotocol/skills` under the client's capabilities — and call
-    `bind(client)` once the client is connected for a `BoundSkills` handle.
+    `client.extension(Skills)` once connected for a `BoundSkills` handle.
     """
 
     identifier = EXTENSION_ID
 
-    def bind(self, client: Client) -> BoundSkills:
-        """Return the SEP-2640 verbs bound to `client`'s connected session.
-
-        Raises:
-            RuntimeError: If `client` has not entered its `async with` block yet.
-        """
-        return BoundSkills(client.session)
+    def bind(self, session: ClientSession) -> BoundSkills:
+        """Return the SEP-2640 verbs bound to `session`."""
+        return BoundSkills(session)
 
 
 class BoundSkills:
     """The SEP-2640 verbs bound to one connected session.
 
-    Obtain it from `Skills.bind(client)`. The catalog verbs — `list_skills`,
+    Obtain it from `client.extension(Skills)`. The catalog verbs — `list_skills`,
     `get_skill`, and `read_directory` — check that the server advertises the
     extension and validate its response against the SEP-2640 conformance rules
     before returning; `list_skills` and `read_directory` also follow

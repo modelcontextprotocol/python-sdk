@@ -275,16 +275,15 @@ def validate_directory_result(uri: str, result: ReadDirectoryResult) -> None:
     """Validate that each entry in `result.resources` is a unique direct child of `uri`.
 
     Checks containment and shape only — that every listed resource is a direct
-    child of `uri` with a unique `uri` and `name`. It cannot confirm the listing
+    child of `uri` with a unique `uri`. It cannot confirm the listing
     is exhaustive, since it has no independent view of the directory's contents.
 
     Raises:
         ValueError: If `uri` is malformed, or any entry is not a direct child,
-            or two entries share a `uri` or `name`.
+            or two entries share a `uri`.
     """
     scheme, netloc, parent_path = parse_directory_uri(uri)
     seen_uris: set[str] = set()
-    seen_names: set[str] = set()
     prefix = parent_path.rstrip("/") + "/" if parent_path.rstrip("/") else "/"
     for resource in result.resources:
         child = urlsplit(resource.uri)
@@ -295,10 +294,9 @@ def validate_directory_result(uri: str, result: ReadDirectoryResult) -> None:
         relative = child.path.removeprefix(prefix)
         if relative == child.path or not relative or "/" in relative or relative in (".", ".."):
             raise ValueError(f"resource {resource.uri!r} is not a direct child of directory {uri!r}")
-        if resource.uri in seen_uris or resource.name in seen_names:
+        if resource.uri in seen_uris:
             raise ValueError(f"directory {uri!r} contains a duplicate child {resource.uri!r}")
         seen_uris.add(resource.uri)
-        seen_names.add(resource.name)
 
 
 def verify_skill_resource(skill: Skill, uri: str, content: bytes) -> None:

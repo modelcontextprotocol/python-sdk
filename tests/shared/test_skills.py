@@ -314,11 +314,11 @@ def test_validate_directory_result_rejects_a_child_with_a_query_component() -> N
         validate_directory_result("skill://pdf/templates", result)
 
 
-def test_validate_directory_result_rejects_a_duplicate_child_name() -> None:
+def test_validate_directory_result_rejects_a_duplicate_child_uri() -> None:
     result = ReadDirectoryResult(
         resources=[
-            Resource(uri="skill://pdf/templates/a.md", name="dup"),
-            Resource(uri="skill://pdf/templates/b.md", name="dup"),
+            Resource(uri="skill://pdf/templates/a.md", name="a"),
+            Resource(uri="skill://pdf/templates/a.md", name="b"),
         ]
     )
     with pytest.raises(ValueError, match="duplicate child"):

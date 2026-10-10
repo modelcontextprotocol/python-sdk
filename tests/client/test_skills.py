@@ -142,7 +142,7 @@ async def _skills(server: MCPServer) -> AsyncIterator[BoundSkills]:
     """Register the client `Skills` extension, connect, and yield the bound verbs."""
     extension = ClientSkills()
     async with Client(server, extensions=[extension]) as client:
-        yield extension.bind(client)
+        yield client.extension(ClientSkills)
 
 
 async def test_list_skills_follows_next_cursor_to_completion() -> None:
@@ -219,6 +219,29 @@ async def test_read_directory_follows_next_cursor_to_completion() -> None:
     assert [r.uri for r in resources] == [
         "skill://git-workflow/references/A.md",
         "skill://git-workflow/references/B.md",
+    ]
+
+
+async def test_read_directory_accepts_distinct_children_with_the_same_name() -> None:
+    """SEP-2640 Directory Listing: child identity comes from URI, not Resource.name."""
+
+    async def handler(ctx: ServerRequestContext[Any, Any], params: ReadDirectoryParams) -> ReadDirectoryResult:
+        return ReadDirectoryResult(
+            resources=[
+                Resource(uri="skill://git-workflow/references/a.md", name="example"),
+                Resource(uri="skill://git-workflow/references/b.md", name="example"),
+            ]
+        )
+
+    server = MCPServer(
+        "catalog",
+        extensions=[Skills(list_skills=_paginated_list_handler(), get_skill=_get_skill, read_directory=handler)],
+    )
+    async with _skills(server) as skills:
+        resources = await skills.read_directory("skill://git-workflow/references")
+    assert [resource.uri for resource in resources] == [
+        "skill://git-workflow/references/a.md",
+        "skill://git-workflow/references/b.md",
     ]
 
 

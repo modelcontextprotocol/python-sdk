@@ -162,11 +162,9 @@ def _finalize_cacheable(result: CacheableResult, protocol_version: str) -> Handl
     `skills/list` and `skills/get` are extension methods, so — unlike a core spec
     method — the runner's per-version surface sieve never runs on their results;
     nothing else strips these fields for a legacy connection. `CacheableResult`
-    defaults to `cache_scope="private"`; SEP-2640 calls for `"public"` when unset.
+    defaults to `cache_scope="private"`, keeping user-specific entries out of shared caches.
     """
     if protocol_version in MODERN_PROTOCOL_VERSIONS:
-        if "cache_scope" not in result.model_fields_set:
-            result = result.model_copy(update={"cache_scope": "public"})
         return result
     dumped = result.model_dump(by_alias=True, mode="json", exclude_none=True)
     dumped.pop("ttlMs", None)

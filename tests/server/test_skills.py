@@ -102,13 +102,12 @@ async def test_skills_list_may_return_an_empty_result() -> None:
     assert result.skills == []
 
 
-async def test_skills_list_carries_cache_fields_on_the_2026_07_28_wire() -> None:
-    """SEP-2640 Dependencies: on 2026-07-28+, the result carries the SEP-2549 cache fields,
-    defaulting `cacheScope` to `"public"` when the handler left it unset."""
+async def test_skills_list_defaults_to_private_cache_scope_on_the_2026_07_28_wire() -> None:
+    """SDK-defined: an unset cache scope stays private, as on core cacheable results."""
     async with Client(_server(), mode="2026-07-28") as client:
         raw = await client.session.send_request(ListSkillsRequest(), _RawResult)
     extra = raw.model_extra or {}
-    assert extra["cacheScope"] == "public"
+    assert extra["cacheScope"] == "private"
     assert extra["ttlMs"] == 0
 
 
@@ -123,14 +122,27 @@ async def test_skills_list_omits_cache_fields_on_a_legacy_wire() -> None:
 
 
 async def test_skills_list_handler_setting_cache_scope_explicitly_is_not_overridden() -> None:
+    async def public_list(ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
+        return ListSkillsResult(skills=[_git_workflow_skill()], cache_scope="public")
+
+    server = MCPServer("catalog", extensions=[Skills(list_skills=public_list, get_skill=_get_skill)])
+    async with Client(server, mode="2026-07-28") as client:
+        raw = await client.session.send_request(ListSkillsRequest(), _RawResult)
+    extra = raw.model_extra or {}
+    assert extra["cacheScope"] == "public"
+
+
+async def test_skills_list_with_a_ttl_stays_private_when_scope_is_unset() -> None:
+    """SDK-defined: a fresh user-specific listing must not become shareable by default."""
+
     async def private_list(ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
-        return ListSkillsResult(skills=[_git_workflow_skill()], cache_scope="private")
+        return ListSkillsResult(skills=[_git_workflow_skill()], ttl_ms=60_000)
 
     server = MCPServer("catalog", extensions=[Skills(list_skills=private_list, get_skill=_get_skill)])
     async with Client(server, mode="2026-07-28") as client:
         raw = await client.session.send_request(ListSkillsRequest(), _RawResult)
     extra = raw.model_extra or {}
-    assert extra["cacheScope"] == "private"
+    assert (extra["ttlMs"], extra["cacheScope"]) == (60_000, "private")
 
 
 async def test_skills_list_rejects_a_handler_result_with_an_invalid_skill() -> None:
@@ -175,14 +187,12 @@ async def test_skills_get_returns_the_matching_skill() -> None:
     assert result.skill.uri == _SKILL_URI
 
 
-async def test_skills_get_carries_cache_fields_on_the_2026_07_28_wire() -> None:
-    """SEP-2640 Retrieval: on 2026-07-28+, `GetSkillResult` extends `CacheableResult`, so the
-    result carries the SEP-2549 cache fields, defaulting `cacheScope` to `"public"` when unset —
-    the same treatment `skills/list` gets."""
+async def test_skills_get_defaults_to_private_cache_scope_on_the_2026_07_28_wire() -> None:
+    """SDK-defined: skills/get uses the same private cache default as skills/list."""
     async with Client(_server(), mode="2026-07-28") as client:
         raw = await client.session.send_request(GetSkillRequest(params=GetSkillParams(uri=_SKILL_URI)), _RawResult)
     extra = raw.model_extra or {}
-    assert extra["cacheScope"] == "public"
+    assert extra["cacheScope"] == "private"
     assert extra["ttlMs"] == 0
 
 

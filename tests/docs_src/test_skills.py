@@ -15,7 +15,7 @@ async def test_list_skills_returns_the_registered_skill() -> None:
     """tutorial001: `list_skills` returns the one skill the server declared."""
     skills = Skills()
     async with Client(tutorial001.mcp, extensions=[skills]) as client:
-        result = await skills.bind(client).list_skills()
+        result = await client.extension(Skills).list_skills()
     assert [s.uri for s in result] == [tutorial001.SKILL_URI]
 
 
@@ -23,7 +23,7 @@ async def test_get_skill_answers_by_uri() -> None:
     """tutorial001: `get_skill` returns the same entry `list_skills` does."""
     skills = Skills()
     async with Client(tutorial001.mcp, extensions=[skills]) as client:
-        skill = await skills.bind(client).get_skill(tutorial001.SKILL_URI)
+        skill = await client.extension(Skills).get_skill(tutorial001.SKILL_URI)
     assert skill.frontmatter["name"] == "git-workflow"
 
 
@@ -32,7 +32,7 @@ async def test_get_skill_rejects_an_unknown_uri() -> None:
     skills = Skills()
     async with Client(tutorial001.mcp, extensions=[skills]) as client:
         with pytest.raises(MCPError) as exc_info:
-            await skills.bind(client).get_skill("skill://unknown/SKILL.md")
+            await client.extension(Skills).get_skill("skill://unknown/SKILL.md")
     assert exc_info.value.code == INVALID_PARAMS
 
 
@@ -52,7 +52,7 @@ async def test_read_skill_uri_content_verifies_against_the_held_skill() -> None:
     the digest/size check `verify_skill_resource` performs."""
     skills = Skills()
     async with Client(tutorial001.mcp, extensions=[skills]) as client:
-        catalog = skills.bind(client)
+        catalog = client.extension(Skills)
         skill = await catalog.get_skill(tutorial001.SKILL_URI)
         result = await catalog.read_skill_uri(skill.uri)
     contents = result.contents[0]

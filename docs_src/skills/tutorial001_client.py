@@ -6,9 +6,8 @@ from mcp.types import TextResourceContents
 
 
 async def main() -> None:
-    skills = Skills()
-    async with Client("http://localhost:8000/mcp", extensions=[skills]) as client:
-        catalog = skills.bind(client)
+    async with Client("http://localhost:8000/mcp", extensions=[Skills()]) as client:
+        catalog = client.extension(Skills)
         for skill in await catalog.list_skills():
             print(skill.uri, skill.frontmatter["description"])
 
