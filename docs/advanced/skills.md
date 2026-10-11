@@ -66,17 +66,17 @@ These three validate the server's response against the SEP-2640 conformance rule
 it. A name that doesn't match its URI, a digest in the wrong shape, or an incomplete manifest raises
 `ValueError` rather than reaching your code.
 
-`read_skill_resource(skill, uri)` fetches a file and verifies it against the manifest in the `Skill`
-entry you pass. It returns a `ReadResourceResult` with text or blob content only after the URI,
-size, and SHA-256 digest match. Keep that entry while you act on the skill so every file is checked
-against the same manifest.
+`read_skill_uri` is the exception. It's a thin, discoverable alias for `resources/read` that returns
+a `ReadResourceResult` (text or blob contents) and validates nothing itself — that's the next step.
 
 !!! tip
-    `read_skill_resource` checks the bytes returned by `resources/read` against the held manifest.
-    A `"dynamic"` skill carries no digests, so this method raises `ValueError` for one. You can use
-    `Client.read_resource` to fetch dynamic content, but it cannot be integrity-verified.
-    If you fetch or cache bytes outside this method, `mcp.shared.skills.verify_skill_resource`
-    performs the same check on those bytes.
+    `verify_skill_resource(skill, uri, content)` checks a file's bytes — size, then SHA-256
+    digest — against the entry you hold for it. Call it after `read_skill_uri` and *before* you
+    treat the content as trustworthy.
+
+    `resources/read` returns whatever bytes the server sends *right now*; verification is what ties
+    those bytes back to the manifest you already validated. It applies to a static manifest only —
+    a `"dynamic"` skill carries no digests, so calling it on one raises `ValueError`.
 
 !!! warning
     Skill content is untrusted model input, exactly like any other server-provided text. SEP-2640

@@ -3,7 +3,7 @@
 `Skills` is an opt-in [`ClientExtension`](../advanced/extensions.md) for talking
 to a skills catalog server. Register it with `Client(extensions=[Skills()])`,
 then call `client.extension(Skills)` for the SEP-2640 verbs — `list_skills`, `get_skill`,
-`read_skill_resource`, and `read_directory` — tied to that connection:
+`read_skill_uri`, and `read_directory` — tied to that connection:
 
     async with Client("http://localhost:8000/mcp", extensions=[Skills()]) as client:
         for skill in await client.extension(Skills).list_skills():
@@ -13,15 +13,13 @@ then call `client.extension(Skills)` for the SEP-2640 verbs — `list_skills`, `
 `get_skill`, and `read_directory` — check that the server advertises the
 extension and validate its response; `list_skills` and `read_directory` follow
 `nextCursor` to completion, so one call returns every page's results.
-`read_skill_resource` reads one file and verifies it against the held `Skill` entry.
+`read_skill_uri` is a thin `resources/read` alias that does neither — verify its
+result with `verify_skill_resource`.
 """
 
 from __future__ import annotations
 
-import base64
-import binascii
-
-from mcp_types import ReadResourceResult, Resource, TextResourceContents
+from mcp_types import ReadResourceResult, Resource
 
 from mcp.client.extension import ClientExtension
 from mcp.client.session import ClientSession
@@ -38,7 +36,6 @@ from mcp.shared.skills import (
     ReadDirectoryResult,
     Skill,
     validate_directory_result,
-    verify_skill_resource,
 )
 
 __all__ = ["BoundSkills", "Skills"]
@@ -66,8 +63,9 @@ class BoundSkills:
     `get_skill`, and `read_directory` — check that the server advertises the
     extension and validate its response against the SEP-2640 conformance rules
     before returning; `list_skills` and `read_directory` also follow
-    `nextCursor` to completion. `read_skill_resource` verifies a fetched file
-    against the held skill's manifest.
+    `nextCursor` to completion. `read_skill_uri` is the exception: a thin
+    `resources/read` alias that neither checks advertisement nor validates —
+    pair it with `verify_skill_resource`.
     """
 
     def __init__(self, session: ClientSession) -> None:
@@ -138,37 +136,20 @@ class BoundSkills:
             raise ValueError(f"server returned skill {result.skill.uri!r} for requested {uri!r}")
         return result.skill
 
-    async def read_skill_resource(self, skill: Skill, uri: str) -> ReadResourceResult:
-        """Read and verify one file against a held `Skill` entry.
+    async def read_skill_uri(self, uri: str) -> ReadResourceResult:
+        """Read a skill file's content via `resources/read`.
 
-        Pass the entry obtained from `list_skills` or `get_skill`. A dynamic
-        skill has no manifest to verify; use `Client.read_resource` if you
-        choose to read its unverified content.
+        A thin, discoverable alias: works for any `skill://` (or other-scheme)
+        file regardless of whether the skill was ever enumerated. Verify the
+        result against a held `Skill` entry with `verify_skill_resource` before
+        treating it as trusted content — this call does not verify anything itself.
 
         Raises:
-            ValueError: If the file is not in the manifest, or the server's
-                content does not match its URI, size, or digest.
             MCPError: If the server returns an error response.
             RuntimeError: If the server returns an `InputRequiredResult`; this
-                method does not drive the input-required loop.
+                alias does not drive the input-required loop.
         """
-        if skill.resources == "dynamic":
-            raise ValueError(f"skill {skill.uri!r} has dynamic resources and cannot be integrity-verified")
-        if not any(resource.uri == uri for resource in skill.resources):
-            raise ValueError(f"{uri!r} is not in skill {skill.uri!r}'s held manifest")
-        result = await self._session.read_resource(uri)
-        if len(result.contents) != 1 or result.contents[0].uri != uri:
-            raise ValueError(f"resource {uri!r} did not return exactly one matching content item")
-        content = result.contents[0]
-        if isinstance(content, TextResourceContents):
-            data = content.text.encode("utf-8")
-        else:
-            try:
-                data = base64.b64decode(content.blob, validate=True)
-            except binascii.Error as exc:
-                raise ValueError(f"resource {uri!r} returned invalid base64 content") from exc
-        verify_skill_resource(skill, uri, data)
-        return result
+        return await self._session.read_resource(uri)
 
     async def read_directory(self, uri: str, params: ReadDirectoryParams | None = None) -> list[Resource]:
         """Call `resources/directory/read` for `uri`, following `nextCursor` to completion.
