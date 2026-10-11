@@ -55,9 +55,12 @@ for (const { name, html, result } of cases) {
     const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
     assert.ok(script);
     const clock = { textContent: "..." };
+    const sent = [];
+    const parent = { postMessage: (message) => sent.push(message) };
     let onMessage;
     vm.runInNewContext(script, {
       window: {
+        parent,
         addEventListener(type, handler) {
           assert.equal(type, "message");
           onMessage = handler;
@@ -72,7 +75,21 @@ for (const { name, html, result } of cases) {
     });
 
     assert.equal(typeof onMessage, "function");
-    onMessage({ data: { jsonrpc: "2.0", method: "ui/notifications/tool-result", params: result } });
+    assert.equal(sent[0].method, "ui/initialize");
+    assert.equal(sent[0].params.protocolVersion, "2026-01-26");
+    assert.equal(sent[0].params.appInfo.name, "clock");
+
+    const notification = { jsonrpc: "2.0", method: "ui/notifications/tool-result", params: result };
+    onMessage({ source: parent, data: notification });
+    assert.equal(clock.textContent, "...");
+
+    onMessage({ source: parent, data: { jsonrpc: "2.0", id: sent[0].id, result: { protocolVersion: "2026-01-26" } } });
+    assert.equal(sent[1].method, "ui/notifications/initialized");
+    onMessage({ source: {}, data: notification });
+    assert.equal(clock.textContent, "...");
+    onMessage({ source: parent, data: { ...notification, method: "ui/notifications/tool-input" } });
+    assert.equal(clock.textContent, "...");
+    onMessage({ source: parent, data: notification });
     assert.equal(clock.textContent, result.content[0].text);
   });
 }

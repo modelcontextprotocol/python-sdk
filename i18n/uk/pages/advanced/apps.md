@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, b4ac54f338092ec6, 1419418a05511012, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,7 +18,7 @@ SDK постачає це як вбудоване розширення `Apps` (`
 
 ## Годинник із циферблатом {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="17 20 28 30"
+```python title="server.py" hl_lines="36 39 47 49"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -39,7 +39,7 @@ SDK постачає це як вбудоване розширення `Apps` (`
 
 Модель читає `content`; iframe — для людей. Хост із підтримкою UI все одно передає текстовий результат моделі, а суто текстовий клієнт отримує *лише* його. Тож канонічний шаблон — один інструмент, дві відповіді. Погляньте на `get_time` ще раз:
 
-```python title="server.py" hl_lines="21-25"
+```python title="server.py" hl_lines="40-44"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 

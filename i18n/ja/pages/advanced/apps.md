@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, b4ac54f338092ec6, 1419418a05511012, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,7 +18,7 @@ SDK はこれを組み込みの `Apps` 拡張（`io.modelcontextprotocol/ui`）�
 
 ## 見た目のある時計 {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="17 20 28 30"
+```python title="server.py" hl_lines="36 39 47 49"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -39,7 +39,7 @@ HTML 自体はホストの `postMessage` を待ち受けて結果を表示しま
 
 モデルが読むのは `content` で、iframe は人間のためのものです。UI に対応したホストでもテキストの結果はモデルに渡されますし、テキスト専用のクライアントはそれ「だけ」を受け取ります。ですから定番のパターンは「1 つのツール、2 つの答え」です。もう一度 `get_time` を見てください。
 
-```python title="server.py" hl_lines="21-25"
+```python title="server.py" hl_lines="40-44"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
