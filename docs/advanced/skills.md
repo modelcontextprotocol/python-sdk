@@ -66,10 +66,10 @@ These three validate the server's response against the SEP-2640 conformance rule
 it. A name that doesn't match its URI, a digest in the wrong shape, or an incomplete manifest raises
 `ValueError` rather than reaching your code.
 
-`read_skill_resource(skill, uri)` fetches a file and verifies it against the manifest in the `Skill`
-entry you pass. It returns a `ReadResourceResult` with text or blob content only after the URI,
-size, and SHA-256 digest match. Keep that entry while you act on the skill so every file is checked
-against the same manifest.
+`read_skill_resource(skill)` fetches the skill's `SKILL.md` and verifies it against the manifest in
+the `Skill` entry you pass. For a supporting file, pass its URI as a second argument. It returns a
+`ReadResourceResult` with text or blob content only after the URI, size, and SHA-256 digest match.
+Keep that entry while you act on the skill so every file is checked against the same manifest.
 
 !!! tip
     `read_skill_resource` checks the bytes returned by `resources/read` against the held manifest.
