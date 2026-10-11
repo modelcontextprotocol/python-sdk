@@ -53,7 +53,7 @@ async def test_read_skill_resource_returns_verified_content() -> None:
     async with Client(tutorial001.mcp, extensions=[skills]) as client:
         catalog = client.extension(Skills)
         skill = await catalog.get_skill(tutorial001.SKILL_URI)
-        result = await catalog.read_skill_resource(skill)
+        result = await catalog.read_skill_resource(skill, skill.uri)
     contents = result.contents[0]
     assert isinstance(contents, TextResourceContents)
     assert contents.text == tutorial001.SKILL_MD

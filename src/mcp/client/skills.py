@@ -138,13 +138,12 @@ class BoundSkills:
             raise ValueError(f"server returned skill {result.skill.uri!r} for requested {uri!r}")
         return result.skill
 
-    async def read_skill_resource(self, skill: Skill, uri: str | None = None) -> ReadResourceResult:
+    async def read_skill_resource(self, skill: Skill, uri: str) -> ReadResourceResult:
         """Read and verify one file against a held `Skill` entry.
 
-        Pass the entry obtained from `list_skills` or `get_skill`. Omit `uri`
-        to read the skill's `SKILL.md`, or pass a supporting file's URI. A
-        dynamic skill has no manifest to verify; use `Client.read_resource`
-        if you choose to read its unverified content.
+        Pass the entry obtained from `list_skills` or `get_skill`. A dynamic
+        skill has no manifest to verify; use `Client.read_resource` if you
+        choose to read its unverified content.
 
         Raises:
             ValueError: If the file is not in the manifest, or the server's
@@ -153,7 +152,6 @@ class BoundSkills:
             RuntimeError: If the server returns an `InputRequiredResult`; this
                 method does not drive the input-required loop.
         """
-        uri = skill.uri if uri is None else uri
         if skill.resources == "dynamic":
             raise ValueError(f"skill {skill.uri!r} has dynamic resources and cannot be integrity-verified")
         if not any(resource.uri == uri for resource in skill.resources):

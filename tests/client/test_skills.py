@@ -209,31 +209,10 @@ async def test_read_skill_resource_returns_verified_text() -> None:
     """SDK-defined: a matching manifest allows a fetched text file."""
     async with _skills(_server()) as skills:
         skill = await skills.get_skill(_SKILL_URI)
-        result = await skills.read_skill_resource(skill)
+        result = await skills.read_skill_resource(skill, _SKILL_URI)
     contents = result.contents[0]
     assert isinstance(contents, TextResourceContents)
     assert contents.text == _SKILL_CONTENT
-
-
-async def test_read_skill_resource_accepts_a_supporting_file_uri() -> None:
-    """SEP-2640: a supporting file is checked against the same held manifest."""
-    uri = "skill://git-workflow/references/GUIDE.md"
-    content = "# Guide\n"
-    server = _server()
-    server.add_resource(TextResource(uri=uri, name="GUIDE.md", text=content))
-    skill = Skill(
-        uri=_SKILL_URI,
-        frontmatter={"name": "git-workflow", "description": "d"},
-        resources=[
-            SkillResource(uri=_SKILL_URI, digest=_SKILL_DIGEST, size=len(_SKILL_CONTENT)),
-            SkillResource(uri=uri, digest=f"sha256:{hashlib.sha256(content.encode()).hexdigest()}", size=len(content)),
-        ],
-    )
-    async with _skills(server) as skills:
-        result = await skills.read_skill_resource(skill, uri)
-    contents = result.contents[0]
-    assert isinstance(contents, TextResourceContents)
-    assert contents.text == content
 
 
 async def test_read_skill_resource_rejects_a_changed_file() -> None:
@@ -245,7 +224,7 @@ async def test_read_skill_resource_rejects_a_changed_file() -> None:
     )
     async with _skills(_server()) as skills:
         with pytest.raises(ValueError) as exc_info:
-            await skills.read_skill_resource(stale)
+            await skills.read_skill_resource(stale, _SKILL_URI)
     assert str(exc_info.value) == snapshot(
         "resource 'skill://git-workflow/SKILL.md' has digest "
         "'sha256:7187b725da92d7447b6f50e21d0bf4f3b9db3387acb39239c4a4edc193ddcd4b', "
@@ -268,7 +247,7 @@ async def test_read_skill_resource_rejects_a_dynamic_skill() -> None:
     dynamic = Skill(uri=_SKILL_URI, frontmatter={"name": "git-workflow", "description": "d"}, resources="dynamic")
     async with _skills(_server()) as skills:
         with pytest.raises(ValueError) as exc_info:
-            await skills.read_skill_resource(dynamic)
+            await skills.read_skill_resource(dynamic, _SKILL_URI)
     assert str(exc_info.value) == snapshot(
         "skill 'skill://git-workflow/SKILL.md' has dynamic resources and cannot be integrity-verified"
     )
@@ -285,7 +264,7 @@ async def test_read_skill_resource_returns_verified_binary_content() -> None:
         resources=[SkillResource(uri=_SKILL_URI, digest=f"sha256:{hashlib.sha256(data).hexdigest()}", size=len(data))],
     )
     async with _skills(server) as skills:
-        result = await skills.read_skill_resource(skill)
+        result = await skills.read_skill_resource(skill, _SKILL_URI)
     contents = result.contents[0]
     assert isinstance(contents, BlobResourceContents)
     assert contents.blob == base64.b64encode(data).decode("ascii")
@@ -315,7 +294,7 @@ async def test_read_skill_resource_rejects_an_invalid_resource_response(
     server.add_request_handler("resources/read", ReadResourceRequestParams, handler)
     async with Client(server, extensions=[ClientSkills()]) as client:
         with pytest.raises(ValueError) as exc_info:
-            await client.extension(ClientSkills).read_skill_resource(_skill())
+            await client.extension(ClientSkills).read_skill_resource(_skill(), _SKILL_URI)
     assert str(exc_info.value) == snapshot(
         "resource 'skill://git-workflow/SKILL.md' did not return exactly one matching content item"
     )
@@ -335,7 +314,7 @@ async def test_read_skill_resource_rejects_invalid_base64() -> None:
     server.add_request_handler("resources/read", ReadResourceRequestParams, handler)
     async with Client(server, extensions=[ClientSkills()]) as client:
         with pytest.raises(ValueError) as exc_info:
-            await client.extension(ClientSkills).read_skill_resource(_skill())
+            await client.extension(ClientSkills).read_skill_resource(_skill(), _SKILL_URI)
     assert str(exc_info.value) == snapshot("resource 'skill://git-workflow/SKILL.md' returned invalid base64 content")
 
 

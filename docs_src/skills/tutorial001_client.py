@@ -12,7 +12,7 @@ async def main() -> None:
             print(skill.uri, skill.frontmatter["description"])
 
         skill = await catalog.get_skill("skill://git-workflow/SKILL.md")
-        result = await catalog.read_skill_resource(skill)
+        result = await catalog.read_skill_resource(skill, skill.uri)
         content = result.contents[0]
         if isinstance(content, TextResourceContents):
             print(content.text)
