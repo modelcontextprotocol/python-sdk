@@ -18,7 +18,7 @@ CLOCK_HTML = """<!doctype html>
 <h1 id="now">…</h1>
 <script>
   window.addEventListener("message", (event) => {
-    const text = event.data?.result?.content?.[0]?.text;
+    const text = event.data?.params?.content?.[0]?.text;
     if (text) document.getElementById("now").textContent = text;
   });
 </script>
