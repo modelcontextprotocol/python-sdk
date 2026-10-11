@@ -1,7 +1,8 @@
 import anyio
 
 from mcp import Client
-from mcp.client.skills import Skills, verify_skill_resource
+from mcp.client.skills import Skills
+from mcp.shared.skills import verify_skill_resource
 from mcp.types import TextResourceContents
 
 

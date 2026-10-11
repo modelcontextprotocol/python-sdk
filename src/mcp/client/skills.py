@@ -37,9 +37,8 @@ from mcp.shared.skills import (
     Skill,
     validate_directory_result,
 )
-from mcp.shared.skills import verify_skill_resource as verify_skill_resource
 
-__all__ = ["BoundSkills", "Skills", "verify_skill_resource"]
+__all__ = ["BoundSkills", "Skills"]
 
 
 class Skills(ClientExtension):

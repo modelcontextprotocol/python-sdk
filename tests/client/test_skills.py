@@ -9,7 +9,7 @@ import pytest
 from mcp_types import INVALID_PARAMS, Resource, TextResourceContents
 
 from mcp.client.client import Client
-from mcp.client.skills import BoundSkills, verify_skill_resource
+from mcp.client.skills import BoundSkills
 from mcp.client.skills import Skills as ClientSkills
 from mcp.server.context import ServerRequestContext
 from mcp.server.extension import Extension, MethodBinding
@@ -28,6 +28,7 @@ from mcp.shared.skills import (
     ReadDirectoryResult,
     Skill,
     SkillResource,
+    verify_skill_resource,
 )
 
 pytestmark = pytest.mark.anyio
