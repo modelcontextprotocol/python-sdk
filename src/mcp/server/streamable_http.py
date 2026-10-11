@@ -529,7 +529,7 @@ class StreamableHTTPServerTransport:
     def _check_content_type(self, request: Request) -> bool:
         """Check if the request has the correct Content-Type."""
         content_type = request.headers.get("content-type", "")
-        content_type_parts = [part.strip() for part in content_type.split(";")[0].split(",")]
+        content_type_parts = [part.strip().lower() for part in content_type.split(";")[0].split(",")]
 
         return any(part == CONTENT_TYPE_JSON for part in content_type_parts)
 

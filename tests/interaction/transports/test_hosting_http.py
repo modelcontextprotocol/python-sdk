@@ -131,6 +131,25 @@ async def test_non_json_content_type_is_rejected() -> None:
     assert (response.status_code, response.text) == snapshot((400, "Invalid Content-Type header"))
 
 
+@requirement("hosting:http:content-type-415")
+async def test_mixed_case_json_content_type_is_accepted() -> None:
+    """Media types are case-insensitive (RFC 9110 §8.3.1): a mixed-case JSON
+    Content-Type must pass the transport check like its siblings do."""
+    async with mounted_app(_server()) as (http, _):
+        for value in (
+            "application/json",
+            "Application/JSON",
+            "APPLICATION/JSON",
+            "Application/JSON; Charset=UTF-8",
+        ):
+            response = await http.post("/mcp", json=initialize_body(), headers=base_headers() | {"content-type": value})
+            assert response.status_code == 200, value
+        refused = await http.post(
+            "/mcp", content=b"<not-json/>", headers=base_headers() | {"content-type": "text/plain"}
+        )
+        assert refused.status_code == 400
+
+
 @requirement("hosting:http:parse-error-400")
 @requirement("hosting:http:batch")
 async def test_malformed_and_batched_bodies_return_400() -> None:
