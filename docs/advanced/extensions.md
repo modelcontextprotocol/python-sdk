@@ -191,7 +191,8 @@ skips the gate fails validation, exactly as the spec requires for an
 unrecognized `resultType`. Off by default, on both ends of the wire.
 
 An extension can also expose methods of its own. Pass its type to `client.extension()`
-after connecting to get the API bound to that connection:
+after connecting to get the API bound to that connection. Run the
+[Skills server](skills.md#serving-a-skill) at `http://localhost:8000/mcp` for this example:
 
 ```python
 import anyio
