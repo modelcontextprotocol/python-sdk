@@ -7,7 +7,6 @@ from docs_src.skills import tutorial001
 from mcp import Client
 from mcp.client.skills import Skills
 from mcp.shared.exceptions import MCPError
-from mcp.shared.skills import verify_skill_resource
 
 pytestmark = pytest.mark.anyio
 
@@ -48,14 +47,13 @@ async def test_the_skill_file_is_served_as_an_ordinary_resource() -> None:
     assert contents.text == tutorial001.SKILL_MD
 
 
-async def test_read_skill_uri_content_verifies_against_the_held_skill() -> None:
-    """tutorial001_client: fetch the entry, read the file, verify the bytes against it -
-    the digest/size check `verify_skill_resource` performs."""
+async def test_read_skill_resource_returns_verified_content() -> None:
+    """tutorial001_client: a fetched file matches the held skill's manifest."""
     skills = Skills()
     async with Client(tutorial001.mcp, extensions=[skills]) as client:
         catalog = client.extension(Skills)
         skill = await catalog.get_skill(tutorial001.SKILL_URI)
-        result = await catalog.read_skill_uri(skill.uri)
+        result = await catalog.read_skill_resource(skill, skill.uri)
     contents = result.contents[0]
     assert isinstance(contents, TextResourceContents)
-    verify_skill_resource(skill, skill.uri, contents.text.encode())
+    assert contents.text == tutorial001.SKILL_MD

@@ -1,20 +1,30 @@
 """Tests for the client-side Skills extension (SEP-2640, `mcp.client.skills`)."""
 
+import base64
 import hashlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
-from mcp_types import INVALID_PARAMS, Resource, TextResourceContents
+from inline_snapshot import snapshot
+from mcp_types import (
+    INVALID_PARAMS,
+    BlobResourceContents,
+    ReadResourceRequestParams,
+    ReadResourceResult,
+    Resource,
+    TextResourceContents,
+)
 
 from mcp.client.client import Client
 from mcp.client.skills import BoundSkills
 from mcp.client.skills import Skills as ClientSkills
+from mcp.server import Server
 from mcp.server.context import ServerRequestContext
 from mcp.server.extension import Extension, MethodBinding
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.resources import TextResource
+from mcp.server.mcpserver.resources import FunctionResource, TextResource
 from mcp.server.skills import Skills
 from mcp.shared.exceptions import MCPError
 from mcp.shared.skills import (
@@ -28,7 +38,6 @@ from mcp.shared.skills import (
     ReadDirectoryResult,
     Skill,
     SkillResource,
-    verify_skill_resource,
 )
 
 pytestmark = pytest.mark.anyio
@@ -196,22 +205,117 @@ async def test_get_skill_propagates_the_servers_unknown_skill_error() -> None:
     assert exc_info.value.code == INVALID_PARAMS
 
 
-async def test_read_skill_uri_reads_the_registered_resource() -> None:
+async def test_read_skill_resource_returns_verified_text() -> None:
+    """SDK-defined: a matching manifest allows a fetched text file."""
     async with _skills(_server()) as skills:
-        result = await skills.read_skill_uri(_SKILL_URI)
+        skill = await skills.get_skill(_SKILL_URI)
+        result = await skills.read_skill_resource(skill, _SKILL_URI)
     contents = result.contents[0]
     assert isinstance(contents, TextResourceContents)
     assert contents.text == _SKILL_CONTENT
 
 
-async def test_read_skill_uri_content_verifies_against_the_held_skill() -> None:
-    """End-to-end: `skills/get`'s digest and `resources/read`'s bytes agree."""
+async def test_read_skill_resource_rejects_a_changed_file() -> None:
+    """SEP-2640: a host rejects content that differs from the held manifest."""
+    stale = Skill(
+        uri=_SKILL_URI,
+        frontmatter={"name": "git-workflow", "description": "d"},
+        resources=[SkillResource(uri=_SKILL_URI, digest="sha256:" + "0" * 64, size=len(_SKILL_CONTENT))],
+    )
     async with _skills(_server()) as skills:
-        skill = await skills.get_skill(_SKILL_URI)
-        result = await skills.read_skill_uri(_SKILL_URI)
+        with pytest.raises(ValueError) as exc_info:
+            await skills.read_skill_resource(stale, _SKILL_URI)
+    assert str(exc_info.value) == snapshot(
+        "resource 'skill://git-workflow/SKILL.md' has digest "
+        "'sha256:7187b725da92d7447b6f50e21d0bf4f3b9db3387acb39239c4a4edc193ddcd4b', "
+        "expected 'sha256:0000000000000000000000000000000000000000000000000000000000000000'"
+    )
+
+
+async def test_read_skill_resource_rejects_an_unlisted_uri() -> None:
+    """SEP-2640: the host must not fetch a URI absent from the held manifest."""
+    async with _skills(_server()) as skills:
+        with pytest.raises(ValueError) as exc_info:
+            await skills.read_skill_resource(_skill(), "skill://git-workflow/unlisted.md")
+    assert str(exc_info.value) == snapshot(
+        "'skill://git-workflow/unlisted.md' is not in skill 'skill://git-workflow/SKILL.md''s held manifest"
+    )
+
+
+async def test_read_skill_resource_rejects_a_dynamic_skill() -> None:
+    """SDK-defined: a dynamic skill has no digest to verify against."""
+    dynamic = Skill(uri=_SKILL_URI, frontmatter={"name": "git-workflow", "description": "d"}, resources="dynamic")
+    async with _skills(_server()) as skills:
+        with pytest.raises(ValueError) as exc_info:
+            await skills.read_skill_resource(dynamic, _SKILL_URI)
+    assert str(exc_info.value) == snapshot(
+        "skill 'skill://git-workflow/SKILL.md' has dynamic resources and cannot be integrity-verified"
+    )
+
+
+async def test_read_skill_resource_returns_verified_binary_content() -> None:
+    """SDK-defined: binary resources are decoded before digest verification."""
+    data = b"\x00\x01skill\xff"
+    server = MCPServer("catalog")
+    server.add_resource(FunctionResource(uri=_SKILL_URI, name="SKILL.md", fn=lambda: data))
+    skill = Skill(
+        uri=_SKILL_URI,
+        frontmatter={"name": "git-workflow", "description": "d"},
+        resources=[SkillResource(uri=_SKILL_URI, digest=f"sha256:{hashlib.sha256(data).hexdigest()}", size=len(data))],
+    )
+    async with _skills(server) as skills:
+        result = await skills.read_skill_resource(skill, _SKILL_URI)
     contents = result.contents[0]
-    assert isinstance(contents, TextResourceContents)
-    verify_skill_resource(skill, _SKILL_URI, contents.text.encode())
+    assert isinstance(contents, BlobResourceContents)
+    assert contents.blob == base64.b64encode(data).decode("ascii")
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        [],
+        [TextResourceContents(uri="skill://other/SKILL.md", text=_SKILL_CONTENT)],
+        [TextResourceContents(uri=_SKILL_URI, text=_SKILL_CONTENT)] * 2,
+    ],
+)
+async def test_read_skill_resource_rejects_an_invalid_resource_response(
+    contents: list[TextResourceContents | BlobResourceContents],
+) -> None:
+    """SDK-defined: malformed peer responses cannot become verified content.
+
+    A low-level server is needed because `MCPServer` always produces conformant resource responses.
+    """
+
+    async def handler(ctx: ServerRequestContext[Any, Any], params: ReadResourceRequestParams) -> ReadResourceResult:
+        assert params.uri == _SKILL_URI
+        return ReadResourceResult(contents=contents)
+
+    server = Server("catalog")
+    server.add_request_handler("resources/read", ReadResourceRequestParams, handler)
+    async with Client(server, extensions=[ClientSkills()]) as client:
+        with pytest.raises(ValueError) as exc_info:
+            await client.extension(ClientSkills).read_skill_resource(_skill(), _SKILL_URI)
+    assert str(exc_info.value) == snapshot(
+        "resource 'skill://git-workflow/SKILL.md' did not return exactly one matching content item"
+    )
+
+
+async def test_read_skill_resource_rejects_invalid_base64() -> None:
+    """SDK-defined: a malformed binary response cannot become verified content.
+
+    A low-level server is needed because `MCPServer` always base64-encodes binary resources.
+    """
+
+    async def handler(ctx: ServerRequestContext[Any, Any], params: ReadResourceRequestParams) -> ReadResourceResult:
+        assert params.uri == _SKILL_URI
+        return ReadResourceResult(contents=[BlobResourceContents(uri=_SKILL_URI, blob="??")])
+
+    server = Server("catalog")
+    server.add_request_handler("resources/read", ReadResourceRequestParams, handler)
+    async with Client(server, extensions=[ClientSkills()]) as client:
+        with pytest.raises(ValueError) as exc_info:
+            await client.extension(ClientSkills).read_skill_resource(_skill(), _SKILL_URI)
+    assert str(exc_info.value) == snapshot("resource 'skill://git-workflow/SKILL.md' returned invalid base64 content")
 
 
 async def test_read_directory_follows_next_cursor_to_completion() -> None:
