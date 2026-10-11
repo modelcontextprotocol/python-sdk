@@ -7,7 +7,6 @@ both tiers need. See https://github.com/modelcontextprotocol/modelcontextprotoco
 
 from __future__ import annotations
 
-import hashlib
 import re
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
@@ -27,7 +26,6 @@ __all__ = [
     "GetSkillResult",
     "ReadDirectoryParams",
     "ReadDirectoryResult",
-    "verify_skill_resource",
 ]
 
 EXTENSION_ID = "io.modelcontextprotocol/skills"
@@ -297,27 +295,3 @@ def validate_directory_result(uri: str, result: ReadDirectoryResult) -> None:
         if resource.uri in seen_uris:
             raise ValueError(f"directory {uri!r} contains a duplicate child {resource.uri!r}")
         seen_uris.add(resource.uri)
-
-
-def verify_skill_resource(skill: Skill, uri: str, content: bytes) -> None:
-    """Check that `content` (the bytes read from `uri`) matches `skill`'s manifest entry.
-
-    Recomputes the size and SHA-256 digest of `content` and compares them to the
-    entry `skill` holds for `uri` — the byte-integrity check SEP-2640 requires
-    before a host trusts a fetched file. A `"dynamic"` skill carries no digests,
-    so it has nothing to verify against.
-
-    Raises:
-        ValueError: If `uri` is not one of `skill`'s resources, `skill.resources`
-            is `"dynamic"`, or `content`'s size or digest doesn't match the entry.
-    """
-    if skill.resources == "dynamic":
-        raise ValueError(f"skill {skill.uri!r} has dynamic resources and cannot be integrity-verified")
-    entry = next((r for r in skill.resources if r.uri == uri), None)
-    if entry is None:
-        raise ValueError(f"{uri!r} is not in skill {skill.uri!r}'s held manifest")
-    if len(content) != entry.size:
-        raise ValueError(f"resource {uri!r} has size {len(content)}, expected {entry.size}")
-    digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
-    if digest != entry.digest:
-        raise ValueError(f"resource {uri!r} has digest {digest!r}, expected {entry.digest!r}")

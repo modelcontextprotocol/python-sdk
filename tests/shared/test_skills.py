@@ -1,10 +1,9 @@
-"""SEP-2640 conformance checks in `mcp.shared.skills`: types, validation, and verification.
+"""SEP-2640 conformance checks in `mcp.shared.skills`: types and validation.
 
 Server- and client-side end-to-end wiring live in `tests/server/test_skills.py` and
 `tests/client/test_skills.py`; this file pins the pure functions both depend on.
 """
 
-import hashlib
 from typing import Any
 
 import pytest
@@ -21,7 +20,6 @@ from mcp.shared.skills import (
     parse_directory_uri,
     skill_name_from_uri,
     validate_directory_result,
-    verify_skill_resource,
 )
 
 _DIGEST = "sha256:" + "a" * 64
@@ -356,51 +354,3 @@ def test_validate_directory_result_rejects_a_uri_outside_the_directory() -> None
     result = ReadDirectoryResult(resources=[Resource(uri="skill://other/file.md", name="file.md")])
     with pytest.raises(ValueError, match="not a child"):
         validate_directory_result("skill://pdf/templates", result)
-
-
-def test_verify_skill_resource_accepts_matching_content() -> None:
-    content = b"hello skill"
-    digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
-    uri = "skill://git-workflow/SKILL.md"
-    skill = Skill(
-        uri=uri,
-        frontmatter={"name": "git-workflow", "description": "d"},
-        resources=[SkillResource(uri=uri, digest=digest, size=len(content))],
-    )
-    verify_skill_resource(skill, uri, content)
-
-
-def test_verify_skill_resource_rejects_a_digest_mismatch() -> None:
-    """SEP-2640 Integrity and verification: a mismatch MUST be treated as a verification failure."""
-    uri = "skill://git-workflow/SKILL.md"
-    skill = Skill(
-        uri=uri,
-        frontmatter={"name": "git-workflow", "description": "d"},
-        resources=[SkillResource(uri=uri, digest=_DIGEST, size=5)],
-    )
-    with pytest.raises(ValueError, match="digest"):
-        verify_skill_resource(skill, uri, b"wrong")
-
-
-def test_verify_skill_resource_rejects_a_size_mismatch_before_hashing() -> None:
-    uri = "skill://git-workflow/SKILL.md"
-    skill = Skill(
-        uri=uri,
-        frontmatter={"name": "git-workflow", "description": "d"},
-        resources=[SkillResource(uri=uri, digest=_DIGEST, size=999)],
-    )
-    with pytest.raises(ValueError, match="size"):
-        verify_skill_resource(skill, uri, b"short")
-
-
-def test_verify_skill_resource_rejects_dynamic_resources() -> None:
-    uri = "skill://generated/SKILL.md"
-    skill = Skill(uri=uri, frontmatter={"name": "generated", "description": "d"}, resources="dynamic")
-    with pytest.raises(ValueError, match="dynamic"):
-        verify_skill_resource(skill, uri, b"anything")
-
-
-def test_verify_skill_resource_rejects_a_uri_not_in_the_manifest() -> None:
-    skill = _skill()
-    with pytest.raises(ValueError, match="not in skill"):
-        verify_skill_resource(skill, "skill://git-workflow/unlisted.md", b"x")

@@ -46,7 +46,7 @@ There are three moves here:
 And that's it. `Skills(list_skills=..., get_skill=...)` is all a server needs;
 `resources/directory/read` is optional (more on that below).
 
-## Fetching a skill
+## Inspecting a skill
 
 On the client side, `Skills` is a [`ClientExtension`](extensions.md). You register it the same way
 you register any other one — by passing it to `Client(extensions=[...])` — and then call `extension` to
@@ -56,7 +56,7 @@ get the verbs tied to that connection:
 --8<-- "docs_src/skills/tutorial001_client.py"
 ```
 
-`client.extension(Skills)` hands you a `BoundSkills`, and its methods are the SEP-2640 verbs:
+`client.extension(Skills)` hands you a `BoundSkills` with the SEP-2640 methods:
 
 * `list_skills` and `read_directory` follow `nextCursor` to completion, so a single call gives you
   every page's skills or resources.
@@ -66,25 +66,21 @@ These three validate the server's response against the SEP-2640 conformance rule
 it. A name that doesn't match its URI, a digest in the wrong shape, or an incomplete manifest raises
 `ValueError` rather than reaching your code.
 
-`read_skill_uri` is the exception. It's a thin, discoverable alias for `resources/read` that returns
-a `ReadResourceResult` (text or blob contents) and validates nothing itself — that's the next step.
+Read a skill file with `Client.read_resource(uri)`, the same method you use for any MCP resource.
+It returns raw content without checking it against the skill's manifest.
 
-!!! tip
-    `verify_skill_resource(skill, uri, content)` checks a file's bytes — size, then SHA-256
-    digest — against the entry you hold for it. Call it after `read_skill_uri` and *before* you
-    treat the content as trustworthy.
+!!! warning "Verify files before loading"
+    A host that loads a skill must hold its `Skill` entry. Before using a fetched file, check that
+    its URI appears in that entry's `resources` and that its bytes match the advertised size and
+    SHA-256 digest. A `"dynamic"` skill has no digest to check. Refreshing the entry to accept
+    changed bytes also changes the content to which any prior approval applied.
 
-    `resources/read` returns whatever bytes the server sends *right now*; verification is what ties
-    those bytes back to the manifest you already validated. It applies to a static manifest only —
-    a `"dynamic"` skill carries no digests, so calling it on one raises `ValueError`.
-
-!!! warning
     Skill content is untrusted model input, exactly like any other server-provided text. SEP-2640
     requires a host to tag it with its originating server before it reaches the model, and to
     never grant the frontmatter's `allowed-tools` field (or any other permission-widening field)
     without explicit per-skill user approval.
 
-    A digest match confirms the *bytes*, not the *frontmatter*: it doesn't prove the
+    A matching digest confirms the *bytes*, not the *frontmatter*: it doesn't prove the
     `frontmatter` the server advertised in `skills/get` matches the frontmatter inside the fetched
     `SKILL.md`. If you act on `skill.frontmatter` — especially `allowed-tools` — parse the fetched
     file and compare its frontmatter yourself.

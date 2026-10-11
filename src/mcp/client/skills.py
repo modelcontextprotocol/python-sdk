@@ -3,7 +3,7 @@
 `Skills` is an opt-in [`ClientExtension`](../advanced/extensions.md) for talking
 to a skills catalog server. Register it with `Client(extensions=[Skills()])`,
 then call `client.extension(Skills)` for the SEP-2640 verbs — `list_skills`, `get_skill`,
-`read_skill_uri`, and `read_directory` — tied to that connection:
+and `read_directory` — tied to that connection:
 
     async with Client("http://localhost:8000/mcp", extensions=[Skills()]) as client:
         for skill in await client.extension(Skills).list_skills():
@@ -13,13 +13,11 @@ then call `client.extension(Skills)` for the SEP-2640 verbs — `list_skills`, `
 `get_skill`, and `read_directory` — check that the server advertises the
 extension and validate its response; `list_skills` and `read_directory` follow
 `nextCursor` to completion, so one call returns every page's results.
-`read_skill_uri` is a thin `resources/read` alias that does neither — verify its
-result with `verify_skill_resource`.
 """
 
 from __future__ import annotations
 
-from mcp_types import ReadResourceResult, Resource
+from mcp_types import Resource
 
 from mcp.client.extension import ClientExtension
 from mcp.client.session import ClientSession
@@ -63,9 +61,8 @@ class BoundSkills:
     `get_skill`, and `read_directory` — check that the server advertises the
     extension and validate its response against the SEP-2640 conformance rules
     before returning; `list_skills` and `read_directory` also follow
-    `nextCursor` to completion. `read_skill_uri` is the exception: a thin
-    `resources/read` alias that neither checks advertisement nor validates —
-    pair it with `verify_skill_resource`.
+    `nextCursor` to completion. Read a skill's files with the ordinary
+    `Client.read_resource` method.
     """
 
     def __init__(self, session: ClientSession) -> None:
@@ -135,21 +132,6 @@ class BoundSkills:
         if result.skill.uri != uri:
             raise ValueError(f"server returned skill {result.skill.uri!r} for requested {uri!r}")
         return result.skill
-
-    async def read_skill_uri(self, uri: str) -> ReadResourceResult:
-        """Read a skill file's content via `resources/read`.
-
-        A thin, discoverable alias: works for any `skill://` (or other-scheme)
-        file regardless of whether the skill was ever enumerated. Verify the
-        result against a held `Skill` entry with `verify_skill_resource` before
-        treating it as trusted content — this call does not verify anything itself.
-
-        Raises:
-            MCPError: If the server returns an error response.
-            RuntimeError: If the server returns an `InputRequiredResult`; this
-                alias does not drive the input-required loop.
-        """
-        return await self._session.read_resource(uri)
 
     async def read_directory(self, uri: str, params: ReadDirectoryParams | None = None) -> list[Resource]:
         """Call `resources/directory/read` for `uri`, following `nextCursor` to completion.

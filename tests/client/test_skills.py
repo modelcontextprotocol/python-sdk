@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
-from mcp_types import INVALID_PARAMS, Resource, TextResourceContents
+from mcp_types import INVALID_PARAMS, Resource
 
 from mcp.client.client import Client
 from mcp.client.skills import BoundSkills
@@ -28,7 +28,6 @@ from mcp.shared.skills import (
     ReadDirectoryResult,
     Skill,
     SkillResource,
-    verify_skill_resource,
 )
 
 pytestmark = pytest.mark.anyio
@@ -194,24 +193,6 @@ async def test_get_skill_propagates_the_servers_unknown_skill_error() -> None:
         with pytest.raises(MCPError) as exc_info:
             await skills.get_skill("skill://missing/SKILL.md")
     assert exc_info.value.code == INVALID_PARAMS
-
-
-async def test_read_skill_uri_reads_the_registered_resource() -> None:
-    async with _skills(_server()) as skills:
-        result = await skills.read_skill_uri(_SKILL_URI)
-    contents = result.contents[0]
-    assert isinstance(contents, TextResourceContents)
-    assert contents.text == _SKILL_CONTENT
-
-
-async def test_read_skill_uri_content_verifies_against_the_held_skill() -> None:
-    """End-to-end: `skills/get`'s digest and `resources/read`'s bytes agree."""
-    async with _skills(_server()) as skills:
-        skill = await skills.get_skill(_SKILL_URI)
-        result = await skills.read_skill_uri(_SKILL_URI)
-    contents = result.contents[0]
-    assert isinstance(contents, TextResourceContents)
-    verify_skill_resource(skill, _SKILL_URI, contents.text.encode())
 
 
 async def test_read_directory_follows_next_cursor_to_completion() -> None:
