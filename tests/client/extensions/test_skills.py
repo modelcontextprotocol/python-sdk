@@ -1,4 +1,4 @@
-"""Tests for the client-side Skills extension (SEP-2640, `mcp.client.skills`)."""
+"""Tests for the client-side Skills extension (SEP-2640, `mcp.client.extensions.skills`)."""
 
 import hashlib
 from collections.abc import AsyncIterator
@@ -9,8 +9,8 @@ import pytest
 from mcp_types import INVALID_PARAMS, Resource
 
 from mcp.client.client import Client
-from mcp.client.skills import BoundSkills
-from mcp.client.skills import Skills as ClientSkills
+from mcp.client.extensions.skills import Skills as ClientSkills
+from mcp.client.extensions.skills import SkillsClient
 from mcp.server.context import ServerRequestContext
 from mcp.server.extension import Extension, MethodBinding
 from mcp.server.mcpserver import MCPServer
@@ -82,7 +82,7 @@ def _repeating_cursor_list_handler() -> Any:
 class _NonConformantGetSkill(Extension):
     """A server that advertises the extension but answers `skills/get` with the wrong skill -
     the case the SDK's own `Skills` extension already rules out server-side, so this
-    exercises `mcp.client.skills.get_skill`'s own defense-in-depth check."""
+    exercises `mcp.client.extensions.skills.SkillsClient.get_skill`'s own defense-in-depth check."""
 
     identifier = EXTENSION_ID
 
@@ -138,7 +138,7 @@ def _server(*, with_directory_read: bool = False) -> MCPServer:
 
 
 @asynccontextmanager
-async def _skills(server: MCPServer) -> AsyncIterator[BoundSkills]:
+async def _skills(server: MCPServer) -> AsyncIterator[SkillsClient]:
     """Register the client `Skills` extension, connect, and yield the bound verbs."""
     extension = ClientSkills()
     async with Client(server, extensions=[extension]) as client:

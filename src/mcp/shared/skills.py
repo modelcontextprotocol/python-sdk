@@ -1,6 +1,6 @@
 """Wire types and SEP-2640 conformance checks for the Skills extension.
 
-Shared by the server (`mcp.server.skills`) and client (`mcp.client.skills`)
+Shared by the server (`mcp.server.skills`) and client (`mcp.client.extensions.skills`)
 surfaces, mirroring how `mcp.shared.extension` hosts the identifier grammar
 both tiers need. See https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640.
 """

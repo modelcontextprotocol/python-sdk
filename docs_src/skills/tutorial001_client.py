@@ -1,7 +1,7 @@
 import anyio
 
 from mcp import Client
-from mcp.client.skills import Skills
+from mcp.client.extensions.skills import Skills
 
 
 async def main() -> None:

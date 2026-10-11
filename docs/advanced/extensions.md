@@ -198,7 +198,7 @@ after connecting to get the API bound to that connection. Run the
 import anyio
 
 from mcp import Client
-from mcp.client.skills import Skills
+from mcp.client.extensions.skills import Skills
 
 
 async def main() -> None:

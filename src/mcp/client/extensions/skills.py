@@ -9,7 +9,7 @@ and `read_directory` — tied to that connection:
         for skill in await client.extension(Skills).list_skills():
             print(skill.uri, skill.frontmatter["description"])
 
-`client.extension(Skills)` returns a `BoundSkills`. Its catalog verbs — `list_skills`,
+`client.extension(Skills)` returns a `SkillsClient`. Its catalog verbs — `list_skills`,
 `get_skill`, and `read_directory` — check that the server advertises the
 extension and validate its response; `list_skills` and `read_directory` follow
 `nextCursor` to completion, so one call returns every page's results.
@@ -36,7 +36,7 @@ from mcp.shared.skills import (
     validate_directory_result,
 )
 
-__all__ = ["BoundSkills", "Skills"]
+__all__ = ["Skills", "SkillsClient"]
 
 
 class Skills(ClientExtension):
@@ -44,17 +44,17 @@ class Skills(ClientExtension):
 
     Pass an instance to `Client(extensions=[Skills()])` — this advertises
     `io.modelcontextprotocol/skills` under the client's capabilities — and call
-    `client.extension(Skills)` once connected for a `BoundSkills` handle.
+    `client.extension(Skills)` once connected for a `SkillsClient` handle.
     """
 
     identifier = EXTENSION_ID
 
-    def bind(self, session: ClientSession) -> BoundSkills:
+    def bind(self, session: ClientSession) -> SkillsClient:
         """Return the SEP-2640 verbs bound to `session`."""
-        return BoundSkills(session)
+        return SkillsClient(session)
 
 
-class BoundSkills:
+class SkillsClient:
     """The SEP-2640 verbs bound to one connected session.
 
     Obtain it from `client.extension(Skills)`. The catalog verbs — `list_skills`,

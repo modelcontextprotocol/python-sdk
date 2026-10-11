@@ -5,7 +5,7 @@ from mcp_types import INVALID_PARAMS, TextResourceContents
 
 from docs_src.skills import tutorial001
 from mcp import Client
-from mcp.client.skills import Skills
+from mcp.client.extensions.skills import Skills
 from mcp.shared.exceptions import MCPError
 
 pytestmark = pytest.mark.anyio

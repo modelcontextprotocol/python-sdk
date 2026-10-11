@@ -1,7 +1,7 @@
 """SEP-2640 conformance checks in `mcp.shared.skills`: types and validation.
 
 Server- and client-side end-to-end wiring live in `tests/server/test_skills.py` and
-`tests/client/test_skills.py`; this file pins the pure functions both depend on.
+`tests/client/extensions/test_skills.py`; this file pins the pure functions both depend on.
 """
 
 from typing import Any

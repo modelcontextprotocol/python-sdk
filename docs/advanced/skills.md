@@ -56,7 +56,7 @@ get the verbs tied to that connection:
 --8<-- "docs_src/skills/tutorial001_client.py"
 ```
 
-`client.extension(Skills)` hands you a `BoundSkills` with the SEP-2640 methods:
+`client.extension(Skills)` hands you a `SkillsClient` with the SEP-2640 methods:
 
 * `list_skills` and `read_directory` follow `nextCursor` to completion, so a single call gives you
   every page's skills or resources.
