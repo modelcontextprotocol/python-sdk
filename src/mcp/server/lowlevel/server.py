@@ -79,7 +79,10 @@ from typing import Any, Generic, TypeAlias, cast
 import anyio
 import jsonschema
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from jsonschema.protocols import Validator
+from jsonschema.validators import validator_for
 from pydantic import AnyUrl
+from referencing import Registry
 from typing_extensions import TypeVar, deprecated
 
 import mcp.types as types
@@ -158,6 +161,12 @@ class Server(Generic[LifespanResultT, RequestT]):
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self._tool_cache: dict[str, types.Tool] = {}
+        # Compiled input/output validators per tool name, built lazily once
+        # per tool listing and reused across calls. Entries are identity-bound
+        # to the cached Tool so re-listed schemas are recompiled; both caches
+        # are cleared with the tool cache.
+        self._tool_input_validators: dict[str, tuple[types.Tool, Validator]] = {}
+        self._tool_output_validators: dict[str, tuple[types.Tool, Validator]] = {}
         self._experimental_handlers: ExperimentalHandlers | None = None
         logger.debug("Initializing server %r", name)
 
@@ -460,6 +469,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # Old style returns list[Tool]
                     # Clear and refresh the entire tool cache
                     self._tool_cache.clear()
+                    self._tool_input_validators.clear()
+                    self._tool_output_validators.clear()
                     for tool in result:
                         validate_and_warn_tool_name(tool.name)
                         self._tool_cache[tool.name] = tool
@@ -494,6 +505,47 @@ class Server(Generic[LifespanResultT, RequestT]):
             logger.warning("Tool '%s' not listed, no validation will be performed", tool_name)
 
         return tool
+
+    @staticmethod
+    def _compile_schema_validator(tool_name: str, schema: dict[str, Any]) -> Validator:
+        """Compile one JSON Schema, mirroring one-shot `jsonschema.validate`.
+
+        Selects the validator class, checks the schema against the
+        meta-schema, and resolves `$ref`s a single time. Same construction as
+        the client-side cached validators from #3134: an explicit empty
+        registry keeps `$ref` resolution within the schema document and the
+        bundled meta-schemas.
+        """
+        validator_cls = validator_for(schema)
+        try:
+            validator_cls.check_schema(schema)
+        except jsonschema.SchemaError as e:
+            raise RuntimeError(f"Invalid schema for tool {tool_name}: {e}")
+        return validator_cls(schema, registry=Registry())
+
+    def _get_compiled_input_validator(self, tool_name: str, tool: types.Tool) -> Validator:
+        """Compiled input validator for a cached tool, built once per listing.
+
+        The entry is identity-bound to the cached Tool: a re-listed tool
+        object triggers a recompile.
+        """
+        cached = self._tool_input_validators.get(tool_name)
+        if cached is not None and cached[0] is tool:
+            return cached[1]
+        compiled = self._compile_schema_validator(tool_name, tool.inputSchema)
+        self._tool_input_validators[tool_name] = (tool, compiled)
+        return compiled
+
+    def _get_compiled_output_validator(self, tool_name: str, tool: types.Tool) -> Validator | None:
+        """Compiled output validator, or None when the tool has no outputSchema."""
+        if tool.outputSchema is None:
+            return None
+        cached = self._tool_output_validators.get(tool_name)
+        if cached is not None and cached[0] is tool:
+            return cached[1]
+        compiled = self._compile_schema_validator(tool_name, tool.outputSchema)
+        self._tool_output_validators[tool_name] = (tool, compiled)
+        return compiled
 
     def call_tool(self, *, validate_input: bool = True):
         """Register a tool call handler.
@@ -533,7 +585,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # input validation
                     if validate_input and tool:
                         try:
-                            jsonschema.validate(instance=arguments, schema=tool.inputSchema)
+                            self._get_compiled_input_validator(tool_name, tool).validate(arguments)
                         except jsonschema.ValidationError as e:
                             return self._make_error_result(f"Input validation error: {e.message}")
 
@@ -569,8 +621,13 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 "Output validation error: outputSchema defined but no structured output returned"
                             )
                         else:
+                            output_validator = self._get_compiled_output_validator(tool_name, tool)
+                            if output_validator is None:  # pragma: no cover - excluded by outputSchema check
+                                return self._make_error_result(
+                                    "Output validation error: outputSchema defined but no validator available"
+                                )
                             try:
-                                jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
+                                output_validator.validate(maybe_structured_content)
                             except jsonschema.ValidationError as e:
                                 return self._make_error_result(f"Output validation error: {e.message}")
 
