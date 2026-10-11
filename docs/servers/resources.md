@@ -126,6 +126,7 @@ The same rule applies to anything else JSON-serialisable: a list, a Pydantic mod
     `mcp.server.mcpserver.resources` has ready-made `Resource` classes (`TextResource`,
     `BinaryResource`, `FileResource`, `HttpResource`, `DirectoryResource`) that you register
     with `mcp.add_resource(...)`.
+    `DirectoryResource` returns sorted relative file paths with `/` separators on every platform.
 
 A client can also **subscribe** to a resource and be notified when it changes; that's the client's half of the story and it lives in **[The Client](../client/index.md)**.
 
