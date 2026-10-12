@@ -13,7 +13,7 @@ move to ``stories._shared.bridge`` is a later batch.
 from __future__ import annotations
 
 import importlib
-import sys
+import tomllib
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,11 +29,6 @@ from stories._hosting import asgi_from
 
 from mcp.client.streamable_http import streamable_http_client
 from tests.interaction.transports._bridge import StreamingASGITransport
-
-if sys.version_info >= (3, 11):  # pragma: lax no cover
-    import tomllib
-else:  # pragma: lax no cover
-    import tomli as tomllib
 
 STORIES_DIR = Path(stories.__file__).parent
 BASE_URL = "http://127.0.0.1:8000"

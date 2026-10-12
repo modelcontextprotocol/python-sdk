@@ -1,7 +1,7 @@
 import warnings
+from typing import Self
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
-from typing_extensions import Self
 
 from mcp.shared.exceptions import MCPDeprecationWarning
 

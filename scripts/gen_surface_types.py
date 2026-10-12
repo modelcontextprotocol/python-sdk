@@ -190,11 +190,12 @@ def run_codegen(schema_path: Path, output_path: Path) -> None:
             "--input-file-type", "jsonschema",
             "--output", str(output_path),
             "--output-model-type", "pydantic_v2.BaseModel",
-            "--target-python-version", "3.10",
+            "--target-python-version", "3.11",
             "--base-class", "mcp_types._wire_base.WireModel",
             "--snake-case-field", "--remove-special-field-name-prefix",
             "--use-annotated", "--use-field-description", "--use-schema-description",
             "--enum-field-as-literal", "all",
+            "--default-values", '{"ElicitRequestFormParams.mode": "form"}',
             "--use-union-operator", "--use-double-quotes",
             "--use-type-alias", "--skip-root-model",
             "--extra-fields", "ignore",
@@ -291,6 +292,13 @@ def build(entry: dict[str, str]) -> str:
     staging = TYPES_DIR / f"_staging_{version}.py"
     try:
         staging.write_text(source, encoding="utf-8")
+        subprocess.run(
+            [
+                "uv", "run", "--frozen", "ruff", "check", "--no-cache",
+                "--select", "F401,UP006,UP035", "--fix", "--unsafe-fixes", str(staging),
+            ],
+            cwd=REPO_ROOT, capture_output=True, check=True,
+        )  # fmt: skip
         subprocess.run(
             ["uv", "run", "--frozen", "ruff", "format", "--no-cache", str(staging)],
             cwd=REPO_ROOT, capture_output=True, check=True,

@@ -394,6 +394,9 @@ class GetTaskPayloadResult(WireModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    __annotations__ = {
+        "__pydantic_extra__": dict[str, Any],
+    }
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -790,6 +793,9 @@ class Meta(WireModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    __annotations__ = {
+        "__pydantic_extra__": dict[str, Any],
+    }
     progress_token: Annotated[ProgressToken | None, Field(alias="progressToken")] = None
     """
     If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
@@ -947,6 +953,9 @@ class Result(WireModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    __annotations__ = {
+        "__pydantic_extra__": dict[str, Any],
+    }
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2647,6 +2656,9 @@ class Data(WireModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    __annotations__ = {
+        "__pydantic_extra__": dict[str, Any],
+    }
     elicitations: list[ElicitRequestURLParams]
 
 

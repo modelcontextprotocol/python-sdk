@@ -3,7 +3,7 @@ name = "mcp-simple-streamablehttp"
 version = "0.1.0"
 description = "A simple MCP server exposing a StreamableHttp transport for testing"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
 keywords = ["mcp", "llm", "automation", "web", "fetch", "http", "streamable"]
 license = { text = "MIT" }
@@ -30,7 +30,7 @@ ignore = []
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 
 [dependency-groups]
 dev = ["pyright>=1.1.378", "pytest>=8.3.3", "ruff>=0.6.9"]
