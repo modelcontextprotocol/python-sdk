@@ -1,6 +1,7 @@
 # Installation
 
 The Python SDK is on PyPI as [`mcp`](https://pypi.org/project/mcp/). It requires **Python 3.10+**.
+You can use Python 3.10 through 3.15.
 
 These docs describe **v2**, the current stable release line:
 

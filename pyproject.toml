@@ -23,6 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
 ]
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
@@ -73,11 +74,13 @@ dev = [
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
     "coverage[toml]>=7.10.7,<=7.13",
-    "pillow>=12.0",
+    "pillow>=12.3; python_version >= '3.15'",
+    "pillow>=12.0; python_version < '3.15'",
     "strict-no-cover",
     "logfire>=3.0.0",
     "opentelemetry-sdk>=1.39.1",
-    "blockbuster>=1.5.27",
+    "blockbuster>=1.5.29; python_version >= '3.15'",
+    "blockbuster>=1.5.27; python_version < '3.15'",
 ]
 docs = [
     # Zensical is the Material team's successor to MkDocs; it natively
@@ -133,14 +136,16 @@ dependencies = [
     "anyio>=4.9; python_version < '3.14'",
     "httpx2>=2.10.0",
     "mcp-types=={{ version }}",
-    "pydantic>=2.12.0",
+    "pydantic>=2.14.0; python_version >= '3.15'",
+    "pydantic>=2.12.0; python_version < '3.15'",
     "starlette>=0.48.0; python_version >= '3.14'",
     "starlette>=0.27; python_version < '3.14'",
     "python-multipart>=0.0.9",
     "sse-starlette>=3.0.0",
     "uvicorn>=0.31.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
-    "pywin32>=311; sys_platform == 'win32'",
+    "pywin32>=312; sys_platform == 'win32' and python_version >= '3.15'",
+    "pywin32>=311; sys_platform == 'win32' and python_version < '3.15'",
     "pyjwt[crypto]>=2.10.1",
     "typing-extensions>=4.13.0",
     "typing-inspection>=0.4.1",
