@@ -11,13 +11,12 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Literal, TypeAlias, overload
+from typing import Any, Literal, Self, TypeAlias, overload
 
 import anyio
 import httpx2
 import mcp_types as types
 from pydantic import BaseModel, Field
-from typing_extensions import Self
 
 import mcp
 from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT

@@ -78,7 +78,7 @@ Security reports do not belong in the issue tracker; [SECURITY.md](SECURITY.md) 
 
 ## Development Setup
 
-1. Make sure you have Python 3.10+ installed
+1. Make sure you have Python 3.11+ installed
 2. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 3. Fork the repository
 4. Clone your fork: `git clone https://github.com/YOUR-USERNAME/python-sdk.git`

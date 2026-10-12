@@ -34,8 +34,8 @@ assigned to their author are closed automatically.
   the example packages still take plain `uv add`.
 - Running tools: `uv run --frozen <tool>`. Always pass `--frozen` so uv doesn't
   rewrite `uv.lock` as a side effect.
-- Cross-version testing: `uv run --frozen --python 3.10 pytest ...` to run
-  against a specific interpreter (CI covers 3.10–3.14).
+- Cross-version testing: `uv run --frozen --python 3.11 pytest ...` to run
+  against a specific interpreter (CI covers 3.11–3.15).
 - Upgrading: `uv lock --upgrade-package <package>`
 - FORBIDDEN: `uv pip install`, `@latest` syntax
 - Don't raise dependency floors for CVEs alone. The `>=` constraint already
@@ -100,7 +100,7 @@ assigned to their author are closed automatically.
 CI requires 100% (`fail_under = 100`, `branch = true`).
 
 - Full check: `./scripts/test` (~23s). Runs coverage + `strict-no-cover` on the
-  default Python. Not identical to CI: CI runs 3.10–3.14 × {ubuntu, windows}
+  default Python. Not identical to CI: CI runs 3.11–3.15 × {ubuntu, windows}
   × {locked, lowest-direct}, and some branch-coverage quirks only surface on
   specific matrix entries.
 - Targeted check while iterating (~4s, deterministic):

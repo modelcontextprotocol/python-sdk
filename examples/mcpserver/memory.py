@@ -13,7 +13,7 @@ import asyncio
 import math
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Self, TypeVar
 
@@ -86,7 +86,7 @@ class MemoryNode(BaseModel):
     summary: str = ""
     importance: float = 1.0
     access_count: int = 0
-    timestamp: float = Field(default_factory=lambda: datetime.now(timezone.utc).timestamp())
+    timestamp: float = Field(default_factory=lambda: datetime.now(UTC).timestamp())
     embedding: list[float]
 
     @classmethod
