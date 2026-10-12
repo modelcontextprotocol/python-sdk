@@ -8,7 +8,7 @@ the negotiated version. Per-field docstrings note version availability. The
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Final, Generic, Literal, TypeAlias, TypeVar, get_args
+from typing import Annotated, Any, ClassVar, Final, Generic, Literal, NotRequired, Self, TypeAlias, TypeVar, get_args
 
 from pydantic import (
     BaseModel,
@@ -19,7 +19,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic.alias_generators import to_camel
-from typing_extensions import NotRequired, Self, TypedDict
+from typing_extensions import TypedDict
 
 from mcp_types.jsonrpc import RequestId
 

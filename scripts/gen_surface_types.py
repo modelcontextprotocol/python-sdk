@@ -190,7 +190,7 @@ def run_codegen(schema_path: Path, output_path: Path) -> None:
             "--input-file-type", "jsonschema",
             "--output", str(output_path),
             "--output-model-type", "pydantic_v2.BaseModel",
-            "--target-python-version", "3.10",
+            "--target-python-version", "3.11",
             "--base-class", "mcp_types._wire_base.WireModel",
             "--snake-case-field", "--remove-special-field-name-prefix",
             "--use-annotated", "--use-field-description", "--use-schema-description",

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Annotated, Any
+from typing import Annotated, Any, NotRequired
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
@@ -51,7 +51,7 @@ from mcp_types import (
 from pydantic import AfterValidator, BaseModel, ValidationError
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext

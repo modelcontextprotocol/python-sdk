@@ -4,7 +4,7 @@ construction, and `call_tool` drives claim resolvers transparently against real 
 
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Literal, cast
+from typing import Any, Literal, assert_type, cast
 
 import anyio
 import mcp_types as types
@@ -13,7 +13,6 @@ from inline_snapshot import snapshot
 from mcp_types import CallToolResult, Result, TextContent
 from mcp_types.version import LATEST_MODERN_VERSION
 from pydantic import BaseModel
-from typing_extensions import assert_type
 
 from mcp.client import ClaimContext, ClientExtension, NotificationBinding, ResultClaim, advertise
 from mcp.client.client import Client

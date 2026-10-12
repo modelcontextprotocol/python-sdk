@@ -5,14 +5,14 @@
 # pyright: reportUnknownLambdaType=false
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, NotRequired, Required, TypedDict
 
 import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
 from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequiredResult, TextContent
 from pydantic import BaseModel, Field, ValidationError
-from typing_extensions import NotRequired, ReadOnly, Required
+from typing_extensions import ReadOnly
 
 from mcp import MCPDeprecationWarning
 from mcp.server.mcpserver import Audio, Image
