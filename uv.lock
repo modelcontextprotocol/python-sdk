@@ -780,7 +780,7 @@ dependencies = [
     { name = "pydantic", version = "2.11.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "pydantic", version = "2.13.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "pydantic-settings" },
-    { name = "pyjwt", extra = ["crypto"] },
+    { name = "pyjwt" },
     { name = "python-multipart" },
     { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "sse-starlette" },
@@ -796,6 +796,9 @@ cli = [
     { name = "python-dotenv" },
     { name = "typer" },
 ]
+oauth = [
+    { name = "pyjwt", extra = ["crypto"] },
+]
 rich = [
     { name = "rich" },
 ]
@@ -808,6 +811,7 @@ dev = [
     { name = "coverage", extra = ["toml"] },
     { name = "dirty-equals" },
     { name = "inline-snapshot" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-examples" },
@@ -833,7 +837,8 @@ requires-dist = [
     { name = "pydantic", marker = "python_full_version < '3.14'", specifier = ">=2.11.0,<3.0.0" },
     { name = "pydantic", marker = "python_full_version >= '3.14'", specifier = ">=2.12.0,<3.0.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
-    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1" },
+    { name = "pyjwt", specifier = ">=2.10.1" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'oauth'", specifier = ">=2.10.1" },
     { name = "python-dotenv", marker = "extra == 'cli'", specifier = ">=1.0.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pywin32", marker = "python_full_version < '3.14' and sys_platform == 'win32'", specifier = ">=310" },
@@ -848,13 +853,14 @@ requires-dist = [
     { name = "uvicorn", marker = "sys_platform != 'emscripten'", specifier = ">=0.31.1" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["cli", "rich", "ws"]
+provides-extras = ["cli", "oauth", "rich", "ws"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "coverage", extras = ["toml"], specifier = "==7.10.7" },
     { name = "dirty-equals", specifier = ">=0.9.0" },
     { name = "inline-snapshot", specifier = ">=0.23.0" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1" },
     { name = "pyright", specifier = ">=1.1.400" },
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "pytest-examples", specifier = ">=0.0.14" },

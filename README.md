@@ -84,6 +84,19 @@ To run the mcp command with uv:
 uv run mcp
 ```
 
+For SDK-signed asymmetric JWT OAuth client authentication (for example, the
+default RS256 assertions), install the cryptographic backend explicitly:
+
+```bash
+pip install "mcp[oauth]<2"
+```
+
+Plain `mcp` installations continue to support stdio, OAuth client secrets, and
+prebuilt assertions without installing `cryptography`. Asymmetric signing
+without the extra raises an error; it does not fall back to an unsigned token
+or another signing algorithm. This extra does not change signature verification
+or authorize unverified assertions.
+
 ## Quickstart
 
 Let's create a simple MCP server that exposes a calculator tool and some data:

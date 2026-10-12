@@ -37,12 +37,14 @@ dependencies = [
     "jsonschema>=4.20.0",
     "pywin32>=311; sys_platform == 'win32' and python_version >= '3.14'",
     "pywin32>=310; sys_platform == 'win32' and python_version < '3.14'",
-    "pyjwt[crypto]>=2.10.1",
+    "pyjwt>=2.10.1",
     "typing-extensions>=4.9.0",
     "typing-inspection>=0.4.1",
 ]
 
 [project.optional-dependencies]
+# Required for SDK-signed asymmetric JWT OAuth client authentication.
+oauth = ["pyjwt[crypto]>=2.10.1"]
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
 ws = ["websockets>=15.0.1"]
@@ -56,6 +58,7 @@ required-version = ">=0.9.5"
 
 [dependency-groups]
 dev = [
+    "pyjwt[crypto]>=2.10.1",
     "pyright>=1.1.400",
     "pytest>=8.3.4",
     "ruff>=0.8.5",
