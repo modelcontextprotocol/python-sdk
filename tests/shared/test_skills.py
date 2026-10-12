@@ -149,9 +149,18 @@ def test_skill_rejects_a_resource_with_the_same_authority_but_a_sibling_path() -
         )
 
 
-def test_skill_rejects_a_traversal_segment_in_a_resource_uri() -> None:
+@pytest.mark.parametrize(
+    "evil_uri",
+    [
+        "skill://git-workflow/../evil.md",
+        "skill://git-workflow/%2e%2e/evil.md",
+        "skill://git-workflow/%2E%2E/evil.md",
+        "skill://git-workflow/%2e/evil.md",
+    ],
+)
+def test_skill_rejects_a_traversal_segment_in_a_resource_uri(evil_uri: str) -> None:
     with pytest.raises(ValidationError, match="traversal segment"):
-        _skill(extra_resources=[_resource("skill://git-workflow/../evil.md")])
+        _skill(extra_resources=[_resource(evil_uri)])
 
 
 def test_skill_rejects_a_resource_uri_with_a_trailing_slash() -> None:
@@ -342,7 +351,16 @@ def test_validate_directory_result_rejects_a_grandchild() -> None:
         validate_directory_result("skill://pdf/templates", result)
 
 
-@pytest.mark.parametrize("child_uri", ["skill://pdf/templates/.", "skill://pdf/templates/.."])
+@pytest.mark.parametrize(
+    "child_uri",
+    [
+        "skill://pdf/templates/.",
+        "skill://pdf/templates/..",
+        "skill://pdf/templates/%2e",
+        "skill://pdf/templates/%2e%2e",
+        "skill://pdf/templates/%2E%2E",
+    ],
+)
 def test_validate_directory_result_rejects_a_dot_segment_child(child_uri: str) -> None:
     """A `.`/`..` child is a traversal segment, not a real direct child of the directory."""
     result = ReadDirectoryResult(resources=[Resource(uri=child_uri, name="x")])

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from typing import Annotated, Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from mcp_types import CacheableResult, PaginatedRequestParams, PaginatedResult, Request, RequestParams, Resource
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
@@ -250,7 +250,8 @@ def _validate_resource_uri_in_skill(skill_uri: str, resource_uri: str) -> None:
     root = skill_parts.path[: -len("/SKILL.md")]
     if resource_parts.path != skill_parts.path and not resource_parts.path.startswith(root + "/"):
         raise ValueError(f"resource URI {resource_uri!r} is outside the skill root {skill_uri!r}")
-    if any(segment in (".", "..") for segment in resource_parts.path.split("/")):
+    unquoted_path = unquote(resource_parts.path)
+    if any(segment in (".", "..") for segment in unquoted_path.split("/")):
         raise ValueError(f"resource URI {resource_uri!r} contains a traversal segment")
 
 
@@ -290,7 +291,13 @@ def validate_directory_result(uri: str, result: ReadDirectoryResult) -> None:
         if child.scheme != scheme or child.netloc != netloc:
             raise ValueError(f"resource {resource.uri!r} is not a child of directory {uri!r}")
         relative = child.path.removeprefix(prefix)
-        if relative == child.path or not relative or "/" in relative or relative in (".", ".."):
+        unquoted_relative = unquote(relative)
+        if (
+            relative == child.path
+            or not relative
+            or "/" in unquoted_relative
+            or unquoted_relative in (".", "..")
+        ):
             raise ValueError(f"resource {resource.uri!r} is not a direct child of directory {uri!r}")
         if resource.uri in seen_uris:
             raise ValueError(f"directory {uri!r} contains a duplicate child {resource.uri!r}")
