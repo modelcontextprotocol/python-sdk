@@ -1055,9 +1055,6 @@ class InputSchema(WireModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    __annotations__ = {
-        "__pydantic_extra__": dict[str, Any],
-    }
     schema_: Annotated[str | None, Field(alias="$schema")] = None
     type: Literal["object"]
 
@@ -1073,9 +1070,6 @@ class OutputSchema(WireModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    __annotations__ = {
-        "__pydantic_extra__": dict[str, Any],
-    }
     schema_: Annotated[str | None, Field(alias="$schema")] = None
 
 
@@ -2028,9 +2022,6 @@ class Result(WireModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    __annotations__ = {
-        "__pydantic_extra__": dict[str, Any],
-    }
     meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     result_type: Annotated[str, Field(alias="resultType")]
     """

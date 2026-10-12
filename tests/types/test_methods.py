@@ -960,6 +960,19 @@ def test_serialize_server_result_preserves_open_type_extras():
     assert sieved["tools"][0]["_meta"] == nested_meta
 
 
+@pytest.mark.parametrize("input_schema", [{}, {"type": "array"}])
+def test_serialize_server_result_rejects_invalid_tool_input_schema(input_schema: dict[str, Any]) -> None:
+    """The 2026 spec requires a tool's input schema to declare `type="object"`, even though it allows extra keys."""
+    result = {
+        "tools": [{"name": "echo", "inputSchema": input_schema}],
+        "resultType": "complete",
+        "ttlMs": 0,
+        "cacheScope": "private",
+    }
+    with pytest.raises(pydantic.ValidationError):
+        methods.serialize_server_result("tools/list", "2026-07-28", result)
+
+
 def test_serialize_server_result_drops_top_level_server_info_on_discover_but_keeps_the_meta_stamp():
     """Server identity moved from the discover body to result `_meta` (spec PR #3002):
     the sieve drops the removed body key and preserves the `_meta` stamp."""
