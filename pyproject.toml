@@ -34,7 +34,7 @@ mcp = "mcp.cli:app [cli]"
 
 [tool.uv]
 default-groups = ["dev", "docs"]
-required-version = ">=0.12.24"
+required-version = ">=0.9.5"
 # PEP 517 build isolation fetches [build-system].requires (and transitives) at
 # floating-latest with no hash check on every fresh sync; uv does not lock them
 # (astral-sh/uv#5190). Pinning here narrows that to known-good versions. Covers
