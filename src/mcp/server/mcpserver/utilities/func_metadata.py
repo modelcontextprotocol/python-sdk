@@ -320,10 +320,14 @@ def func_metadata(
     """
     try:
         sig = inspect.signature(func, eval_str=True)
-    except NameError as e:  # pragma: no cover
+    except NameError as e:
         # This raise could perhaps be skipped, and we (MCPServer) just call
         # model_rebuild right before using it 🤷
-        raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}") from e
+        # `e` names the unresolved annotation, which is the part the caller can
+        # act on: on Python 3.14+ (PEP 649) a type defined below the decorated
+        # function is simply not there yet, and "name 'Query' is not defined"
+        # says so where a bare "unable to evaluate" does not.
+        raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}: {e}") from e
     params = sig.parameters
     dynamic_pydantic_model_params: dict[str, Any] = {}
     for param in params.values():

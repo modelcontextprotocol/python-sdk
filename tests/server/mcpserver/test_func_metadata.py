@@ -1520,3 +1520,23 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+def test_unresolvable_annotation_names_the_callable_and_the_missing_type():
+    """A forward-referenced type that does not exist yet has to say which one.
+
+    On Python 3.14+ (PEP 649) annotations are evaluated lazily, so a type defined
+    below the decorated function is simply not there yet; the caller can only act
+    on the error if it names the missing type. On older Pythons the same message
+    comes from a quoted annotation. See #3668.
+    """
+
+    # The undefined name is the point of the test.
+    def fn(q: "NotDefinedYet") -> str: ...  # noqa: F821  # pragma: no branch
+
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(fn)
+
+    message = str(exc_info.value)
+    assert "'fn'" in message
+    assert "NotDefinedYet" in message

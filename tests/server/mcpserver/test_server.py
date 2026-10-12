@@ -1,5 +1,6 @@
 import base64
 import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -57,6 +58,7 @@ from mcp.client import Client
 from mcp.server.context import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity, Resolve, ResourceSecurity
 from mcp.server.mcpserver.exceptions import (
+    InvalidSignature,
     ResourceError,
     ResourceNotFoundError,
     ToolError,
@@ -3318,3 +3320,46 @@ async def test_middleware_can_refuse_subscriptions_listen_before_the_ack() -> No
                 pass  # pragma: no cover - the refusal precedes the stream
     assert exc_info.value.error.code == INVALID_REQUEST
     assert exc_info.value.error.message == "not permitted to watch the requested resources"
+
+
+# The issue's repro: a tool whose parameter and return types are defined *below*
+# it, which PEP 649 (3.14+) makes legal without quoting. Built with exec so the
+# undefined names are never statically visible -- on older Pythons an unquoted
+# undefined annotation raises where the function is defined, which would make
+# this module fail to import.
+_FORWARD_REF_TOOL_SOURCE = """
+from pydantic import BaseModel
+
+app = MCPServer("repro")
+
+
+@app.tool()
+def search(q: Query) -> list[Hit]:
+    \"\"\"Search.\"\"\"
+    return [Hit(id=1)]
+
+
+class Query(BaseModel):
+    text: str
+
+
+class Hit(BaseModel):
+    id: int
+"""
+
+
+@pytest.mark.skipif(sys.version_info < (3, 14), reason="PEP 649 lazy annotations are 3.14+")
+async def test_tool_with_types_defined_below_it_fails_with_a_named_error():
+    """Registration must not leak a bare NameError from inside inspect.signature.
+
+    It raises `InvalidSignature` naming the tool and the type that could not be
+    resolved yet, the same error a quoted annotation already produced. #3668.
+    """
+    namespace: dict[str, Any] = {"MCPServer": MCPServer}
+
+    with pytest.raises(InvalidSignature) as exc_info:
+        exec(_FORWARD_REF_TOOL_SOURCE, namespace)  # noqa: S102
+
+    message = str(exc_info.value)
+    assert "'search'" in message
+    assert "Query" in message

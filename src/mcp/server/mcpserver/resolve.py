@@ -81,7 +81,7 @@ from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
 from mcp.server.request_state import compact_json
 from mcp.server.validation import validate_tool_use_result_messages, wants_sampling_tools
-from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared._callable_inspection import is_async_callable, signature_parameters
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata
 
@@ -226,7 +226,7 @@ def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve,
     """
     hints = _type_hints(fn)
     resolved: dict[str, tuple[Resolve, bool]] = {}
-    for name in inspect.signature(fn).parameters:
+    for name in signature_parameters(fn):
         annotation = hints.get(name)
         if get_origin(annotation) is not Annotated:
             # A `Resolve` marker is only honored at the top level; flag (rather than
@@ -373,10 +373,9 @@ def build_resolver_plans(
         wire_key = base if seen == 0 else f"{base}#{seen}"
 
         hints = _type_hints(fn)
-        sig = inspect.signature(fn)
         params: dict[str, _ParamPlan] = {}
         nested: list[Callable[..., Any]] = []
-        for param_name in sig.parameters:
+        for param_name in signature_parameters(fn):
             annotation = hints.get(param_name)
             if annotation is not None and _is_context_annotation(annotation):
                 params[param_name] = _ParamPlan("context")

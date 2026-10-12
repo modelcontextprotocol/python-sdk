@@ -2,6 +2,7 @@
 
 import json
 import logging
+import sys
 from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Any, Literal, TypeVar, cast
@@ -2875,3 +2876,23 @@ async def test_an_undeclared_capability_refuses_the_call_instead_of_asking(mode:
 
     assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
     assert exc_info.value.error.data == {"requiredCapabilities": {"elicitation": {"form": {}}}}
+
+
+@pytest.mark.skipif(sys.version_info < (3, 14), reason="PEP 649 lazy annotations are 3.14+")
+def test_find_resolved_parameters_reads_names_without_evaluating_annotations():
+    """Only the names are needed here, so an unresolvable annotation must not raise.
+
+    On Python 3.14+ (PEP 649) annotations are evaluated lazily and
+    `inspect.signature` evaluates them by default, so a parameter whose type the
+    module has not finished defining raises a bare `NameError` from a call that
+    only wanted the names. #3668.
+    """
+    from mcp.server.mcpserver.resolve import find_resolved_parameters
+
+    # Built with exec so the undefined name is never statically visible: on older
+    # Pythons an unquoted undefined annotation raises where the function is
+    # defined, which would make this module fail to import.
+    namespace: dict[str, Any] = {}
+    exec("def fn(q: NotDefinedYet) -> str: ...", namespace)  # noqa: S102
+
+    assert find_resolved_parameters(namespace["fn"]) == {}

@@ -100,6 +100,7 @@ from mcp.server.streamable_http_manager import (
 )
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
+from mcp.shared._callable_inspection import signature_parameters
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
 
@@ -870,9 +871,12 @@ class MCPServer(Generic[LifespanResultT]):
         uri_params = set(parsed.variable_names)
 
         def decorator(fn: _CallableT) -> _CallableT:
-            sig = inspect.signature(fn)
             context_param = find_context_parameter(fn)
-            func_params = {p for p in sig.parameters.keys() if p != context_param}
+            # Names only: on Python 3.14+ evaluating the annotations here would
+            # raise for a type the module has not finished defining. The one
+            # place below that needs a default reads it from the same object.
+            parameters = signature_parameters(fn)
+            func_params = {p for p in parameters if p != context_param}
 
             # Template/static is decided purely by the URI: variables
             # present means template, none means static.
@@ -889,9 +893,7 @@ class MCPServer(Generic[LifespanResultT]):
                 # one, the author only finds out on the first request that
                 # omits it, as an opaque internal error.
                 missing_defaults = sorted(
-                    name
-                    for name in parsed.query_variable_names
-                    if sig.parameters[name].default is inspect.Parameter.empty
+                    name for name in parsed.query_variable_names if parameters[name].default is inspect.Parameter.empty
                 )
                 if missing_defaults:
                     raise ValueError(
