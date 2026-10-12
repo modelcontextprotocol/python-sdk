@@ -118,3 +118,14 @@ def test_get_npx_returns_none_when_npx_missing(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(subprocess, "run", always_fail)
     assert _get_npx_command() is None
+
+
+def test_get_npx_returns_none_when_windows_binary_missing(monkeypatch: pytest.MonkeyPatch):
+    """Missing executables raise FileNotFoundError before CalledProcessError on Windows."""
+    monkeypatch.setattr(sys, "platform", "win32", raising=False)
+
+    def missing_binary(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        raise FileNotFoundError(args[0])
+
+    monkeypatch.setattr(subprocess, "run", missing_binary)
+    assert _get_npx_command() is None
