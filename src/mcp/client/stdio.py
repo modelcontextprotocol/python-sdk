@@ -10,6 +10,7 @@ process nor hang on one.
 
 import logging
 import os
+import subprocess
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
@@ -127,7 +128,6 @@ async def stdio_client(
         command=command,
         args=server.args,
         env=get_default_environment() | (server.env or {}),
-        errlog=errlog,
         cwd=server.cwd,
     )
 
@@ -182,6 +182,27 @@ async def stdio_client(
         finally:
             writer_done.set()
 
+    async def stderr_reader() -> None:
+        # The server's stderr is a pipe, never errlog's fd: errlog may be a
+        # stream without a fileno (e.g. Jupyter's sys.stderr), which the
+        # subprocess spawn cannot consume (gh-156). Forward it here instead.
+        assert process.stderr, "Opened process is missing stderr"
+
+        def forward(chunk: str) -> None:
+            # errlog is an arbitrary TextIO; keep the blocking write off the loop.
+            errlog.write(chunk)
+            errlog.flush()
+
+        stderr = TextReceiveStream(process.stderr, encoding=server.encoding, errors=server.encoding_error_handler)
+        try:
+            async for chunk in stderr:
+                await anyio.to_thread.run_sync(forward, chunk)
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError, ConnectionError):
+            # Teardown noise during shutdown, a real failure otherwise; stderr
+            # carries only diagnostics, so the session is unaffected either way.
+            if not shutting_down:
+                logger.exception("Reading from the MCP server's stderr failed mid-session")
+
     async def shutdown() -> None:
         """Winds the transport down: stop traffic, flush, stop the server, release the streams."""
         # Unblock the reader into its drain: a server stuck writing stdout cannot
@@ -201,6 +222,7 @@ async def stdio_client(
     async with anyio.create_task_group() as tg:
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        tg.start_soon(stderr_reader)
         try:
             yield read_stream, write_stream
         finally:
@@ -252,7 +274,7 @@ async def _stop_server_process(process: ServerProcess) -> None:
     The escalation order is spec text; timeouts and tree-wide scope are SDK policy:
     https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#shutdown
     """
-    assert process.stdin and process.stdout, "server process is spawned with pipes"
+    assert process.stdin and process.stdout and process.stderr, "server process is spawned with pipes"
 
     await _close_pipe(process.stdin)
     if not await _wait_for_process_exit(process, PROCESS_TERMINATION_TIMEOUT):
@@ -265,6 +287,8 @@ async def _stop_server_process(process: ServerProcess) -> None:
     close_process_job(process)
     # A kill survivor can hold the stdout pipe open; poison the reader anyway.
     await _close_pipe(process.stdout)
+    # Same for stderr: the reader only ever sees EOF, never a close it made.
+    await _close_pipe(process.stderr)
     _close_subprocess_transport(process)
 
 
@@ -330,20 +354,23 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
     cwd: Path | str | None = None,
 ) -> ServerProcess:
     """Spawns the server in its own kill scope.
 
     A new session/process group on POSIX, a Job Object on Windows.
+
+    The server's stderr is always a pipe: the caller's errlog stream may not
+    have a fileno (e.g. Jupyter's sys.stderr), so it cannot be handed to the
+    subprocess directly. `stdio_client` forwards the pipe to errlog instead.
     """
     if sys.platform == "win32":  # pragma: no cover
-        return await create_windows_process(command, args, env, errlog, cwd)
+        return await create_windows_process(command, args, env, cwd)
     else:  # pragma: lax no cover
         return await anyio.open_process(
             [command, *args],
             env=env,
-            stderr=errlog,
+            stderr=subprocess.PIPE,
             cwd=cwd,
             start_new_session=True,
         )

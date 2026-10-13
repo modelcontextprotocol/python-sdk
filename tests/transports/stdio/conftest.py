@@ -11,7 +11,6 @@ import sys
 from collections.abc import Generator
 from contextlib import suppress
 from pathlib import Path
-from typing import TextIO
 
 import anyio.abc
 import pytest
@@ -37,10 +36,9 @@ def spawned_processes(
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
         cwd: Path | str | None = None,
     ) -> anyio.abc.Process | FallbackProcess:
-        process = await _create_platform_compatible_process(command, args, env, errlog, cwd)
+        process = await _create_platform_compatible_process(command, args, env, cwd)
         spawned.append(process)
         return process
 

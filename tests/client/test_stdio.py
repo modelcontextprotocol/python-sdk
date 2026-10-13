@@ -9,6 +9,7 @@ client<->server round trip is pinned by tests/interaction/transports/test_stdio.
 
 import errno
 import gc
+import io
 import logging
 import math
 import os
@@ -19,7 +20,7 @@ from collections.abc import Callable
 from contextlib import AsyncExitStack, suppress
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TextIO, cast
+from typing import cast
 
 import anyio
 import anyio.abc
@@ -94,8 +95,8 @@ class _FakeStdin:
             raise self._process.stdin_aclose_error
 
 
-class _FakeStdout:
-    """The fake process's stdout: delegates to the in-memory stream.
+class _FakePipe:
+    """The fake process's stdout/stderr: delegates to the in-memory stream.
 
     Optionally surfaces the abrupt-death or close-time errors a real pipe can.
     """
@@ -135,8 +136,9 @@ class _FakeStdout:
 class FakeProcess:
     """In-memory stand-in for the spawned server process.
 
-    `feed`/`close_stdout` drive its stdout, `written` records client writes, `exit`
-    and the error knobs replay death and pipe failure modes.
+    `feed`/`close_stdout` drive its stdout, `feed_stderr`/`close_stderr` drive
+    its stderr, `written` records client writes, `exit` and the error knobs
+    replay death and pipe failure modes.
     """
 
     def __init__(
@@ -149,13 +151,20 @@ class FakeProcess:
         stdout_eof_error: Exception | None = None,
         stdout_aclose_error: Exception | None = None,
         on_stdout_receive: Callable[[], None] | None = None,
+        stderr_eof_error: Exception | None = None,
     ) -> None:
         self._stdout_send, stdout_receive = anyio.create_memory_object_stream[bytes](math.inf)
-        self.stdout = _FakeStdout(
+        self.stdout = _FakePipe(
             stdout_receive,
             eof_error=stdout_eof_error,
             aclose_error=stdout_aclose_error,
             on_receive=self._dispatch_stdout_receive,
+        )
+        self._stderr_send, stderr_receive = anyio.create_memory_object_stream[bytes](math.inf)
+        self.stderr = _FakePipe(
+            stderr_receive,
+            eof_error=stderr_eof_error,
+            on_receive=self._dispatch_stderr_receive,
         )
         self.pid = 424242
         self.written: list[bytes] = []
@@ -167,12 +176,18 @@ class FakeProcess:
         self.stdin_send_blocks = stdin_send_blocks
         self.stdin_send_gate = stdin_send_gate
         self.on_stdout_receive = on_stdout_receive
+        self.on_stderr_receive: Callable[[], None] | None = None
         self.stdin = _FakeStdin(self)
 
     def _dispatch_stdout_receive(self) -> None:
         # Late-bound so a test can assign `on_stdout_receive` after construction.
         if self.on_stdout_receive is not None:
             self.on_stdout_receive()
+
+    def _dispatch_stderr_receive(self) -> None:
+        # Late-bound so a test can assign `on_stderr_receive` after construction.
+        if self.on_stderr_receive is not None:
+            self.on_stderr_receive()
 
     async def feed(self, data: bytes) -> None:
         """Make `data` readable on the fake process's stdout."""
@@ -182,10 +197,19 @@ class FakeProcess:
         """End the fake process's stdout, as the kernel does when it dies."""
         self._stdout_send.close()
 
+    async def feed_stderr(self, data: bytes) -> None:
+        """Make `data` readable on the fake process's stderr."""
+        await self._stderr_send.send(data)
+
+    def close_stderr(self) -> None:
+        """End the fake process's stderr, as the kernel does when it dies."""
+        self._stderr_send.close()
+
     def exit(self, code: int = 0) -> None:
-        """Die: set the exit code and EOF stdout, as the kernel does."""
+        """Die: set the exit code and EOF stdout/stderr, as the kernel does."""
         self.returncode = code
         self.close_stdout()
+        self.close_stderr()
 
     def pending_stdout_chunks(self) -> int:
         """How many fed chunks the client has not yet pulled off the fake stdout."""
@@ -210,7 +234,6 @@ def install_fake_process(
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
         cwd: Path | str | None = None,
     ) -> FakeProcess:
         return process
@@ -546,7 +569,6 @@ async def test_spawn_failure_propagates_the_error_and_leaks_no_streams(monkeypat
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
         cwd: Path | str | None = None,
     ) -> FakeProcess:
         raise OSError(errno.EACCES, "Permission denied")
@@ -631,7 +653,6 @@ async def test_cancellation_during_spawn_leaks_no_streams(monkeypatch: pytest.Mo
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
         cwd: Path | str | None = None,
     ) -> FakeProcess:
         spawn_started.set()
@@ -673,7 +694,6 @@ async def test_a_non_oserror_spawn_failure_propagates_and_leaks_no_streams(monke
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
         cwd: Path | str | None = None,
     ) -> FakeProcess:
         raise ValueError("embedded null byte")
@@ -993,6 +1013,120 @@ async def test_a_failing_stdout_close_still_closes_the_transport_streams(monkeyp
     gc.collect()
 
 
+# ---------------------------------------------------------------------------
+# Server stderr forwarding (gh-156)
+# ---------------------------------------------------------------------------
+
+
+class _JupyterLikeStderr(io.StringIO):
+    """Mimics Jupyter's sys.stderr: write() works, fileno() raises.
+
+    Signals each write so tests can await forwarding deterministically. Writes
+    arrive on a worker thread (the SDK forwards stderr via `to_thread`), so the
+    signal is a `threading.Event`.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._written = threading.Event()
+
+    def write(self, s: str) -> int:
+        result = super().write(s)
+        self._written.set()
+        return result
+
+    def fileno(self) -> int:
+        raise io.UnsupportedOperation("fileno")
+
+    async def wait_written(self) -> None:
+        await anyio.to_thread.run_sync(self._written.wait)
+
+
+@pytest.mark.anyio
+async def test_server_stderr_is_forwarded_to_errlog(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The server's stderr pipe is forwarded to errlog by a reader task.
+
+    errlog is never handed to the subprocess as its stderr fd (which is what
+    broke Jupyter in gh-156); the reader task forwards the piped output instead.
+    """
+    errlog = _JupyterLikeStderr()
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+    install_fake_process(monkeypatch, process)
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS, errlog=errlog):
+            await process.feed_stderr(b"server says hi\n")
+            await errlog.wait_written()
+
+    assert errlog.getvalue() == "server says hi\n"
+
+
+@pytest.mark.anyio
+async def test_a_mid_session_stderr_failure_is_logged_and_leaves_the_session_usable(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A mid-session stderr read failure is logged but does not break the session.
+
+    Unlike stdout, stderr carries only diagnostics: its loss ends the reader
+    task, not the session.
+    """
+    ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    process = FakeProcess(
+        on_stdin_close=lambda: process.exit(0),
+        stderr_eof_error=ConnectionResetError("stderr pipe failed mid-session"),
+    )
+    install_fake_process(monkeypatch, process)
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS) as (read_stream, _):
+            process.close_stderr()  # EOF the pipe mid-session: the error surfaces now
+            await anyio.wait_all_tasks_blocked()  # let the stderr reader hit it
+            # The session is unaffected: stdout traffic still flows.
+            await process.feed(_line(ping))
+            assert await _next_message(read_stream) == ping
+
+    assert "stderr failed mid-session" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_a_kill_racing_a_pending_stderr_read_is_swallowed_during_shutdown(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A hard kill during a pending stderr read must not escape the context manager.
+
+    The read surfaces ConnectionResetError on the proactor backend; being expected
+    teardown noise, it is not logged as an error either.
+    """
+    process = FakeProcess(stderr_eof_error=ConnectionResetError("read torn down by kill"))
+    terminated = install_fake_process(monkeypatch, process)
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS):
+            pass  # the fake ignores stdin closure, so shutdown must escalate
+
+    assert terminated == [process]
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+
+@pytest.mark.anyio
+async def test_a_fileno_less_errlog_still_receives_server_stderr() -> None:
+    """End-to-end gh-156: an errlog without a fileno (Jupyter's sys.stderr) works.
+
+    The spawn must not hand errlog to the subprocess (which raised
+    UnsupportedOperation: fileno), and the server's stderr must still reach it.
+    """
+    errlog = _JupyterLikeStderr()
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", "import sys; sys.stderr.write('diagnostic\\n'); sys.stderr.flush()"],
+    )
+    with anyio.fail_after(10):
+        async with stdio_client(server_params, errlog=errlog):
+            await errlog.wait_written()
+
+    assert errlog.getvalue() == "diagnostic\n"
+
+
 @pytest.mark.anyio
 async def test_a_process_surviving_the_kill_escalation_is_logged_and_abandoned(
     monkeypatch: pytest.MonkeyPatch,
@@ -1022,9 +1156,10 @@ async def test_a_process_surviving_the_kill_escalation_is_logged_and_abandoned(
     assert stubborn == [process]
     assert process.returncode is None
     assert "still alive after the kill escalation" in caplog.text
-    # The fake "survived", so nothing ever EOF'd its stdout pipe; release it here
-    # or its GC-time ResourceWarning would fail a later test.
+    # The fake "survived", so nothing ever EOF'd its pipes; release them here
+    # or their GC-time ResourceWarnings would fail a later test.
     process.close_stdout()
+    process.close_stderr()
 
 
 # ---------------------------------------------------------------------------
@@ -1251,10 +1386,9 @@ def _record_spawned_processes(monkeypatch: pytest.MonkeyPatch) -> list[anyio.abc
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
         cwd: Path | str | None = None,
     ) -> anyio.abc.Process | FallbackProcess:
-        process = await _create_platform_compatible_process(command, args, env, errlog, cwd)
+        process = await _create_platform_compatible_process(command, args, env, cwd)
         spawned.append(process)
         return process
 

@@ -7,7 +7,7 @@ import sys
 import weakref
 from contextlib import suppress
 from pathlib import Path
-from typing import BinaryIO, TextIO, TypeAlias, cast
+from typing import BinaryIO, TypeAlias, cast
 
 import anyio
 from anyio.abc import Process
@@ -92,9 +92,11 @@ class FallbackProcess:
         self.popen: subprocess.Popen[bytes] = popen_obj
         stdin = popen_obj.stdin
         stdout = popen_obj.stdout
+        stderr = popen_obj.stderr
 
         self.stdin = FileWriteStream(cast(BinaryIO, stdin)) if stdin else None
         self.stdout = FileReadStream(cast(BinaryIO, stdout)) if stdout else None
+        self.stderr = FileReadStream(cast(BinaryIO, stderr)) if stderr else None
 
     async def wait(self) -> int:
         """Waits for exit by polling the Popen.
@@ -137,7 +139,6 @@ async def create_windows_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> Process | FallbackProcess:
     """Creates a subprocess with Job Object support for tree termination.
@@ -149,8 +150,11 @@ async def create_windows_process(
     with it; children spawned before the assignment completes are not captured
     (see the inline note below).
 
+    The server's stderr is always a pipe (see `_create_platform_compatible_process`):
+    the caller's errlog stream is forwarded it by `stdio_client` instead.
+
     Returns:
-        Process | FallbackProcess: The spawned process with async stdin/stdout streams.
+        Process | FallbackProcess: The spawned process with async stdin/stdout/stderr streams.
     """
     try:
         process = await anyio.open_process(
@@ -158,12 +162,12 @@ async def create_windows_process(
             env=env,
             # Ensure we don't create console windows for each process
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            stderr=errlog,
+            stderr=subprocess.PIPE,
             cwd=cwd,
         )
     except NotImplementedError:
         # Windows event loops without async subprocess support (SelectorEventLoop)
-        process = await _create_windows_fallback_process(command, args, env, errlog, cwd)
+        process = await _create_windows_fallback_process(command, args, env, cwd)
 
     # Children spawned before the assignment completes land outside the job
     # (membership is inherited at CreateProcess, never acquired retroactively);
@@ -177,7 +181,6 @@ async def _create_windows_fallback_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> FallbackProcess:
     """Spawns via subprocess.Popen and wraps it in FallbackProcess."""
@@ -185,7 +188,7 @@ async def _create_windows_fallback_process(
         [command, *args],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=errlog,
+        stderr=subprocess.PIPE,
         env=env,
         cwd=cwd,
         bufsize=0,  # Unbuffered output
