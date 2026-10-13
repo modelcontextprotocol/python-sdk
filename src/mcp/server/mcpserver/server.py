@@ -1352,6 +1352,7 @@ class MCPServer(Generic[LifespanResultT]):
         Raises:
             MCPError: If the prompt name is unknown or a required argument is missing,
                 with code `INVALID_PARAMS`, or if the prompt function raises it.
+            ValueError: If rendering fails.
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)

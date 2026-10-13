@@ -1568,6 +1568,7 @@ class TestServerPrompts:
             with pytest.raises(MCPError) as exc_info:
                 await client.get_prompt("unknown")
             assert exc_info.value.code == INVALID_PARAMS
+            assert exc_info.value.message == snapshot("Unknown prompt: unknown")
 
     async def test_get_prompt_missing_args(self):
         """Test error when required arguments are missing."""
@@ -1580,6 +1581,7 @@ class TestServerPrompts:
             with pytest.raises(MCPError) as exc_info:
                 await client.get_prompt("prompt_fn")
             assert exc_info.value.code == INVALID_PARAMS
+            assert exc_info.value.message == snapshot("Missing required arguments: {'name'}")
 
 
 async def test_resource_decorator_rfc6570_reserved_expansion():

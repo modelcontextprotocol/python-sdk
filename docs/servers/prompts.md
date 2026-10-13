@@ -63,7 +63,7 @@ That is the entire life of a prompt: listed by name, rendered on demand, dropped
     ```
 
     There is no tool-style error result to hand back to a model, because no model is in the loop:
-    the call raises. You can distinguish invalid arguments from internal errors by the error code.
+    the call raises. You can distinguish missing required arguments from internal errors by the error code.
 
 ### Try it
 

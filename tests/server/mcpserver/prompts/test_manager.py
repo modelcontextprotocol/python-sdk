@@ -1,4 +1,5 @@
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import INVALID_PARAMS, TextContent
 
 from mcp import MCPError
@@ -110,3 +111,4 @@ class TestPromptManager:
         with pytest.raises(MCPError) as exc_info:
             await manager.render_prompt("fn", None, Context())
         assert exc_info.value.code == INVALID_PARAMS
+        assert exc_info.value.message == snapshot("Missing required arguments: {'name'}")
