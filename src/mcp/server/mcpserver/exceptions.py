@@ -71,6 +71,9 @@ class ToolNotFoundError(ToolError):
         self.name = name
         super().__init__(f"Unknown tool: {name}")
 
+    def __reduce__(self) -> tuple[type["ToolNotFoundError"], tuple[str], dict[str, object]]:
+        return type(self), (self.name,), self.__dict__
+
 
 class UnexpectedToolError(ToolError):
     """A tool call failed with something other than `ToolError`, `ResourceError`, or `MCPError`.

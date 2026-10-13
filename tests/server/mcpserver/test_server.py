@@ -1,7 +1,9 @@
 import base64
 import logging
+import pickle
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from copy import copy, deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -3338,6 +3340,23 @@ async def test_missing_tool_direct_call_remains_a_tool_error() -> None:
     assert isinstance(exc_info.value, ToolNotFoundError)
     assert exc_info.value.name == name
     assert str(exc_info.value) == snapshot("Unknown tool: missing")
+
+
+async def test_missing_tool_error_survives_copying_and_pickling() -> None:
+    """SDK-defined: reconstructing a lookup error preserves its name, message, and exception notes."""
+    server = MCPServer()
+    with pytest.raises(ToolNotFoundError) as exc_info:
+        await server.call_tool("missing", {})
+    original = exc_info.value
+    original.add_note("Requested by a background worker")
+
+    for cloned in (copy(original), deepcopy(original), pickle.loads(pickle.dumps(original))):
+        assert isinstance(cloned, ToolNotFoundError)
+        assert cloned is not original
+        assert cloned.name == original.name
+        assert cloned.args == original.args
+        assert str(cloned) == str(original)
+        assert cloned.__notes__ == original.__notes__
 
 
 @pytest.mark.parametrize("mode", ["legacy", "2026-07-28"])
