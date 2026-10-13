@@ -278,6 +278,26 @@ async def test_messages_split_and_packed_across_chunks_are_reframed(monkeypatch:
 
 
 @pytest.mark.anyio
+async def test_a_large_message_in_many_small_chunks_is_reframed_in_linear_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Receiving one huge line must not re-copy everything received so far for every chunk."""
+    big = JSONRPCResponse(jsonrpc="2.0", id=1, result={"text": "x" * (8 * 1024 * 1024)})
+    wire = _line(big)
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+
+    install_fake_process(monkeypatch, process)
+
+    # Quadratic reframing of this takes tens of seconds; linear takes well under one.
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS) as (read_stream, _):
+            for start in range(0, len(wire), 1024):
+                await process.feed(wire[start : start + 1024])
+
+            assert await _next_message(read_stream) == big
+
+
+@pytest.mark.anyio
 async def test_each_outgoing_message_is_written_as_exactly_one_line(monkeypatch: pytest.MonkeyPatch) -> None:
     """Client -> server framing writes one line per message.
 
