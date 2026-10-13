@@ -1,6 +1,7 @@
 import pytest
-from mcp_types import TextContent
+from mcp_types import INVALID_PARAMS, TextContent
 
+from mcp import MCPError
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.prompts.base import Prompt, UserMessage
 from mcp.server.mcpserver.prompts.manager import PromptManager
@@ -106,5 +107,6 @@ class TestPromptManager:
         manager = PromptManager()
         prompt = Prompt.from_function(fn)
         manager.add_prompt(prompt)
-        with pytest.raises(ValueError, match="Missing required arguments"):
+        with pytest.raises(MCPError) as exc_info:
             await manager.render_prompt("fn", None, Context())
+        assert exc_info.value.code == INVALID_PARAMS
