@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Annotated, Any, NotRequired
+from typing import Annotated, Any, Literal, NotRequired
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
@@ -60,6 +60,7 @@ from mcp.server.mcpserver.exceptions import (
     ResourceError,
     ResourceNotFoundError,
     ToolError,
+    ToolNotFoundError,
     UnexpectedResourceError,
     UnexpectedToolError,
 )
@@ -78,6 +79,7 @@ from mcp.server.subscriptions import (
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import InvalidUriTemplate
+from tests._stamp import unstamped
 
 pytestmark = pytest.mark.anyio
 
@@ -287,13 +289,14 @@ class TestServerTools:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
 
-    async def test_call_tool(self):
+    async def test_call_tool(self) -> None:
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
         async with Client(mcp) as client:
-            result = await client.call_tool("my_tool", {"arg1": "value"})
-            assert not hasattr(result, "error")
-            assert len(result.content) > 0
+            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
+            assert unstamped(result) == snapshot(
+                CallToolResult(content=[TextContent(text="3")], structured_content={"result": 3})
+            )
 
     async def test_tool_exception_handling(self):
         mcp = MCPServer()
@@ -723,11 +726,10 @@ class TestServerTools:
 
         # Verify calling removed tool returns an error
         async with Client(mcp) as client:
-            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
-            assert result.is_error
-            content = result.content[0]
-            assert isinstance(content, TextContent)
-            assert "Unknown tool" in content.text
+            with pytest.raises(MCPError) as exc_info:
+                await client.call_tool("tool_fn", {"x": 1, "y": 2})
+            assert exc_info.value.code == INVALID_PARAMS
+            assert exc_info.value.message == snapshot("Unknown tool: tool_fn")
 
 
 async def test_typeddict_tool_omitting_optional_keys_passes_client_validation():
@@ -2643,17 +2645,18 @@ async def test_return_value_failing_the_output_schema_is_a_crash(caplog: pytest.
     assert _server_records(caplog) == snapshot([("ERROR", "Tool 'get_weather' raised an unexpected exception", True)])
 
 
-async def test_unknown_tool_is_logged_at_info_without_traceback(caplog: pytest.LogCaptureFixture):
-    """SDK-defined: a call to a name that was never registered is the caller's mistake, logged
-    as one INFO record alongside the is_error result."""
+async def test_unknown_tool_raises_invalid_params_without_logging(caplog: pytest.LogCaptureFixture) -> None:
+    """An unknown tool is a protocol error, so MCPServer does not log it as an execution failure."""
     mcp = MCPServer()
 
     caplog.set_level(logging.INFO)
     async with Client(mcp) as client:
-        result = await client.call_tool("nope", {})
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("nope", {})
 
-    assert result.is_error is True
-    assert _server_records(caplog) == snapshot([("INFO", "Tool 'nope' failed: 'Unknown tool: nope'", False)])
+    assert exc_info.value.code == INVALID_PARAMS
+    assert exc_info.value.message == snapshot("Unknown tool: nope")
+    assert _server_records(caplog) == []
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
@@ -3322,3 +3325,95 @@ async def test_middleware_can_refuse_subscriptions_listen_before_the_ack() -> No
                 pass  # pragma: no cover - the refusal precedes the stream
     assert exc_info.value.error.code == INVALID_REQUEST
     assert exc_info.value.error.message == "not permitted to watch the requested resources"
+
+
+async def test_missing_tool_direct_call_remains_a_tool_error() -> None:
+    """Direct lookup failures remain catchable as `ToolError` and carry the missing name."""
+    server = MCPServer()
+    name = "missing"
+
+    with pytest.raises(ToolError) as exc_info:
+        await server.call_tool(name, {})
+
+    assert isinstance(exc_info.value, ToolNotFoundError)
+    assert exc_info.value.name == name
+    assert str(exc_info.value) == snapshot("Unknown tool: missing")
+
+
+@pytest.mark.parametrize("mode", ["legacy", "2026-07-28"])
+async def test_nested_missing_tool_returns_an_execution_error(mode: Literal["legacy", "2026-07-28"]) -> None:
+    """A missing tool called while executing an existing tool remains an execution failure."""
+    server = MCPServer()
+
+    @server.tool()
+    async def outer(ctx: Context) -> str:
+        return str(await ctx.mcp_server.call_tool("missing", {}))
+
+    async with Client(server, mode=mode) as client:
+        result = await client.call_tool("outer", {})
+
+    assert (unstamped(result) if mode == "2026-07-28" else result) == snapshot(
+        CallToolResult(content=[TextContent(text="Error executing tool outer: Unknown tool: missing")], is_error=True)
+    )
+
+
+@pytest.mark.parametrize("mode", ["legacy", "2026-07-28"])
+async def test_call_tool_override_can_serve_an_unregistered_name(mode: Literal["legacy", "2026-07-28"]) -> None:
+    """An override can serve a dynamic tool without registering it with MCPServer."""
+    result = CallToolResult(content=[TextContent(text="dynamic result")])
+
+    class DynamicServer(MCPServer):
+        async def call_tool(
+            self, name: str, arguments: dict[str, Any], context: Context[Any, Any] | None = None
+        ) -> CallToolResult | InputRequiredResult:
+            assert name == "dynamic"
+            return result
+
+    server = DynamicServer()
+    async with Client(server, mode=mode) as client:
+        received = await client.call_tool("dynamic", {})
+
+    assert received.content == result.content
+    assert not received.is_error
+
+
+@pytest.mark.parametrize("mode", ["legacy", "2026-07-28"])
+async def test_call_tool_override_tool_error_remains_an_execution_error(mode: Literal["legacy", "2026-07-28"]) -> None:
+    """A deliberate ToolError remains an execution failure even when its message resembles a lookup miss."""
+
+    class DynamicServer(MCPServer):
+        async def call_tool(
+            self, name: str, arguments: dict[str, Any], context: Context[Any, Any] | None = None
+        ) -> CallToolResult | InputRequiredResult:
+            assert name == "dynamic"
+            raise ToolError("Unknown tool: dynamic")
+
+    server = DynamicServer()
+    async with Client(server, mode=mode) as client:
+        result = await client.call_tool("dynamic", {})
+
+    assert (unstamped(result) if mode == "2026-07-28" else result) == snapshot(
+        CallToolResult(content=[TextContent(text="Unknown tool: dynamic")], is_error=True)
+    )
+
+
+@pytest.mark.parametrize("mode", ["legacy", "2026-07-28"])
+async def test_call_tool_override_missing_delegate_remains_an_execution_error(
+    mode: Literal["legacy", "2026-07-28"],
+) -> None:
+    """A missing delegated name does not imply that the requested tool is unknown."""
+
+    class DynamicServer(MCPServer):
+        async def call_tool(
+            self, name: str, arguments: dict[str, Any], context: Context[Any, Any] | None = None
+        ) -> CallToolResult | InputRequiredResult:
+            assert name == "dynamic"
+            return await super().call_tool("missing", arguments, context)
+
+    server = DynamicServer()
+    async with Client(server, mode=mode) as client:
+        result = await client.call_tool("dynamic", {})
+
+    assert (unstamped(result) if mode == "2026-07-28" else result) == snapshot(
+        CallToolResult(content=[TextContent(text="Unknown tool: missing")], is_error=True)
+    )

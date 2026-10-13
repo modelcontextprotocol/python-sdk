@@ -75,6 +75,7 @@ from mcp.server.mcpserver.exceptions import (
     ResourceError,
     ResourceNotFoundError,
     ToolError,
+    ToolNotFoundError,
     UnexpectedResourceError,
     UnexpectedToolError,
 )
@@ -443,6 +444,8 @@ class MCPServer(Generic[LifespanResultT]):
         except MCPError:
             raise
         except Exception as exc:
+            if isinstance(exc, ToolNotFoundError) and exc.name == params.name:
+                raise MCPError(code=INVALID_PARAMS, message=str(exc)) from exc
             if isinstance(exc, ToolError) and not isinstance(exc, UnexpectedToolError):
                 if isinstance(exc.__cause__, ValidationError):
                     # Field names only: the rejected values are the caller's data.
@@ -536,7 +539,8 @@ class MCPServer(Generic[LifespanResultT]):
         """Call a tool by name with arguments.
 
         Raises:
-            ToolError: If the tool is unknown, the arguments fail validation, or the
+            ToolNotFoundError: If the tool is unknown. This is a subclass of `ToolError`.
+            ToolError: If the arguments fail validation, or the
                 tool (or a resolver) raises `ToolError` or `ResourceError`.
             UnexpectedToolError: If the tool (or a resolver) raises anything else, or
                 its return value fails output conversion. `__cause__` is the original

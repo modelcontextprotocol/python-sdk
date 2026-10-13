@@ -14,6 +14,7 @@ from typing import Annotated, Any
 import anyio
 import httpx2
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -1042,8 +1043,11 @@ async def test_modern_tools_call_on_mcpserver_validates_mcp_param_headers_withou
     assert (mismatched.status_code, mismatched.json()["error"]["code"]) == (400, HEADER_MISMATCH)
     assert (missing.status_code, missing.json()["error"]["code"]) == (400, HEADER_MISMATCH)
     # An unregistered tool has no schema to validate against; dispatch owns the unknown-tool answer.
-    assert unknown.status_code == 200
-    assert unknown.json()["result"]["isError"] is True
+    assert unknown.status_code == 400
+    assert unknown.json()["error"]["code"] == INVALID_PARAMS
+    assert unknown.json() == snapshot(
+        {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": "Unknown tool: unregistered"}}
+    )
     assert dispatched == ["tools/call", "tools/call"]
 
 

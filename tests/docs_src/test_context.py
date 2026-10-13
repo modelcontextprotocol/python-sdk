@@ -4,10 +4,10 @@ import re
 
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import TextContent, TextResourceContents, ToolListChangedNotification
+from mcp_types import INVALID_PARAMS, TextContent, TextResourceContents, ToolListChangedNotification
 
 from docs_src.context import tutorial001, tutorial002, tutorial003
-from mcp import Client
+from mcp import Client, MCPError
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -70,9 +70,10 @@ async def test_register_a_tool_at_runtime_and_notify_the_client() -> None:
     async with Client(tutorial003.mcp, mode="legacy", message_handler=collect) as client:
         assert [tool.name for tool in (await client.list_tools()).tools] == ["enable_recommendations"]
 
-        missing = await client.call_tool("recommend_book", {"genre": "fiction"})
-        assert missing.is_error
-        assert missing.content == [TextContent(type="text", text="Unknown tool: recommend_book")]
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("recommend_book", {"genre": "fiction"})
+        assert exc_info.value.code == INVALID_PARAMS
+        assert exc_info.value.message == snapshot("Unknown tool: recommend_book")
 
         enabled = await client.call_tool("enable_recommendations", {})
         assert enabled.content == [TextContent(type="text", text="Recommendations are now available.")]

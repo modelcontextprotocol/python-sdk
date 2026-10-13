@@ -1068,13 +1068,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:tool:unknown-name": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#error-handling",
         behavior="tools/call for a name that was never registered returns a JSON-RPC error.",
-        divergence=Divergence(
-            note=(
-                "The spec classifies unknown tools as a protocol error (its example uses -32602 Invalid "
-                "params); MCPServer reports a tool execution error (isError true) instead. The low-level "
-                "path follows the spec example (see tools:call:unknown-name)."
-            ),
-        ),
     ),
     "mcpserver:tool:url-elicitation-error": Requirement(
         source="sdk",
