@@ -1348,13 +1348,18 @@ class MCPServer(Generic[LifespanResultT]):
         through unchanged (the 2026-07-28 multi-round-trip flow); the retry's
         answers arrive on `ctx.input_responses`, with `ctx.request_state`
         carrying the echoed opaque state.
+
+        Raises:
+            MCPError: If the prompt name is unknown or a required argument is missing,
+                with code `INVALID_PARAMS`, or if the prompt function raises it.
+            ValueError: If rendering fails.
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:
-                raise ValueError(f"Unknown prompt: {name}")
+                raise MCPError(code=INVALID_PARAMS, message=f"Unknown prompt: {name}")
 
             rendered = await prompt.render(arguments, context)
             if isinstance(rendered, InputRequiredResult):

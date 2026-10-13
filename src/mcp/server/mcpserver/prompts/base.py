@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import anyio.to_thread
 import pydantic_core
-from mcp_types import ContentBlock, Icon, InputRequiredResult, TextContent
+from mcp_types import INVALID_PARAMS, ContentBlock, Icon, InputRequiredResult, TextContent
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
@@ -166,7 +166,9 @@ class Prompt(BaseModel):
         through unchanged so the multi-round-trip flow reaches the client.
 
         Raises:
-            ValueError: If required arguments are missing, or if rendering fails.
+            MCPError: If a required argument is missing, with code `INVALID_PARAMS`,
+                or if the prompt function raises it.
+            ValueError: If rendering fails.
         """
         # Validate required arguments
         if self.arguments:
@@ -174,7 +176,7 @@ class Prompt(BaseModel):
             provided = set(arguments or {})
             missing = required - provided
             if missing:
-                raise ValueError(f"Missing required arguments: {missing}")
+                raise MCPError(code=INVALID_PARAMS, message=f"Missing required arguments: {missing}")
 
         try:
             # Add context to arguments if needed

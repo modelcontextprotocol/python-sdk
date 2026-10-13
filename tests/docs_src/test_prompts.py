@@ -4,7 +4,7 @@ import traceback
 
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import PromptArgument, PromptMessage, TextContent
+from mcp_types import INVALID_PARAMS, PromptArgument, PromptMessage, TextContent
 
 from docs_src.prompts import tutorial001, tutorial002, tutorial003
 from mcp import Client, MCPError
@@ -54,11 +54,11 @@ async def test_missing_required_argument_is_a_protocol_error() -> None:
     async with Client(tutorial001.mcp) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("review_code")
-        assert exc_info.value.code == -32603
-        assert exc_info.value.message == "Internal server error"
+        assert exc_info.value.code == INVALID_PARAMS
+        assert exc_info.value.message == snapshot("Missing required arguments: {'code'}")
         # The line a traceback prints, exactly as the page quotes it: the code is not in the message.
         assert traceback.format_exception_only(exc_info.value) == snapshot(
-            ["mcp.shared.exceptions.MCPError: Internal server error\n"]
+            ["mcp.shared.exceptions.MCPError: Missing required arguments: {'code'}\n"]
         )
 
 

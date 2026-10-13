@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 from mcp_types import (
+    INVALID_PARAMS,
     AudioContent,
     ElicitRequest,
     ElicitRequestFormParams,
@@ -14,6 +15,7 @@ from mcp_types import (
     TextResourceContents,
 )
 
+from mcp import MCPError
 from mcp.server.mcpserver import AssistantMessage, Audio, Context, Image, MCPServer, Message, UserMessage
 from mcp.server.mcpserver.prompts.base import Prompt
 
@@ -55,8 +57,9 @@ class TestRenderPrompt:
             return f"Hello, {name}! You're {age} years old."
 
         prompt = Prompt.from_function(fn)
-        with pytest.raises(ValueError):
+        with pytest.raises(MCPError) as exc_info:
             await prompt.render({"age": 40}, Context())
+        assert exc_info.value.code == INVALID_PARAMS
 
     @pytest.mark.anyio
     async def test_fn_returns_message(self):
