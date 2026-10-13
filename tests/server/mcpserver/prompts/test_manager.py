@@ -95,8 +95,10 @@ class TestPromptManager:
     async def test_render_unknown_prompt(self):
         """Test rendering a non-existent prompt."""
         manager = PromptManager()
-        with pytest.raises(ValueError, match="Unknown prompt: unknown"):
+        with pytest.raises(MCPError) as exc_info:
             await manager.render_prompt("unknown", None, Context())
+        assert exc_info.value.code == INVALID_PARAMS
+        assert exc_info.value.message == snapshot("Unknown prompt: unknown")
 
     @pytest.mark.anyio
     async def test_render_prompt_with_missing_args(self):
