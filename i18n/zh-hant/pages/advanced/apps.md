@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, b4ac54f338092ec6, 1419418a05511012, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,7 +18,7 @@ SDK 以內建的 `Apps` 擴充功能（`io.modelcontextprotocol/ui`）提供這�
 
 ## 有錶面的時鐘 {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="17 20 28 30"
+```python title="server.py" hl_lines="36 39 47 49"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -39,7 +39,7 @@ HTML 本身會監聽主機的 `postMessage` 並顯示結果。真正的 app 請�
 
 模型讀的是 `content`；iframe 是給人看的。支援 UI 的主機照樣會把文字結果餵給模型，而純文字用戶端**只**會拿到那個。所以標準做法是一個工具，兩種答案。再看一次 `get_time`：
 
-```python title="server.py" hl_lines="21-25"
+```python title="server.py" hl_lines="40-44"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 

@@ -7,10 +7,29 @@ CLOCK_HTML = """\
 <title>Clock</title>
 <h1 id="now">...</h1>
 <script>
+  const parent = window.parent;
+  let initialized = false;
   window.addEventListener("message", (event) => {
-    const text = event.data?.result?.content?.[0]?.text;
-    if (text) document.getElementById("now").textContent = text;
+    if (event.source !== parent || event.data?.jsonrpc !== "2.0") return;
+    if (event.data.id === 1 && event.data.result?.protocolVersion) {
+      parent.postMessage({jsonrpc: "2.0", method: "ui/notifications/initialized"}, "*");
+      initialized = true;
+      return;
+    }
+    if (!initialized || event.data.method !== "ui/notifications/tool-result") return;
+    const text = event.data.params?.content?.[0]?.text;
+    if (typeof text === "string") document.getElementById("now").textContent = text;
   });
+  parent.postMessage({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "ui/initialize",
+    params: {
+      appInfo: {name: "clock", version: "1.0.0"},
+      appCapabilities: {},
+      protocolVersion: "2026-01-26"
+    }
+  }, "*");
 </script>
 """
 

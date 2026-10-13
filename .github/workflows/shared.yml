@@ -36,6 +36,9 @@ jobs:
       - name: Workflow script tests
         run: node --test '.github/scripts/*.test.js'
 
+      - name: MCP Apps UI script tests
+        run: node --test tests/docs_src/test_apps.test.js
+
       - name: Surface types match vendored schema
         run: |
           uv sync --group codegen --frozen
