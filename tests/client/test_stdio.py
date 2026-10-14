@@ -278,6 +278,35 @@ async def test_messages_split_and_packed_across_chunks_are_reframed(monkeypatch:
 
 
 @pytest.mark.anyio
+async def test_a_large_line_split_across_many_chunks_is_delivered_intact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A single JSON-RPC line split into many chunks is delivered as that one message.
+
+    Pins SDK stdout framing for a multi-megabyte line (issue #3699): the pieces are
+    joined when the newline arrives, and the following line still frames normally.
+    """
+    text = "x" * (8 * 1024 * 1024)
+    response = JSONRPCResponse(jsonrpc="2.0", id=1, result={"text": text})
+    following = JSONRPCRequest(jsonrpc="2.0", id=2, method="ping")
+    wire = response.model_dump_json(by_alias=True, exclude_unset=True).encode()
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+
+    install_fake_process(monkeypatch, process)
+
+    # 8 MiB in 1 KiB pieces: recopying the buffer on every chunk cannot finish
+    # inside the fail_after bound, so a quadratic reader fails this test.
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS) as (read_stream, _):
+            for start in range(0, len(wire), 1024):
+                await process.feed(wire[start : start + 1024])
+            await process.feed(b"\n" + _line(following))
+
+            assert await _next_message(read_stream) == response
+            assert await _next_message(read_stream) == following
+
+
+@pytest.mark.anyio
 async def test_each_outgoing_message_is_written_as_exactly_one_line(monkeypatch: pytest.MonkeyPatch) -> None:
     """Client -> server framing writes one line per message.
 
