@@ -500,6 +500,42 @@ async def test_sse_mode_streams_progress_then_result() -> None:
     assert events[2]["result"]["tools"] == []
 
 
+async def test_sse_mode_gives_each_response_its_own_header_list() -> None:
+    """Middleware that appends to `message["headers"]` in place must not leak into later SSE responses."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        await ctx.session.report_progress(1.0, total=3.0)
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    server = Server("test", on_list_tools=list_tools)
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        async def appending_send(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                message["headers"].append((b"x-correlation-id", b"abc"))
+            await send(message)
+
+        async with server.lifespan(server) as lifespan_state:
+            await handle_modern_request(server, None, False, lifespan_state, scope, receive, appending_send)
+
+    async with httpx2.AsyncClient(
+        transport=StreamingASGITransport(app),
+        base_url="http://testserver",
+        headers={
+            MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION,
+            "content-type": "application/json",
+            "accept": "application/json, text/event-stream",
+        },
+    ) as http:
+        with anyio.fail_after(5):
+            for token in ("tok-1", "tok-2"):
+                response = await http.post(
+                    "/mcp", json=_list_tools_body_with_token(token), headers={MCP_METHOD_HEADER: "tools/list"}
+                )
+                assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
+                assert response.headers.get_list("x-correlation-id") == ["abc"]
+
+
 @pytest.mark.parametrize(
     "anyio_backend",
     [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
