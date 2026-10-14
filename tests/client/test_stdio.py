@@ -1456,3 +1456,40 @@ async def test_a_graceful_exit_with_a_surviving_child_leaks_no_pipe_fds(  # prag
         # Subset, not equality: other machinery may close fds, but never open new
         # ones; a leaked pipe fd would show up as an extra entry.
         assert set(os.listdir("/proc/self/fd")) <= baseline
+
+
+@pytest.mark.anyio
+async def test_surrogate_in_outbound_request_does_not_tear_down_writer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lone surrogate in one outbound request fails that request only; later writes continue (#3707)."""
+    import os
+
+    from mcp_types import INTERNAL_ERROR, JSONRPCError
+
+    surrogate = os.fsdecode(b"a\xffb")
+    bad = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method="tools/call",
+        params={"name": "echo", "arguments": {"text": surrogate}},
+    )
+    good = JSONRPCRequest(jsonrpc="2.0", id=2, method="ping")
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+    install_fake_process(monkeypatch, process)
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS) as (read_stream, write_stream):
+            await write_stream.send(SessionMessage(bad))
+            await anyio.wait_all_tasks_blocked()
+            failed = await read_stream.receive()
+            assert isinstance(failed, SessionMessage)
+            assert isinstance(failed.message, JSONRPCError)
+            assert failed.message.id == 1
+            assert failed.message.error.code == INTERNAL_ERROR
+            assert failed.message.error.message == "Failed to serialize request"
+            assert process.written == []
+
+            await write_stream.send(SessionMessage(good))
+            await anyio.wait_all_tasks_blocked()
+            assert process.written == [_line(good)]

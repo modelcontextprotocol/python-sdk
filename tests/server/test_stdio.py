@@ -692,3 +692,38 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     # resultType is modern-only: proves the request was served at the discovered version.
     assert responses[1].result["tools"] == []
     assert responses[1].result["resultType"] == "complete"
+
+
+@pytest.mark.anyio
+async def test_stdio_server_surrogate_in_response_does_not_kill_writer() -> None:
+    """A lone surrogate in one outbound response becomes Internal error; the writer continues (#3707)."""
+    import json
+    import os
+
+    from mcp_types import INTERNAL_ERROR
+
+    stdin = io.StringIO()
+    stdout = io.StringIO()
+    surrogate = os.fsdecode(b"report-\xff.txt")
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+            read_stream,
+            write_stream,
+        ):
+            await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=1, result={"text": surrogate})))
+            await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=2, result={"ok": True})))
+            await write_stream.aclose()
+            await read_stream.aclose()
+
+    stdout.seek(0)
+    lines = [line.strip() for line in stdout.readlines() if line.strip()]
+    assert len(lines) == 2
+    first = json.loads(lines[0])
+    assert first == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {"code": INTERNAL_ERROR, "message": "Internal server error"},
+    }
+    second = jsonrpc_message_adapter.validate_json(lines[1])
+    assert second == JSONRPCResponse(jsonrpc="2.0", id=2, result={"ok": True})

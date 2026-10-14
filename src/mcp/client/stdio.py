@@ -34,6 +34,7 @@ from mcp.os.win32.utilities import (
     terminate_windows_process_tree,
 )
 from mcp.shared.message import SessionMessage
+from mcp.shared.wire import serialize_outbound_message
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,25 @@ async def stdio_client(
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
-                    json = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
+                    # Contain serialization failures so one bad outbound message
+                    # cannot tear down the client session (#3707).
+                    json = serialize_outbound_message(session_message.message)
+                    if json is None:
+                        message = session_message.message
+                        if isinstance(message, types.JSONRPCRequest):
+                            error = SessionMessage(
+                                types.JSONRPCError(
+                                    jsonrpc="2.0",
+                                    id=message.id,
+                                    error=types.ErrorData(
+                                        code=types.INTERNAL_ERROR,
+                                        message="Failed to serialize request",
+                                    ),
+                                )
+                            )
+                            with suppress(anyio.ClosedResourceError, anyio.BrokenResourceError):
+                                await read_stream_writer.send(error)
+                        continue
                     data = (json + "\n").encode(encoding=server.encoding, errors=server.encoding_error_handler)
                     await process.stdin.send(data)
         except (anyio.ClosedResourceError, anyio.BrokenResourceError, OSError):
