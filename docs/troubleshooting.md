@@ -421,6 +421,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 
 * If a message the SDK produced is not on this page, that is a documentation bug worth reporting on its own.
 * Search the [issue tracker](https://github.com/modelcontextprotocol/python-sdk/issues); most error strings appearing there are already someone's write-up.
+* Tool call **hangs on Windows** over stdio with no traceback (often after a first `import numpy` / `scipy` / `torch` inside the tool): that is not an SDK exception — import those libraries at module scope before `mcp.run()`, or use `streamable-http`. See **[Running your server → stdio](run/index.md#stdio)** and [#2832](https://github.com/modelcontextprotocol/python-sdk/issues/2832).
 * Found nothing? [Open an issue](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml) with the full traceback, or ask in [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX).
 
 ## Recap

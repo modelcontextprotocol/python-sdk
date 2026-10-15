@@ -41,6 +41,16 @@ Nothing prints, and it doesn't return. It is waiting on stdin for a host to spea
 
 That also means stdout **is the wire**. While serving, the SDK moves the wire to a private descriptor and diverts output that is *flushed* to stdout (a subprocess writing to its inherited stdout, a flushed `print()`) to stderr, where it can't corrupt the stream. Output flushed to stdout *before* serving begins (a wrapper script echoing, an unbuffered import-time print) still lands on the wire, and so does a `print()` that stays buffered until the interpreter drains it at exit. For output you actually want, the `logging` module is the right tool: its handler flushes each record to stderr as it happens. That story is in **[Logging](../handlers/logging.md)**.
 
+!!! tip "Windows: import heavy native libraries before `run()`"
+    On Windows, a tool that **first-imports** an OpenBLAS-backed library (`numpy`,
+    `scipy`, `torch`, …) over **stdio** can hang with no error and no log line.
+    The stdio transport reads piped stdin on a background thread; that overlaps with
+    DLL init under the Windows loader lock (the same family as
+    [numpy#24290](https://github.com/numpy/numpy/issues/24290)). Import those
+    libraries at module scope **before** `mcp.run()`, so the in-tool import is a
+    cache hit. `streamable-http` is unaffected. Background:
+    [python-sdk#2832](https://github.com/modelcontextprotocol/python-sdk/issues/2832).
+
 ### Try it
 
 ```console
