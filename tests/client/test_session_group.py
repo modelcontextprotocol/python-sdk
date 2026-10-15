@@ -405,3 +405,285 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+async def test_disconnect_removes_all_tools_after_same_session_reregistration() -> None:
+    """Verify disconnecting after re-registering a session removes all tools."""
+    server_info = types.Implementation(name="TestServer", version="1.0")
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+
+    old_tool = types.Tool(name="old", input_schema={})
+    new_tool = types.Tool(name="new", input_schema={})
+
+    mock_session.list_tools.return_value = types.ListToolsResult(tools=[old_tool])
+    mock_session.list_resources.return_value = types.ListResourcesResult(resources=[])
+    mock_session.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+
+    group = ClientSessionGroup()
+    await group.connect_with_session(server_info, mock_session)
+    assert group.tools == {"old": old_tool}
+    assert group._tool_to_session == {"old": mock_session}
+    assert group._sessions[mock_session].tools == {"old"}
+    assert group.sessions == [mock_session]
+
+    # Re-register same session with changed catalog (disjoint tools)
+    mock_session.list_tools.return_value = types.ListToolsResult(tools=[new_tool])
+    await group.connect_with_session(server_info, mock_session)
+    assert group.tools == {"new": new_tool}
+    assert "old" not in group.tools
+    assert group._tool_to_session == {"new": mock_session}
+    assert "old" not in group._tool_to_session
+    assert group._sessions[mock_session].tools == {"new"}
+    assert group.sessions == [mock_session]
+
+    # Disconnect removes all tools belonging to the session
+    await group.disconnect_from_server(mock_session)
+    assert group.sessions == []
+    assert group.tools == {}
+    assert group._tool_to_session == {}
+    assert mock_session not in group._sessions
+
+
+@pytest.mark.anyio
+async def test_connect_with_session_collision_with_other_session_raises() -> None:
+    """Verify that re-registering raises MCPError if a component collides with another session."""
+    server_info_1 = types.Implementation(name="Server1", version="1.0")
+    session_1 = mock.AsyncMock(spec=mcp.ClientSession)
+    tool_shared = types.Tool(name="shared_tool", input_schema={})
+    session_1.list_tools.return_value = types.ListToolsResult(tools=[tool_shared])
+    session_1.list_resources.return_value = types.ListResourcesResult(resources=[])
+    session_1.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+
+    server_info_2 = types.Implementation(name="Server2", version="1.0")
+    session_2 = mock.AsyncMock(spec=mcp.ClientSession)
+    tool_other = types.Tool(name="other_tool", input_schema={})
+    session_2.list_tools.return_value = types.ListToolsResult(tools=[tool_other])
+    session_2.list_resources.return_value = types.ListResourcesResult(resources=[])
+    session_2.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+
+    group = ClientSessionGroup()
+    await group.connect_with_session(server_info_1, session_1)
+    await group.connect_with_session(server_info_2, session_2)
+
+    # Initial invariant checks
+    assert group.tools == {"shared_tool": tool_shared, "other_tool": tool_other}
+    assert group._tool_to_session == {"shared_tool": session_1, "other_tool": session_2}
+    assert group._sessions[session_1].tools == {"shared_tool"}
+    assert group._sessions[session_2].tools == {"other_tool"}
+
+    # Attempt to re-register session 2 with a tool that collides with session 1
+    session_2.list_tools.return_value = types.ListToolsResult(tools=[tool_shared])
+    with pytest.raises(MCPError) as excinfo:
+        await group.connect_with_session(server_info_2, session_2)
+
+    assert excinfo.value.error.code == types.INVALID_PARAMS
+    assert "shared_tool" in excinfo.value.error.message
+
+    # Assert full invariant: session 2's previous state must be completely preserved
+    assert group.tools == {"shared_tool": tool_shared, "other_tool": tool_other}
+    assert group._tool_to_session == {"shared_tool": session_1, "other_tool": session_2}
+    assert group._sessions[session_1].tools == {"shared_tool"}
+    assert group._sessions[session_2].tools == {"other_tool"}
+
+    # Ensure colliding tool was NOT re-routed to session 2
+    session_1.call_tool.return_value = types.CallToolResult(
+        content=[types.TextContent(type="text", text="server_1_ok")]
+    )
+    call_result = await group.call_tool("shared_tool", {})
+    assert isinstance(call_result.content[0], types.TextContent)
+    assert call_result.content[0].text == "server_1_ok"
+    session_1.call_tool.assert_awaited_once_with(
+        "shared_tool",
+        arguments={},
+        read_timeout_seconds=None,
+        progress_callback=None,
+        input_responses=None,
+        request_state=None,
+        meta=None,
+        allow_input_required=False,
+    )
+    session_2.call_tool.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_connect_with_session_reregister_refreshes_all_components() -> None:
+    """Verify that re-registering refreshes prompts, resources, and tools without false collision."""
+    server_info = types.Implementation(name="TestServer", version="1.0")
+    session = mock.AsyncMock(spec=mcp.ClientSession)
+
+    tool_1 = types.Tool(name="tool_1", input_schema={})
+    res_1 = types.Resource(uri="file:///res1", name="res_1")
+    prompt_1 = types.Prompt(name="prompt_1")
+
+    session.list_tools.return_value = types.ListToolsResult(tools=[tool_1])
+    session.list_resources.return_value = types.ListResourcesResult(resources=[res_1])
+    session.list_prompts.return_value = types.ListPromptsResult(prompts=[prompt_1])
+
+    group = ClientSessionGroup()
+    await group.connect_with_session(server_info, session)
+
+    # Invariant checks for initial state
+    assert group.tools == {"tool_1": tool_1}
+    assert group.resources == {"res_1": res_1}
+    assert group.prompts == {"prompt_1": prompt_1}
+    assert group._tool_to_session == {"tool_1": session}
+    assert group._sessions[session].tools == {"tool_1"}
+    assert group._sessions[session].resources == {"res_1"}
+    assert group._sessions[session].prompts == {"prompt_1"}
+
+    # Re-register with updated components
+    tool_2 = types.Tool(name="tool_2", input_schema={})
+    res_2 = types.Resource(uri="file:///res2", name="res_2")
+    prompt_2 = types.Prompt(name="prompt_2")
+
+    session.list_tools.return_value = types.ListToolsResult(tools=[tool_2])
+    session.list_resources.return_value = types.ListResourcesResult(resources=[res_2])
+    session.list_prompts.return_value = types.ListPromptsResult(prompts=[prompt_2])
+
+    await group.connect_with_session(server_info, session)
+
+    # Invariant checks after refresh
+    assert group.tools == {"tool_2": tool_2}
+    assert group.resources == {"res_2": res_2}
+    assert group.prompts == {"prompt_2": prompt_2}
+    assert "tool_1" not in group.tools
+    assert "res_1" not in group.resources
+    assert "prompt_1" not in group.prompts
+    assert group._tool_to_session == {"tool_2": session}
+    assert "tool_1" not in group._tool_to_session
+    assert group._sessions[session].tools == {"tool_2"}
+    assert group._sessions[session].resources == {"res_2"}
+    assert group._sessions[session].prompts == {"prompt_2"}
+
+    # Verify call_tool routing via _tool_to_session
+    session.call_tool.return_value = types.CallToolResult(content=[types.TextContent(type="text", text="tool_2_ok")])
+    call_res = await group.call_tool("tool_2", {"arg": "val"})
+    assert isinstance(call_res.content[0], types.TextContent)
+    assert call_res.content[0].text == "tool_2_ok"
+    session.call_tool.assert_awaited_once_with(
+        "tool_2",
+        arguments={"arg": "val"},
+        read_timeout_seconds=None,
+        progress_callback=None,
+        input_responses=None,
+        request_state=None,
+        meta=None,
+        allow_input_required=False,
+    )
+
+    # Calling evicted tool fails
+    with pytest.raises(KeyError):
+        await group.call_tool("tool_1", {})
+
+
+@pytest.mark.anyio
+async def test_connect_with_session_reregister_with_name_hook() -> None:
+    """Verify re-registration respects component_name_hook and cleans up hooked names."""
+
+    def name_hook(name: str, server_info: types.Implementation) -> str:
+        return f"{server_info.name}.{name}"
+
+    server_info = types.Implementation(name="MyServer", version="1.0")
+    session = mock.AsyncMock(spec=mcp.ClientSession)
+
+    tool_a = types.Tool(name="alpha", input_schema={})
+    session.list_tools.return_value = types.ListToolsResult(tools=[tool_a])
+    session.list_resources.return_value = types.ListResourcesResult(resources=[])
+    session.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+
+    group = ClientSessionGroup(component_name_hook=name_hook)
+    await group.connect_with_session(server_info, session)
+    assert group.tools == {"MyServer.alpha": tool_a}
+    assert group._tool_to_session == {"MyServer.alpha": session}
+    assert group._sessions[session].tools == {"MyServer.alpha"}
+
+    tool_b = types.Tool(name="beta", input_schema={})
+    session.list_tools.return_value = types.ListToolsResult(tools=[tool_b])
+
+    await group.connect_with_session(server_info, session)
+    assert group.tools == {"MyServer.beta": tool_b}
+    assert "MyServer.alpha" not in group.tools
+    assert group._tool_to_session == {"MyServer.beta": session}
+    assert "MyServer.alpha" not in group._tool_to_session
+    assert group._sessions[session].tools == {"MyServer.beta"}
+
+    session.call_tool.return_value = types.CallToolResult(content=[types.TextContent(type="text", text="beta_ok")])
+    call_res = await group.call_tool("MyServer.beta", {})
+    assert isinstance(call_res.content[0], types.TextContent)
+    assert call_res.content[0].text == "beta_ok"
+    session.call_tool.assert_awaited_once_with(
+        "beta",
+        arguments={},
+        read_timeout_seconds=None,
+        progress_callback=None,
+        input_responses=None,
+        request_state=None,
+        meta=None,
+        allow_input_required=False,
+    )
+
+    with pytest.raises(KeyError):
+        await group.call_tool("MyServer.alpha", {})
+
+    await group.disconnect_from_server(session)
+    assert group.tools == {}
+    assert group._tool_to_session == {}
+    assert group.sessions == []
+
+
+@pytest.mark.anyio
+async def test_connect_with_session_empty_catalog() -> None:
+    """Verify caller-owned session with empty catalog registers and refreshes without KeyError."""
+    server_info = types.Implementation(name="EmptyServer", version="1.0")
+    session = mock.AsyncMock(spec=mcp.ClientSession)
+    session.list_tools.return_value = types.ListToolsResult(tools=[])
+    session.list_resources.return_value = types.ListResourcesResult(resources=[])
+    session.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+
+    group = ClientSessionGroup()
+    # Connect with empty catalog — must not raise KeyError (:422-423 guard)
+    await group.connect_with_session(server_info, session)
+    assert group.tools == {}
+    assert group.resources == {}
+    assert group.prompts == {}
+    assert group.sessions == [session]
+    assert session not in group._session_exit_stacks
+
+    # Refresh with a tool added
+    sample_tool = types.Tool(name="sample", input_schema={})
+    session.list_tools.return_value = types.ListToolsResult(tools=[sample_tool])
+    await group.connect_with_session(server_info, session)
+    assert group.tools == {"sample": sample_tool}
+
+    # Refresh back to empty catalog — must not raise KeyError
+    session.list_tools.return_value = types.ListToolsResult(tools=[])
+    await group.connect_with_session(server_info, session)
+    assert group.tools == {}
+    assert "sample" not in group.tools
+    assert group.sessions == [session]
+
+    await group.disconnect_from_server(session)
+    assert group.sessions == []
+
+
+@pytest.mark.anyio
+async def test_connect_to_server_empty_catalog(mock_exit_stack: contextlib.AsyncExitStack) -> None:
+    """Verify group-owned connect_to_server with empty catalog cleans up exit stack without error."""
+    mock_server_info = mock.Mock(spec=types.Implementation)
+    mock_server_info.name = "EmptyServer"
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+    mock_session.list_tools.return_value = types.ListToolsResult(tools=[])
+    mock_session.list_resources.return_value = types.ListResourcesResult(resources=[])
+    mock_session.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+
+    async def fake_establish(*args: object, **kwargs: object) -> tuple[types.Implementation, mock.AsyncMock]:
+        group._session_exit_stacks[mock_session] = mock.AsyncMock()
+        return mock_server_info, mock_session
+
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+    with mock.patch.object(group, "_establish_session", side_effect=fake_establish):
+        await group.connect_to_server(StdioServerParameters(command="test"))
+
+    assert mock_session not in group._session_exit_stacks
+    assert group.tools == {}

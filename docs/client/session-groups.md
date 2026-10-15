@@ -66,6 +66,8 @@ Run it again. `print(sorted(group.tools))` now shows both:
 
 If you already hold a connected `ClientSession` (`Client.session` is one), hand it to `await group.connect_with_session(server_info, session)` instead of opening a new transport. It aggregates the same way. The group never closes a session it didn't open. `server_info` names the server for component prefixes; on a 2026-era connection `client.server_info` can be `None` (identity is optional), so pass your own `Implementation(name=..., version=...)` in that case.
 
+Calling `connect_with_session` with an already-connected session refreshes that session's aggregated components to match its current catalog. Any components the server no longer exposes are removed from the group, and newly added ones are registered, without triggering duplicate-name collisions against the session's own previous registrations. If any component collides with a *different* session in the group, an `MCPError` is raised and the group's existing state is preserved.
+
 ## The classic handshake
 
 `ClientSessionGroup` is built on `ClientSession`, not on `Client`. Each `connect_to_server` runs the classic `initialize` handshake. It never sends the `server/discover` probe described in **[Protocol versions](../protocol-versions.md)**. Every MCP server understands that handshake, so this costs you compatibility with nothing; it only means a group takes the older, slower path to a server that could do better.
@@ -77,6 +79,6 @@ If you already hold a connected `ClientSession` (`Client.session` is one), hand 
 * `group.call_tool(name, arguments)` routes to the owning server for you.
 * Names must be unique across the whole group; two servers with a `search` tool cannot coexist on their own.
 * `component_name_hook=` rewrites every registered name. The dict key changes, the wire name does not.
-* `connect_with_session` adds a session you already hold; `disconnect_from_server` removes one.
+* `connect_with_session` adds a session you already hold (or refreshes an existing one); `disconnect_from_server` removes one.
 
 The handshake a group speaks (and the faster one a `Client` prefers) is the subject of **[Protocol versions](../protocol-versions.md)**.

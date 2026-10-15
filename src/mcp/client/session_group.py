@@ -175,7 +175,7 @@ class ClientSessionGroup:
     @property
     def sessions(self) -> list[mcp.ClientSession]:
         """Returns the list of sessions being managed."""
-        return list(self._sessions.keys())  # pragma: no cover
+        return list(self._sessions.keys())
 
     @property
     def prompts(self) -> dict[str, types.Prompt]:
@@ -379,8 +379,9 @@ class ClientSessionGroup:
         # the session group via self.disconnect_from_server.
         component_names = self._ComponentNames()
 
-        # Temporary components dicts. We do not want to modify the aggregate
-        # lists in case of an intermediate failure.
+        # Temporary component dictionaries to stage changes. We query and validate
+        # all components before mutating group state so that any failure leaves
+        # existing registrations intact.
         prompts_temp: dict[str, types.Prompt] = {}
         resources_temp: dict[str, types.Resource] = {}
         tools_temp: dict[str, types.Tool] = {}
@@ -420,24 +421,41 @@ class ClientSessionGroup:
         # Clean up exit stack for session if we couldn't retrieve anything
         # from the server.
         if not any((prompts_temp, resources_temp, tools_temp)):
-            del self._session_exit_stacks[session]  # pragma: no cover
+            if session in self._session_exit_stacks:
+                del self._session_exit_stacks[session]
 
-        # Check for duplicates.
-        matching_prompts = prompts_temp.keys() & self._prompts.keys()
+        # Check for duplicates, ignoring components already registered by this session.
+        own_components = self._sessions.get(session)
+        other_prompts = self._prompts.keys() - own_components.prompts if own_components else self._prompts.keys()
+        matching_prompts = prompts_temp.keys() & other_prompts
         if matching_prompts:
             raise MCPError(  # pragma: no cover
                 code=types.INVALID_PARAMS,
                 message=f"{matching_prompts} already exist in group prompts.",
             )
-        matching_resources = resources_temp.keys() & self._resources.keys()
+        other_resources = (
+            self._resources.keys() - own_components.resources if own_components else self._resources.keys()
+        )
+        matching_resources = resources_temp.keys() & other_resources
         if matching_resources:
             raise MCPError(  # pragma: no cover
                 code=types.INVALID_PARAMS,
                 message=f"{matching_resources} already exist in group resources.",
             )
-        matching_tools = tools_temp.keys() & self._tools.keys()
+        other_tools = self._tools.keys() - own_components.tools if own_components else self._tools.keys()
+        matching_tools = tools_temp.keys() & other_tools
         if matching_tools:
             raise MCPError(code=types.INVALID_PARAMS, message=f"{matching_tools} already exist in group tools.")
+
+        # Clean up any previously registered components for this session before aggregating new ones.
+        if own_components:
+            for name in own_components.prompts:
+                self._prompts.pop(name, None)
+            for name in own_components.resources:
+                self._resources.pop(name, None)
+            for name in own_components.tools:
+                self._tools.pop(name, None)
+                self._tool_to_session.pop(name, None)
 
         # Aggregate components.
         self._sessions[session] = component_names
