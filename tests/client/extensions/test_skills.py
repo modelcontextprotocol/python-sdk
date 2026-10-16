@@ -189,6 +189,7 @@ async def test_get_skill_returns_the_matching_entry() -> None:
 
 
 async def test_list_and_get_skill_preserve_skill_meta() -> None:
+    """ext-skills#157: a skill's optional `_meta` survives server -> wire -> client on both methods."""
     meta = {"example.com/owner": "platform"}
     skill_with_meta = Skill(
         uri=_SKILL_URI,

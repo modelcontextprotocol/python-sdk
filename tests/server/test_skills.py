@@ -180,6 +180,8 @@ async def test_skills_list_rejects_a_skill_mutated_after_the_result_is_built() -
 
 
 async def test_skills_list_sends_skill_meta_as_underscore_meta() -> None:
+    """ext-skills#157: a skill's optional metadata crosses the wire as `_meta`, not `meta`."""
+
     async def with_meta(ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
         skill = _git_workflow_skill().model_copy(update={"meta": {"example.com/owner": "platform"}})
         return ListSkillsResult(skills=[skill])
@@ -344,6 +346,8 @@ async def test_directory_read_defaults_to_private_cache_scope_on_the_2026_07_28_
 
 
 async def test_directory_read_omits_cache_fields_on_a_legacy_wire() -> None:
+    """SEP-2549 fields are 2026-07-28+ only, and the runner's sieve skips extension methods,
+    so `Skills` strips them itself for an older connection."""
     async with Client(_server(with_directory_read=True), mode="legacy") as client:
         raw = await client.session.send_request(
             ReadDirectoryRequest(params=ReadDirectoryParams(uri="skill://git-workflow")), _RawResult
