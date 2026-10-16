@@ -678,10 +678,10 @@ class TestOAuthFallback:
         assert unquote(client_id) == client_id_raw
         assert unquote(client_secret) == client_secret_raw
 
-        # client_secret should NOT be in body for basic auth
+        # Neither credential belongs in the body for basic auth (RFC 6749 2.3)
         content = request.content.decode()
         assert "client_secret=" not in content
-        assert "client_id=test%40client" in content  # client_id still in body
+        assert "client_id=" not in content
 
     @pytest.mark.anyio
     async def test_basic_auth_refresh_token(self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
@@ -714,9 +714,10 @@ class TestOAuthFallback:
         decoded = base64.b64decode(encoded_creds).decode()
         assert decoded == f"{client_id}:{client_secret}"
 
-        # client_secret should NOT be in body
+        # Neither credential belongs in the body for basic auth (RFC 6749 2.3)
         content = request.content.decode()
         assert "client_secret=" not in content
+        assert "client_id=" not in content
 
     @pytest.mark.anyio
     async def test_none_auth_method(self, oauth_provider: OAuthClientProvider):
