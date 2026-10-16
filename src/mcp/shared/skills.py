@@ -104,6 +104,8 @@ class Skill(_SkillModel):
     """Resource URI of the skill's `SKILL.md`."""
     frontmatter: Frontmatter
     resources: SkillResources
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """Opaque `_meta` the server attaches to this entry."""
 
     @model_validator(mode="after")
     def _check_conformance(self) -> Skill:
@@ -191,8 +193,12 @@ class ReadDirectoryParams(PaginatedRequestParams):
     """URI of the directory resource whose direct children are listed."""
 
 
-class ReadDirectoryResult(PaginatedResult):
-    """Result of `resources/directory/read`."""
+class ReadDirectoryResult(PaginatedResult, CacheableResult):
+    """Result of `resources/directory/read`.
+
+    Like `ListSkillsResult`, this carries SEP-2549's `ttl_ms`/`cache_scope`, which
+    `mcp.server.skills` strips for a pre-2026-07-28 connection.
+    """
 
     resources: list[Resource]
 

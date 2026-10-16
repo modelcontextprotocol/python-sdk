@@ -188,6 +188,30 @@ async def test_get_skill_returns_the_matching_entry() -> None:
     assert skill.uri == _SKILL_URI
 
 
+async def test_list_and_get_skill_preserve_skill_meta() -> None:
+    """ext-skills#157: a skill's optional `_meta` survives server -> wire -> client on both methods."""
+    meta = {"example.com/owner": "platform"}
+    skill_with_meta = Skill(
+        uri=_SKILL_URI,
+        frontmatter={"name": "git-workflow", "description": "d"},
+        resources=[SkillResource(uri=_SKILL_URI, digest=_SKILL_DIGEST, size=len(_SKILL_CONTENT))],
+        _meta=meta,
+    )
+
+    async def list_skills(ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
+        return ListSkillsResult(skills=[skill_with_meta])
+
+    async def get_skill(ctx: ServerRequestContext[Any, Any], params: GetSkillParams) -> GetSkillResult:
+        return GetSkillResult(skill=skill_with_meta)
+
+    server = MCPServer("catalog", extensions=[Skills(list_skills=list_skills, get_skill=get_skill)])
+    async with _skills(server) as skills:
+        listed = await skills.list_skills()
+        fetched = await skills.get_skill(_SKILL_URI)
+    assert [s.meta for s in listed] == [meta]
+    assert fetched.meta == meta
+
+
 async def test_get_skill_propagates_the_servers_unknown_skill_error() -> None:
     async with _skills(_server()) as skills:
         with pytest.raises(MCPError) as exc_info:

@@ -139,7 +139,7 @@ class Skills(Extension):
             validate_directory_result(params.uri, result)
         except ValueError:
             raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
-        return result
+        return _finalize_cacheable(result, ctx.protocol_version)
 
 
 def _require_skill_md_uri(uri: str) -> None:
@@ -159,7 +159,7 @@ def _require_directory_uri(uri: str) -> None:
 def _finalize_cacheable(result: CacheableResult, protocol_version: str) -> HandlerResult:
     """Gate SEP-2549's `ttlMs`/`cacheScope` to protocol version 2026-07-28+.
 
-    `skills/list` and `skills/get` are extension methods, so — unlike a core spec
+    `skills/list`, `skills/get` and `resources/directory/read` are extension methods, so — unlike a core spec
     method — the runner's per-version surface sieve never runs on their results;
     nothing else strips these fields for a legacy connection. `CacheableResult`
     defaults to `cache_scope="private"`, keeping user-specific entries out of shared caches.

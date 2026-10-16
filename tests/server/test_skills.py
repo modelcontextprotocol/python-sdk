@@ -179,6 +179,20 @@ async def test_skills_list_rejects_a_skill_mutated_after_the_result_is_built() -
     assert exc_info.value.code == INTERNAL_ERROR
 
 
+async def test_skills_list_sends_skill_meta_as_underscore_meta() -> None:
+    """ext-skills#157: a skill's optional metadata crosses the wire as `_meta`, not `meta`."""
+
+    async def with_meta(ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
+        skill = _git_workflow_skill().model_copy(update={"meta": {"example.com/owner": "platform"}})
+        return ListSkillsResult(skills=[skill])
+
+    server = MCPServer("catalog", extensions=[Skills(list_skills=with_meta, get_skill=_get_skill)])
+    async with Client(server, mode="2026-07-28") as client:
+        raw = await client.session.send_request(ListSkillsRequest(), _RawResult)
+    extra = raw.model_extra or {}
+    assert extra["skills"][0]["_meta"] == {"example.com/owner": "platform"}
+
+
 async def test_skills_get_returns_the_matching_skill() -> None:
     async with Client(_server()) as client:
         result = await client.session.send_request(
@@ -319,6 +333,28 @@ async def test_directory_read_returns_the_handlers_children() -> None:
             ReadDirectoryRequest(params=ReadDirectoryParams(uri="skill://git-workflow")), ReadDirectoryResult
         )
     assert [r.uri for r in result.resources] == ["skill://git-workflow/references"]
+
+
+async def test_directory_read_defaults_to_private_cache_scope_on_the_2026_07_28_wire() -> None:
+    """ext-skills#157: `resources/directory/read` results carry SEP-2549's cache fields too."""
+    async with Client(_server(with_directory_read=True), mode="2026-07-28") as client:
+        raw = await client.session.send_request(
+            ReadDirectoryRequest(params=ReadDirectoryParams(uri="skill://git-workflow")), _RawResult
+        )
+    extra = raw.model_extra or {}
+    assert (extra["ttlMs"], extra["cacheScope"]) == (0, "private")
+
+
+async def test_directory_read_omits_cache_fields_on_a_legacy_wire() -> None:
+    """SEP-2549 fields are 2026-07-28+ only, and the runner's sieve skips extension methods,
+    so `Skills` strips them itself for an older connection."""
+    async with Client(_server(with_directory_read=True), mode="legacy") as client:
+        raw = await client.session.send_request(
+            ReadDirectoryRequest(params=ReadDirectoryParams(uri="skill://git-workflow")), _RawResult
+        )
+    extra = raw.model_extra or {}
+    assert "cacheScope" not in extra
+    assert "ttlMs" not in extra
 
 
 async def test_directory_read_is_not_registered_without_a_handler() -> None:

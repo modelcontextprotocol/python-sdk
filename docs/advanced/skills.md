@@ -35,7 +35,8 @@ There are three moves here:
 * `Skill(uri=..., frontmatter=..., resources=[...])` is one entry. It has the same shape whether it
   comes back from `skills/list` or `skills/get`. `resources` is the skill's complete file
   manifest — every file, `SKILL.md` included, each with a `sha256:...` digest and byte size — or
-  the string `"dynamic"` for content generated on demand.
+  the string `"dynamic"` for content generated on demand. An optional `_meta` dict rides along
+  unchanged on both methods.
 * `list_skills` and `get_skill` are plain async callables, invoked once per request. `get_skill`
   **must** answer for a skill even if your `list_skills` left it out — SEP-2640 requires a server
   to answer by URI for every skill it serves, listed or not.
@@ -117,7 +118,8 @@ setting.
 
 ## Protocol version and caching
 
-In protocol version `2026-07-28` and later, `skills/list` and `skills/get` results carry the base
+In protocol version `2026-07-28` and later, `skills/list`, `skills/get`, and
+`resources/directory/read` results carry the base
 protocol's caching fields, [`ttlMs` and `cacheScope`](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549) —
 the same freshness hint `tools/list`, `resources/list`, and `resources/read` carry. `Skills` fills
 `cacheScope` with `"private"` when your handler leaves it unset, and omits both fields entirely on an
