@@ -146,13 +146,6 @@ async def _to_jsonrpc_response(
 _SSE_PING_INTERVAL: float = 15.0
 """Seconds between SSE comment-line keepalives once `text/event-stream` has committed."""
 
-_SSE_HEADERS: Final[list[tuple[bytes, bytes]]] = [
-    (b"content-type", b"text/event-stream"),
-    (b"cache-control", b"no-cache, no-transform"),
-    (b"connection", b"keep-alive"),
-    (b"x-accel-buffering", b"no"),
-]
-
 
 def _sse_event(msg: JSONRPCResponse | JSONRPCError | JSONRPCNotification) -> bytes:
     """Serialise a JSON-RPC message as one SSE `event: message` frame.
@@ -512,7 +505,18 @@ async def handle_modern_request(
             # First notification arrived, or the deferral window elapsed: commit
             # `text/event-stream` and start pinging so a proxy idle-read timeout
             # cannot close the stream (which on this path cancels the handler).
-            await send({"type": "http.response.start", "status": _OK_STATUS, "headers": list(_SSE_HEADERS)})
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": _OK_STATUS,
+                    "headers": [
+                        (b"content-type", b"text/event-stream"),
+                        (b"cache-control", b"no-cache, no-transform"),
+                        (b"connection", b"keep-alive"),
+                        (b"x-accel-buffering", b"no"),
+                    ],
+                }
+            )
             while not done:
                 await send({"type": "http.response.body", "body": event or b": ping\r\n\r\n", "more_body": True})
                 event = None
