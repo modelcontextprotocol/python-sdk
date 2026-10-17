@@ -77,9 +77,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-_OK_STATUS = 200
-
-
 @dataclass
 class _SingleExchangeDispatchContext:
     """`DispatchContext` for one inbound HTTP request.
@@ -181,7 +178,7 @@ async def _write(
     send: Send,
 ) -> None:
     """Serialise a JSON-RPC reply with the table-mapped HTTP status."""
-    status = ERROR_CODE_HTTP_STATUS.get(msg.error.code, _OK_STATUS) if isinstance(msg, JSONRPCError) else _OK_STATUS
+    status = ERROR_CODE_HTTP_STATUS.get(msg.error.code, 200) if isinstance(msg, JSONRPCError) else 200
     body = msg.model_dump(mode="json", by_alias=True, exclude_none=True)
     if isinstance(msg, JSONRPCError) and msg.id is None:
         # JSON-RPC requires `id: null` to appear on the wire when the request
@@ -508,7 +505,7 @@ async def handle_modern_request(
             await send(
                 {
                     "type": "http.response.start",
-                    "status": _OK_STATUS,
+                    "status": 200,
                     "headers": [
                         (b"content-type", b"text/event-stream"),
                         (b"cache-control", b"no-cache, no-transform"),
