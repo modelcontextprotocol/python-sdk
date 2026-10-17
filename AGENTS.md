@@ -84,6 +84,7 @@ assigned to their author are closed automatically.
   - Use `anyio.Event` — set it in the callback/handler, `await event.wait()` in the test
   - For stream messages, use `await stream.receive()` instead of `sleep()` + `receive_nowait()`
   - Exception: `sleep()` is appropriate when testing time-based features (e.g., timeouts)
+- Wrap indefinite waits (`event.wait()`, `stream.receive()`) in `anyio.fail_after(5)` to prevent hangs
 - Pytest is configured with `filterwarnings = ["error"]`, so warnings fail
   tests. Don't silence warnings from your own code; fix the underlying cause.
   Scoped `ignore::` entries for upstream libraries are acceptable in
