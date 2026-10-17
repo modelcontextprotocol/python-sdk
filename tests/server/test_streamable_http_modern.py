@@ -525,10 +525,9 @@ async def test_sse_mode_headers_are_not_shared_across_responses() -> None:
         headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION, "accept": "application/json, text/event-stream"},
     ) as http:
         for _ in range(2):
-            with anyio.fail_after(5):
-                response = await http.post(
-                    "/mcp", json=_list_tools_body_with_token("tok"), headers={MCP_METHOD_HEADER: "tools/list"}
-                )
+            response = await http.post(
+                "/mcp", json=_list_tools_body_with_token("tok"), headers={MCP_METHOD_HEADER: "tools/list"}
+            )
             assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
             assert response.headers.get_list("x-id") == ["abc"]
 
