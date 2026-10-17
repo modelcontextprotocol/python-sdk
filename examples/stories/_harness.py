@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import socket
 import sys
+import tomllib
 import traceback
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -26,11 +27,6 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
 from mcp.types.version import LATEST_MODERN_VERSION
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 Target: TypeAlias = "Server[Any] | MCPServer | Transport | StdioServerParameters | str"
 """Anything ``Client(...)`` accepts: an HTTP URL, stdio launch parameters, a ``Transport``, or an in-process server."""

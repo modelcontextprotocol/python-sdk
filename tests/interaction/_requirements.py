@@ -1372,13 +1372,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "prompts:get:missing-required-args": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
         behavior="prompts/get omitting a required argument returns JSON-RPC error -32602 (Invalid params).",
-        divergence=Divergence(
-            note=(
-                "MCPServer's prompt renderer raises a plain ValueError before the prompt function runs, "
-                "which the low-level server converts to error code 0 with the exception text as the message."
-            ),
-        ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     "prompts:get:multi-message": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#getting-a-prompt",
@@ -1447,13 +1440,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:prompt:unknown-name": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
         behavior="prompts/get for a name that was never registered returns JSON-RPC error -32602 (Invalid params).",
-        divergence=Divergence(
-            note=(
-                "The spec's example uses -32602 Invalid params for unknown prompts; MCPServer raises "
-                "ValueError, which the low-level server converts to error code 0."
-            ),
-        ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Completion

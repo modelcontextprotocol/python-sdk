@@ -49,7 +49,7 @@ from mcp.client._memory import InMemoryTransport
 from mcp.client._probe import negotiate_auto
 from mcp.client._transport import Transport
 from mcp.client.caching import CacheConfig, CacheMode, ClientResponseCache, InMemoryResponseCacheStore
-from mcp.client.extension import ClaimContext, ClientExtension, NotificationBinding, ResultClaim
+from mcp.client.extension import ClaimContext, ClientExtension, ClientExtensionBinding, NotificationBinding, ResultClaim
 from mcp.client.session import (
     ClientRequestContext,
     ClientSession,
@@ -87,6 +87,7 @@ _RELIST_PAGE_CAP: Final = 100
 _T = TypeVar("_T")
 _ResultT = TypeVar("_ResultT")
 _CacheableT = TypeVar("_CacheableT", bound=CacheableResult)
+_BoundT = TypeVar("_BoundT")
 
 _Connector = Callable[[AsyncExitStack, ConnectMode, bool], Awaitable["Dispatcher[Any]"]]
 """Resolved at ``__post_init__`` from the shape of ``server`` alone: enter whatever resources
@@ -376,6 +377,7 @@ class Client:
     _connect: _Connector = field(init=False, repr=False, compare=False)
     _response_cache: ClientResponseCache | None = field(init=False, default=None, repr=False, compare=False)
     _folded_extensions: _FoldedExtensions = field(init=False, repr=False, compare=False)
+    _registered_extensions: tuple[ClientExtension, ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.mode not in ("legacy", "auto") and self.mode not in MODERN_PROTOCOL_VERSIONS:
@@ -389,6 +391,7 @@ class Client:
             )
 
         self._folded_extensions = _fold_extensions(self.extensions)
+        self._registered_extensions = tuple(self.extensions or ())
 
         srv = self.server
         if isinstance(srv, MCPServer):
@@ -492,6 +495,19 @@ class Client:
         if self._session is None:
             raise RuntimeError("Client must be used within an async context manager")
         return self._session
+
+    def extension(self, extension_type: type[ClientExtensionBinding[_BoundT]]) -> _BoundT:
+        """Return the typed API of a registered extension for this connection.
+
+        Raises:
+            RuntimeError: If the client is not connected.
+            ValueError: If no extension of this type was registered.
+        """
+        session = self.session
+        for extension in self._registered_extensions:
+            if isinstance(extension, extension_type):
+                return cast(ClientExtensionBinding[_BoundT], extension).bind(session)
+        raise ValueError(f"client extension {extension_type.__name__!r} is not registered")
 
     # TODO(maxisbey): the by-construction shape is for __aenter__ to return a connected-view
     # type whose protocol_version/server_capabilities are non-Optional fields,

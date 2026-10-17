@@ -3,7 +3,7 @@ name = "mcp"
 dynamic = ["version", "dependencies"]
 description = "Model Context Protocol SDK"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
 maintainers = [
     { name = "David Soria Parra", email = "davidsp@anthropic.com" },
@@ -18,11 +18,11 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
 ]
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
@@ -61,7 +61,6 @@ dev = [
     # pydantic-settings is used only by examples (simple-auth, mcpserver/text_me);
     # keep it reachable for pyright, which covers examples/servers.
     "pydantic-settings>=2.5.2",
-    "tomli>=2.0; python_version < '3.11'",
     "pyright>=1.1.400",
     "pytest>=8.4.0",
     "ruff>=0.8.5",
@@ -73,11 +72,13 @@ dev = [
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
     "coverage[toml]>=7.10.7,<=7.13",
-    "pillow>=12.0",
+    "pillow>=12.3; python_version >= '3.15'",
+    "pillow>=12.0; python_version < '3.15'",
     "strict-no-cover",
     "logfire>=3.0.0",
     "opentelemetry-sdk>=1.39.1",
-    "blockbuster>=1.5.27",
+    "blockbuster>=1.5.29; python_version >= '3.15'",
+    "blockbuster>=1.5.27; python_version < '3.15'",
 ]
 docs = [
     # Zensical is the Material team's successor to MkDocs; it natively
@@ -110,7 +111,7 @@ docs = [
 # of the default groups so no other environment installs the client (or the
 # legacy httpx it depends on). See i18n/README.md.
 translate = ["anthropic>=0.121.0"]
-codegen = ["datamodel-code-generator==0.57.0"]
+codegen = ["datamodel-code-generator==0.81.0"]
 
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning"]
@@ -133,14 +134,16 @@ dependencies = [
     "anyio>=4.9; python_version < '3.14'",
     "httpx2>=2.10.0",
     "mcp-types=={{ version }}",
-    "pydantic>=2.12.0",
+    "pydantic>=2.14.0; python_version >= '3.15'",
+    "pydantic>=2.12.0; python_version < '3.15'",
     "starlette>=0.48.0; python_version >= '3.14'",
     "starlette>=0.27; python_version < '3.14'",
     "python-multipart>=0.0.9",
     "sse-starlette>=3.0.0",
     "uvicorn>=0.31.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
-    "pywin32>=311; sys_platform == 'win32'",
+    "pywin32>=312; sys_platform == 'win32' and python_version >= '3.15'",
+    "pywin32>=311; sys_platform == 'win32' and python_version < '3.15'",
     "pyjwt[crypto]>=2.10.1",
     "typing-extensions>=4.13.0",
     "typing-inspection>=0.4.1",
@@ -202,7 +205,7 @@ executionEnvironments = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = [

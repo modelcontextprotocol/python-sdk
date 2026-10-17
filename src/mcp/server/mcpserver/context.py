@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, Generic, cast
+from typing import TYPE_CHECKING, Any, Generic, Self, cast
 
 from mcp_types import ClientCapabilities, InputRequiredResult, InputResponseRequestParams, InputResponses, LoggingLevel
 from pydantic import AnyUrl, BaseModel, ModelWrapValidatorHandler, model_validator
-from typing_extensions import Self, deprecated
+from typing_extensions import deprecated
 
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import (

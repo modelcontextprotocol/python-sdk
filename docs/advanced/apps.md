@@ -20,7 +20,7 @@ then come back.
 
 ## A clock with a face
 
-```python title="server.py" hl_lines="17 20 28 30"
+```python title="server.py" hl_lines="36 39 47 49"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -51,7 +51,7 @@ The model reads `content`; the iframe is for humans. A UI-capable host still fee
 the text result to the model, and a text-only client gets *only* that. So the
 canonical pattern is one tool, two answers. Look at `get_time` again:
 
-```python title="server.py" hl_lines="21-25"
+```python title="server.py" hl_lines="40-44"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 

@@ -107,7 +107,7 @@ where one exists; a rule with no stated why is a convention — follow it anyway
   silently become load-bearing.
 - Comments live next to the line they explain, not in docstrings; single backticks for code
   refs; match the surrounding comment density (one-liners next to one-liners). No
-  `from __future__ import annotations` (py310+ repo).
+  `from __future__ import annotations` (py311+ repo).
 - Test work doesn't change `src/` as a side effect — the one mechanical exception is deleting a
   pragma a new test now covers. If a test can't be written without a library change, raise it
   as a finding or defer the test; don't quietly edit `src/`.

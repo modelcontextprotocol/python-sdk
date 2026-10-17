@@ -29,7 +29,7 @@ The [Model Context Protocol](https://modelcontextprotocol.io) lets you build ser
 
 ## Requirements
 
-Python 3.10+.
+Python 3.11+.
 
 ## Installation
 

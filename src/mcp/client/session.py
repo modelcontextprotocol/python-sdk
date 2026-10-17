@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import cache, reduce
 from operator import or_
 from types import TracebackType, UnionType
-from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, TypeAlias, cast, get_args, overload
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, Self, TypeAlias, cast, get_args, overload
 
 import anyio
 import anyio.abc
@@ -36,7 +36,7 @@ from mcp_types.version import (
     MODERN_PROTOCOL_VERSIONS,
 )
 from pydantic import BaseModel, Discriminator, Tag, TypeAdapter, ValidationError
-from typing_extensions import Self, TypeVar, deprecated
+from typing_extensions import TypeVar, deprecated
 
 from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.extension import NotificationBinding, ResultClaim, UnexpectedClaimedResult

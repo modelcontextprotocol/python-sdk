@@ -99,7 +99,7 @@ jobs:
           # defence in depth (and avoids a refused save in the post step).
           # Mirrors publish-pypi.yml.
           enable-cache: false
-          version: 0.9.5
+          version: 0.12.24
 
       # Both triggers run this workflow file from the default branch (whatever
       # the PR targets), so the whole recipe — dependency sync included — must

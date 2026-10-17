@@ -3,6 +3,7 @@
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
+    INVALID_PARAMS,
     ErrorData,
     GetPromptResult,
     ListPromptsResult,
@@ -78,8 +79,7 @@ async def test_get_prompt_renders_function_return(connect: Connect, unstamped: U
 async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
     """Getting a prompt name that was never registered fails with a JSON-RPC error.
 
-    The spec reserves -32602 for this case; the SDK reports code 0 (see the divergence note on
-    the requirement).
+    The spec recommends `INVALID_PARAMS` for unknown prompt names.
     """
     mcp = MCPServer("prompter")
 
@@ -92,16 +92,15 @@ async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("nope")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Unknown prompt: nope"))
+    assert exc_info.value.code == INVALID_PARAMS
+    assert exc_info.value.error == snapshot(ErrorData(code=-32602, message="Unknown prompt: nope"))
 
 
 @requirement("prompts:get:missing-required-args")
 async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: Connect) -> None:
     """Getting a prompt without one of its required arguments fails with a JSON-RPC error.
 
-    The missing argument is detected before the prompt function is called, but the spec's -32602
-    Invalid params is reported as error code 0 with the bare exception text (see the divergence
-    note on the requirement).
+    The spec recommends `INVALID_PARAMS`; validation rejects the call before the function runs.
     """
     mcp = MCPServer("prompter")
 
@@ -114,7 +113,8 @@ async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: 
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("greet")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Missing required arguments: {'name'}"))
+    assert exc_info.value.code == INVALID_PARAMS
+    assert exc_info.value.error == snapshot(ErrorData(code=-32602, message="Missing required arguments: {'name'}"))
 
 
 @requirement("mcpserver:prompt:args-validation")

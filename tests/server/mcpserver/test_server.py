@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NotRequired
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
@@ -51,7 +51,7 @@ from mcp_types import (
 from pydantic import AfterValidator, BaseModel, ValidationError
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
@@ -1587,8 +1587,10 @@ class TestServerPrompts:
         mcp = MCPServer()
 
         async with Client(mcp, mode="legacy") as client:
-            with pytest.raises(MCPError, match="Unknown prompt"):
+            with pytest.raises(MCPError) as exc_info:
                 await client.get_prompt("unknown")
+            assert exc_info.value.code == INVALID_PARAMS
+            assert exc_info.value.message == snapshot("Unknown prompt: unknown")
 
     async def test_get_prompt_missing_args(self):
         """Test error when required arguments are missing."""
@@ -1598,8 +1600,10 @@ class TestServerPrompts:
         def prompt_fn(name: str) -> str: ...  # pragma: no branch
 
         async with Client(mcp, mode="legacy") as client:
-            with pytest.raises(MCPError, match="Missing required arguments"):
+            with pytest.raises(MCPError) as exc_info:
                 await client.get_prompt("prompt_fn")
+            assert exc_info.value.code == INVALID_PARAMS
+            assert exc_info.value.message == snapshot("Missing required arguments: {'name'}")
 
 
 async def test_resource_decorator_rfc6570_reserved_expansion():

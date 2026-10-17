@@ -21,10 +21,10 @@ jobs:
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
 
       - name: Install dependencies
-        run: uv sync --frozen --all-extras --python 3.10
+        run: uv sync --frozen --all-extras --python 3.11
 
       - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         with:
@@ -35,6 +35,9 @@ jobs:
           node-version: 24 # match actions/github-script's node24 runtime
       - name: Workflow script tests
         run: node --test '.github/scripts/*.test.js'
+
+      - name: MCP Apps UI script tests
+        run: node --test tests/docs_src/test_apps.test.js
 
       - name: Surface types match vendored schema
         run: |
@@ -55,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
         dep-resolution:
           - name: lowest-direct
             install-flags: "--upgrade --resolution lowest-direct"
@@ -72,7 +75,7 @@ jobs:
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
 
       - name: Install the project
         run: uv sync ${{ matrix.dep-resolution.install-flags }} --all-extras --python ${{ matrix.python-version }}
@@ -107,10 +110,10 @@ jobs:
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
 
       - name: Install dependencies
-        run: uv sync --frozen --all-extras --python 3.10
+        run: uv sync --frozen --all-extras --python 3.11
 
       - name: Check README snippets are up to date
         run: uv run --frozen scripts/update_readme_snippets.py --check
@@ -136,7 +139,7 @@ jobs:
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
 
       - name: Build the docs in strict mode
         run: bash scripts/docs/build.sh

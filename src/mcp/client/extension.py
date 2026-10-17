@@ -15,6 +15,7 @@ from mcp_types import CORE_RESULT_TYPES, CallToolResult, InputRequiredResult, Re
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import AliasChoices, AliasPath, BaseModel
 from pydantic.fields import FieldInfo
+from typing_extensions import Protocol
 
 from mcp.shared.extension import validate_extension_identifier
 
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ClaimContext",
     "ClientExtension",
+    "ClientExtensionBinding",
     "NotificationBinding",
     "ResultClaim",
     "UnexpectedClaimedResult",
@@ -54,6 +56,15 @@ def _wire_keys(name: str, field: FieldInfo) -> frozenset[str]:
 
 ClaimedT = TypeVar("ClaimedT", bound=Result)
 NotifyParamsT = TypeVar("NotifyParamsT", bound=BaseModel)
+BoundT_co = TypeVar("BoundT_co", covariant=True)
+
+
+class ClientExtensionBinding(Protocol[BoundT_co]):
+    """An extension that exposes a typed API for one connected client."""
+
+    def bind(self, session: ClientSession) -> BoundT_co:
+        """Return the extension API bound to `session`."""
+        ...
 
 
 @dataclass(frozen=True, kw_only=True)
