@@ -512,7 +512,7 @@ async def handle_modern_request(
             # First notification arrived, or the deferral window elapsed: commit
             # `text/event-stream` and start pinging so a proxy idle-read timeout
             # cannot close the stream (which on this path cancels the handler).
-            await send({"type": "http.response.start", "status": _OK_STATUS, "headers": _SSE_HEADERS})
+            await send({"type": "http.response.start", "status": _OK_STATUS, "headers": list(_SSE_HEADERS)})
             while not done:
                 await send({"type": "http.response.body", "body": event or b": ping\r\n\r\n", "more_body": True})
                 event = None
