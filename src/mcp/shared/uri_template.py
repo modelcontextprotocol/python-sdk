@@ -210,7 +210,7 @@ def _encode(value: str, *, allow_reserved: bool) -> str:
     followed by two hex digits is still encoded to ``%25``.
     """
     if not allow_reserved:
-        return quote(value, safe="")
+        return quote(value, safe="", errors="surrogateescape")
 
     # Reserved expansion: walk the string, pass through triplets as-is,
     # quote the gaps between them. A bare % with no triplet lands in a
@@ -218,10 +218,10 @@ def _encode(value: str, *, allow_reserved: bool) -> str:
     out: list[str] = []
     last = 0
     for m in _PCT_TRIPLET_RE.finditer(value):
-        out.append(quote(value[last : m.start()], safe=_RESERVED))
+        out.append(quote(value[last : m.start()], safe=_RESERVED, errors="surrogateescape"))
         out.append(m.group())
         last = m.end()
-    out.append(quote(value[last:], safe=_RESERVED))
+    out.append(quote(value[last:], safe=_RESERVED, errors="surrogateescape"))
     return "".join(out)
 
 
@@ -604,7 +604,7 @@ def _parse_query(query: str) -> dict[str, str]:
     for pair in query.split("&"):
         name, _, value = pair.partition("=")
         if name and name not in result:
-            result[name] = unquote(value)
+            result[name] = unquote(value, errors="surrogateescape")
     return result
 
 
@@ -622,7 +622,7 @@ def _extract_greedy(var: Variable, raw: str) -> str | list[str] | None:
     if not var.explode:
         if any(c in stops for c in raw):
             return None
-        return unquote(raw)
+        return unquote(raw, errors="surrogateescape")
 
     sep = spec.separator
     if not raw:
@@ -654,7 +654,7 @@ def _extract_greedy(var: Variable, raw: str) -> str | list[str] | None:
                 seg = ""
             else:
                 return None
-        segments.append(unquote(seg))
+        segments.append(unquote(seg, errors="surrogateescape"))
     return segments
 
 
@@ -1012,7 +1012,7 @@ def _scan_suffix(
             eq = uri.find("=", earliest, pos)
             if eq == -1:
                 return None
-            result[var.name] = unquote(uri[eq + 1 : pos])
+            result[var.name] = unquote(uri[eq + 1 : pos], errors="surrogateescape")
             pos = eq
             i -= 1
             continue
@@ -1045,7 +1045,7 @@ def _scan_suffix(
                     return None
                 start = idx + len(prev.text)
 
-        result[var.name] = unquote(uri[start:pos])
+        result[var.name] = unquote(uri[start:pos], errors="surrogateescape")
         pos = start
         i -= 1
     return result, pos
@@ -1111,6 +1111,6 @@ def _scan_prefix(
         if end == -1:
             return None
 
-        result[var.name] = unquote(uri[pos:end])
+        result[var.name] = unquote(uri[pos:end], errors="surrogateescape")
         pos = end
     return result, pos

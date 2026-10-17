@@ -764,6 +764,28 @@ def test_match_decodes_percent_encoding():
     assert t.match("file://docs/hello%20world.txt") == {"name": "hello world.txt"}
 
 
+@pytest.mark.parametrize(
+    ("template", "uri", "expected"),
+    [
+        ("file://{name}", "file://caf%E9", {"name": "caf\udce9"}),
+        ("file://{+path}", "file://caf%E9", {"path": "caf\udce9"}),
+        ("x{#frag}", "x#caf%E9", {"frag": "caf\udce9"}),
+        ("x{.ext}", "x.caf%E9", {"ext": "caf\udce9"}),
+        ("x{/seg}", "x/caf%E9", {"seg": "caf\udce9"}),
+        ("x{;p}", "x;p=caf%E9", {"p": "caf\udce9"}),
+        ("x{?q}", "x?q=caf%E9", {"q": "caf\udce9"}),
+        ("x{/list*}", "x/a/caf%E9", {"list": ["a", "caf\udce9"]}),
+        ("prefix-{id}-greedy/{+path}", "prefix-caf%E9-greedy/rest", {"id": "caf\udce9", "path": "rest"}),
+    ],
+)
+def test_match_non_utf8_percent_encoding_surrogateescape(template: str, uri: str, expected: dict[str, str | list[str]]):
+    t = UriTemplate.parse(template)
+    matched = t.match(uri)
+    assert matched == expected
+    assert t.expand(matched) == uri
+    assert t.match(t.expand(matched)) == matched
+
+
 def test_match_escapes_template_literals():
     # Regression: previous impl didn't escape . in literals, making it
     # a regex wildcard. "fileXtxt" should NOT match "file.txt/{id}".
