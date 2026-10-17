@@ -283,8 +283,8 @@ class ClientSessionGroup:
 
         # Clean up the session's resources via its dedicated exit stack
         if session_known_for_stack:
-            session_stack_to_close = self._session_exit_stacks.pop(session)  # pragma: no cover
-            await session_stack_to_close.aclose()  # pragma: no cover
+            session_stack_to_close = self._session_exit_stacks.pop(session)
+            await session_stack_to_close.aclose()
 
     async def connect_with_session(
         self, server_info: types.Implementation, session: mcp.ClientSession
@@ -378,10 +378,14 @@ class ClientSessionGroup:
         # tools belonging to this session. Used for removing components from
         # the session group via self.disconnect_from_server.
         component_names = self._ComponentNames()
+        own_components = self._sessions.get(session)
 
         # Temporary component dictionaries to stage changes. We query and validate
         # all components before mutating group state so that any failure leaves
-        # existing registrations intact.
+        # existing registrations intact. If querying a component type fails with
+        # MCPError during a refresh, existing registrations for that component type
+        # are preserved rather than evicted (a failed fetch is not evidence that the
+        # server removed those components).
         prompts_temp: dict[str, types.Prompt] = {}
         resources_temp: dict[str, types.Resource] = {}
         tools_temp: dict[str, types.Tool] = {}
@@ -394,8 +398,12 @@ class ClientSessionGroup:
                 name = self._component_name(prompt.name, server_info)
                 prompts_temp[name] = prompt
                 component_names.prompts.add(name)
-        except MCPError as err:  # pragma: no cover
+        except MCPError as err:
             logging.warning(f"Could not fetch prompts: {err}")
+            if own_components:
+                for name in own_components.prompts:
+                    prompts_temp[name] = self._prompts[name]
+                    component_names.prompts.add(name)
 
         # Query the server for its resources and aggregate to list.
         try:
@@ -404,8 +412,12 @@ class ClientSessionGroup:
                 name = self._component_name(resource.name, server_info)
                 resources_temp[name] = resource
                 component_names.resources.add(name)
-        except MCPError as err:  # pragma: no cover
+        except MCPError as err:
             logging.warning(f"Could not fetch resources: {err}")
+            if own_components:
+                for name in own_components.resources:
+                    resources_temp[name] = self._resources[name]
+                    component_names.resources.add(name)
 
         # Query the server for its tools and aggregate to list.
         try:
@@ -415,17 +427,15 @@ class ClientSessionGroup:
                 tools_temp[name] = tool
                 tool_to_session_temp[name] = session
                 component_names.tools.add(name)
-        except MCPError as err:  # pragma: no cover
+        except MCPError as err:
             logging.warning(f"Could not fetch tools: {err}")
-
-        # Clean up exit stack for session if we couldn't retrieve anything
-        # from the server.
-        if not any((prompts_temp, resources_temp, tools_temp)):
-            if session in self._session_exit_stacks:
-                del self._session_exit_stacks[session]
+            if own_components:
+                for name in own_components.tools:
+                    tools_temp[name] = self._tools[name]
+                    tool_to_session_temp[name] = session
+                    component_names.tools.add(name)
 
         # Check for duplicates, ignoring components already registered by this session.
-        own_components = self._sessions.get(session)
         other_prompts = self._prompts.keys() - own_components.prompts if own_components else self._prompts.keys()
         matching_prompts = prompts_temp.keys() & other_prompts
         if matching_prompts:

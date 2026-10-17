@@ -1,6 +1,7 @@
 import contextlib
 from unittest import mock
 
+import anyio
 import httpx2
 import mcp_types as types
 import pytest
@@ -13,6 +14,7 @@ from mcp.client.session_group import (
     StreamableHttpParameters,
 )
 from mcp.client.stdio import StdioServerParameters
+from mcp.server import Server, ServerRequestContext
 from mcp.shared.exceptions import MCPError
 
 
@@ -408,8 +410,50 @@ async def test_client_session_group_establish_session_parameterized(
 
 
 @pytest.mark.anyio
+@pytest.mark.filterwarnings("ignore:Passing 'msg' argument.*:DeprecationWarning")
 async def test_disconnect_removes_all_tools_after_same_session_reregistration() -> None:
-    """Verify disconnecting after re-registering a session removes all tools."""
+    """Reproduce the SDK cleanup gap after a caller re-registers a session with changed tools."""
+    catalog = [types.Tool(name="old", input_schema={"type": "object"})]
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=list(catalog))
+
+    async def list_resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListResourcesResult:
+        return types.ListResourcesResult(resources=[])
+
+    async def list_prompts(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        return types.ListPromptsResult(prompts=[])
+
+    server = Server(
+        "mutable-catalog",
+        on_list_tools=list_tools,
+        on_list_resources=list_resources,
+        on_list_prompts=list_prompts,
+    )
+    group = ClientSessionGroup()
+    with anyio.fail_after(5):
+        async with mcp.Client(server) as client:
+            server_info = types.Implementation(name="mutable-catalog", version="1")
+            await group.connect_with_session(server_info, client.session)
+
+            catalog[:] = [types.Tool(name="new", input_schema={"type": "object"})]
+            await group.connect_with_session(server_info, client.session)
+
+            await group.disconnect_from_server(client.session)
+
+    assert group.sessions == []
+    assert group.tools == {}
+
+
+@pytest.mark.anyio
+async def test_disconnect_removes_all_tools_after_same_session_reregistration_mock() -> None:
+    """Verify disconnecting after re-registering a session removes all tools (mock-based)."""
     server_info = types.Implementation(name="TestServer", version="1.0")
     mock_session = mock.AsyncMock(spec=mcp.ClientSession)
 
@@ -669,7 +713,7 @@ async def test_connect_with_session_empty_catalog() -> None:
 
 @pytest.mark.anyio
 async def test_connect_to_server_empty_catalog(mock_exit_stack: contextlib.AsyncExitStack) -> None:
-    """Verify group-owned connect_to_server with empty catalog cleans up exit stack without error."""
+    """Verify group-owned connect_to_server with empty catalog retains exit stack and cleans up on disconnect."""
     mock_server_info = mock.Mock(spec=types.Implementation)
     mock_server_info.name = "EmptyServer"
     mock_session = mock.AsyncMock(spec=mcp.ClientSession)
@@ -677,13 +721,143 @@ async def test_connect_to_server_empty_catalog(mock_exit_stack: contextlib.Async
     mock_session.list_resources.return_value = types.ListResourcesResult(resources=[])
     mock_session.list_prompts.return_value = types.ListPromptsResult(prompts=[])
 
+    session_stack = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+
     async def fake_establish(*args: object, **kwargs: object) -> tuple[types.Implementation, mock.AsyncMock]:
-        group._session_exit_stacks[mock_session] = mock.AsyncMock()
+        group._session_exit_stacks[mock_session] = session_stack
         return mock_server_info, mock_session
 
     group = ClientSessionGroup(exit_stack=mock_exit_stack)
     with mock.patch.object(group, "_establish_session", side_effect=fake_establish):
         await group.connect_to_server(StdioServerParameters(command="test"))
 
-    assert mock_session not in group._session_exit_stacks
+    assert mock_session in group._session_exit_stacks
     assert group.tools == {}
+    assert group.sessions == [mock_session]
+
+    await group.disconnect_from_server(mock_session)
+    session_stack.aclose.assert_awaited_once()
+    assert mock_session not in group._session_exit_stacks
+    assert group.sessions == []
+
+
+@pytest.mark.anyio
+async def test_group_owned_session_refreshed_to_empty_and_disconnected_cleans_up(
+    mock_exit_stack: contextlib.AsyncExitStack,
+) -> None:
+    """Verify group-owned session refreshed to empty catalog retains exit stack and closes it on disconnect."""
+    mock_server_info = mock.Mock(spec=types.Implementation)
+    mock_server_info.name = "TestServer"
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+    initial_tool = types.Tool(name="initial_tool", input_schema={})
+    mock_session.list_tools.return_value = types.ListToolsResult(tools=[initial_tool])
+    mock_session.list_resources.return_value = types.ListResourcesResult(resources=[])
+    mock_session.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+
+    session_stack = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+
+    async def fake_establish(*args: object, **kwargs: object) -> tuple[types.Implementation, mock.AsyncMock]:
+        group._session_exit_stacks[mock_session] = session_stack
+        return mock_server_info, mock_session
+
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+    with mock.patch.object(group, "_establish_session", side_effect=fake_establish):
+        await group.connect_to_server(StdioServerParameters(command="test"))
+
+    assert mock_session in group._session_exit_stacks
+    assert group.tools == {"initial_tool": initial_tool}
+    assert group.sessions == [mock_session]
+
+    # Refresh to empty catalog
+    mock_session.list_tools.return_value = types.ListToolsResult(tools=[])
+    await group.connect_with_session(mock_server_info, mock_session)
+
+    assert group.tools == {}
+    assert group.sessions == [mock_session]
+    # Exit stack must NOT be deleted without closing
+    assert mock_session in group._session_exit_stacks
+    session_stack.aclose.assert_not_called()
+
+    # Disconnect must close the exit stack
+    await group.disconnect_from_server(mock_session)
+    session_stack.aclose.assert_awaited_once()
+    assert mock_session not in group._session_exit_stacks
+    assert group.sessions == []
+
+
+@pytest.mark.anyio
+async def test_connect_with_session_failed_refresh_preserves_existing_components() -> None:
+    """Verify that MCPError when fetching components during refresh preserves existing registrations."""
+    server_info = types.Implementation(name="TestServer", version="1.0")
+    session = mock.AsyncMock(spec=mcp.ClientSession)
+
+    initial_prompt = types.Prompt(name="orig_prompt")
+    initial_resource = types.Resource(uri="file:///orig_resource", name="orig_res")
+    initial_tool = types.Tool(name="orig_tool", input_schema={})
+
+    session.list_prompts.return_value = types.ListPromptsResult(prompts=[initial_prompt])
+    session.list_resources.return_value = types.ListResourcesResult(resources=[initial_resource])
+    session.list_tools.return_value = types.ListToolsResult(tools=[initial_tool])
+
+    group = ClientSessionGroup()
+    await group.connect_with_session(server_info, session)
+
+    assert group.prompts == {"orig_prompt": initial_prompt}
+    assert group.resources == {"orig_res": initial_resource}
+    assert group.tools == {"orig_tool": initial_tool}
+    assert group._tool_to_session == {"orig_tool": session}
+    assert group.sessions == [session]
+
+    # Simulate MCPError on all component listings during refresh
+    session.list_prompts.side_effect = MCPError(code=types.INTERNAL_ERROR, message="prompts failed")
+    session.list_resources.side_effect = MCPError(code=types.INTERNAL_ERROR, message="resources failed")
+    session.list_tools.side_effect = MCPError(code=types.INTERNAL_ERROR, message="tools failed")
+
+    await group.connect_with_session(server_info, session)
+
+    # Invariants: existing components are preserved, not evicted
+    assert group.prompts == {"orig_prompt": initial_prompt}
+    assert group.resources == {"orig_res": initial_resource}
+    assert group.tools == {"orig_tool": initial_tool}
+    assert group._tool_to_session == {"orig_tool": session}
+    assert group._sessions[session].prompts == {"orig_prompt"}
+    assert group._sessions[session].resources == {"orig_res"}
+    assert group._sessions[session].tools == {"orig_tool"}
+    assert group.sessions == [session]
+
+    # Preserved tools remain callable and routed
+    session.call_tool.return_value = types.CallToolResult(content=[types.TextContent(type="text", text="ok")])
+    call_res = await group.call_tool("orig_tool", {})
+    assert isinstance(call_res.content[0], types.TextContent)
+    assert call_res.content[0].text == "ok"
+
+    # Disconnect cleans up preserved components completely
+    await group.disconnect_from_server(session)
+    assert group.prompts == {}
+    assert group.resources == {}
+    assert group.tools == {}
+    assert group._tool_to_session == {}
+    assert group.sessions == []
+
+
+@pytest.mark.anyio
+async def test_connect_with_session_initial_fetch_mcperror_handled() -> None:
+    """Verify that MCPError on initial component queries is handled gracefully without error."""
+    server_info = types.Implementation(name="ErrorServer", version="1.0")
+    session = mock.AsyncMock(spec=mcp.ClientSession)
+
+    session.list_prompts.side_effect = MCPError(code=types.INTERNAL_ERROR, message="no prompts")
+    session.list_resources.side_effect = MCPError(code=types.INTERNAL_ERROR, message="no resources")
+    session.list_tools.side_effect = MCPError(code=types.INTERNAL_ERROR, message="no tools")
+
+    group = ClientSessionGroup()
+    await group.connect_with_session(server_info, session)
+
+    assert group.prompts == {}
+    assert group.resources == {}
+    assert group.tools == {}
+    assert group._tool_to_session == {}
+    assert group.sessions == [session]
+
+    await group.disconnect_from_server(session)
+    assert group.sessions == []

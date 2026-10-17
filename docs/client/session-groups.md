@@ -66,7 +66,7 @@ Run it again. `print(sorted(group.tools))` now shows both:
 
 If you already hold a connected `ClientSession` (`Client.session` is one), hand it to `await group.connect_with_session(server_info, session)` instead of opening a new transport. It aggregates the same way. The group never closes a session it didn't open. `server_info` names the server for component prefixes; on a 2026-era connection `client.server_info` can be `None` (identity is optional), so pass your own `Implementation(name=..., version=...)` in that case.
 
-Calling `connect_with_session` with an already-connected session refreshes that session's aggregated components to match its current catalog. Any components the server no longer exposes are removed from the group, and newly added ones are registered, without triggering duplicate-name collisions against the session's own previous registrations. If any component collides with a *different* session in the group, an `MCPError` is raised and the group's existing state is preserved.
+Calling `connect_with_session` with an already-connected session refreshes that session's aggregated components to match its current catalog. Any components the server no longer exposes are removed from the group, and newly added ones are registered, without triggering duplicate-name collisions against the session's own previous registrations. If querying a component type fails with `MCPError` during refresh, existing registrations for that component type remain intact. If any component collides with a *different* session in the group, an `MCPError` is raised and the group's existing state is preserved.
 
 ## The classic handshake
 
