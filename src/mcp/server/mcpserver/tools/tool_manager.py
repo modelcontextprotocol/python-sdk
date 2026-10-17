@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp_types import Icon, ToolAnnotations
 
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError, ToolNotFoundError
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.server.mcpserver.utilities.logging import get_logger
 
@@ -82,6 +82,6 @@ class ToolManager:
         """Call a tool by name with arguments."""
         tool = self.get_tool(name)
         if not tool:
-            raise ToolError(f"Unknown tool: {name}")
+            raise ToolNotFoundError(name)
 
         return await tool.run(arguments, context, convert_result=convert_result)
