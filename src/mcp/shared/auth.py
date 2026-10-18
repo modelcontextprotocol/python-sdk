@@ -1,6 +1,6 @@
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AfterValidator, AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # RFC 7523 JWT bearer grant; SEP-990 leg 2 uses this to present the ID-JAG.
 JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
@@ -115,7 +115,8 @@ class OAuthClientMetadata(OAuthClientMetadataBase):
     job. See https://datatracker.ietf.org/doc/html/rfc7591#section-2
     """
 
-    redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
+    # Pydantic retains URL subclasses, whose equality differs from AnyUrl.
+    redirect_uris: list[Annotated[AnyUrl, AfterValidator(AnyUrl)]] | None = Field(..., min_length=1)
     # supported auth methods for the token endpoint
     token_endpoint_auth_method: TokenEndpointAuthMethod | None = None
     # supported grant_types of this implementation
@@ -143,7 +144,7 @@ class OAuthClientInformationFull(OAuthClientMetadataBase):
     them against a client's requested `redirect_uri`.
     """
 
-    redirect_uris: list[AnyUrl] | None = None
+    redirect_uris: list[Annotated[AnyUrl, AfterValidator(AnyUrl)]] | None = None
     # RFC 7591 §3.2.1: the server may assign an auth method other than the one requested,
     # including methods this SDK does not implement, or omit it.
     token_endpoint_auth_method: str | None = None
