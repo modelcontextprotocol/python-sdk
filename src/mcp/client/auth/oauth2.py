@@ -172,7 +172,15 @@ class OAuthContext:
     token_expiry_time: float | None = None
 
     # State
+    #
+    # `lock` guards short-lived reads and writes of provider state. It is held
+    # only while mutating that state and is released before the primary HTTP
+    # request is yielded, so a long-poll GET SSE does not block other requests.
+    #
+    # `refresh_lock` single-flights token refresh: one refresh runs, and waiters
+    # re-check the token cache instead of starting another.
     lock: anyio.Lock = field(default_factory=anyio.Lock)
+    refresh_lock: anyio.Lock = field(default_factory=anyio.Lock)
 
     def get_authorization_base_url(self, server_url: str) -> str:
         """Extract base URL by removing path component."""
@@ -602,33 +610,61 @@ class OAuthClientProvider(RedirectAwareAuth):
         return self.context.auth_server_url or _origin_issuer(self.context.server_url)
 
     async def _auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
-        """The OAuth flow proper; `async_auth_flow` drives it (see `RedirectAwareAuth`)."""
+        """The OAuth flow proper; `async_auth_flow` drives it (see `RedirectAwareAuth`).
+
+        ``context.lock`` is held only while reading or mutating provider state.
+        The primary request yield (which may be a long-poll GET SSE) runs
+        outside that lock. ``refresh_lock`` single-flights token refresh.
+        Discovery and registration yields on the 401 path stay inside the lock:
+        that path is exceptional, and the steady-state request is the one that
+        must not block other calls.
+        """
+        needs_refresh = False
         async with self.context.lock:
             if not self._initialized:
                 await self._initialize()
 
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
-
             if not self.context.is_token_valid() and self.context.can_refresh_token():
-                # Try to refresh token
-                refresh_request = await self._refresh_token()
-                refresh_response = yield refresh_request
+                needs_refresh = True
 
-                if not await self._handle_refresh_response(refresh_response):
-                    # Refresh failed, need full re-authentication
-                    self._initialized = False
+        if needs_refresh:
+            async with self.context.refresh_lock:
+                refresh_request = None
+                async with self.context.lock:
+                    if not self.context.is_token_valid() and self.context.can_refresh_token():
+                        refresh_request = await self._refresh_token()
+                if refresh_request is not None:
+                    refresh_response = yield refresh_request
+                    async with self.context.lock:
+                        if not await self._handle_refresh_response(refresh_response):
+                            self._initialized = False
 
+        async with self.context.lock:
             if self.context.is_token_valid():
                 self._add_auth_header(request)
+            sent_access_token = self.context.current_tokens.access_token if self.context.current_tokens else None
 
-            response = yield request
+        response = yield request
 
-            step_up = (
-                response.status_code == 403 and extract_field_from_www_auth(response, "error") == "insufficient_scope"
-            )
+        step_up = (
+            response.status_code == 403 and extract_field_from_www_auth(response, "error") == "insufficient_scope"
+        )
 
-            if response.status_code == 401 or step_up:
+        if response.status_code == 401 or step_up:
+            async with self.context.lock:
+                current_access_token = self.context.current_tokens.access_token if self.context.current_tokens else None
+                if (
+                    response.status_code == 401
+                    and current_access_token is not None
+                    and current_access_token != sent_access_token
+                ):
+                    # Another request refreshed or re-authorized while this one was in flight.
+                    self._add_auth_header(request)
+                    yield request
+                    return
+
                 # Perform full OAuth flow
                 try:
                     # Read before discovery, which may clear the tokens: on a restart the stored
