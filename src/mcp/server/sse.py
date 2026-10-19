@@ -192,7 +192,15 @@ class SseServerTransport:
                     )
 
         try:
-            async with anyio.create_task_group() as tg:
+            async with (
+                read_stream_writer,
+                read_stream,
+                write_stream,
+                write_stream_reader,
+                sse_stream_writer,
+                sse_stream_reader,
+                anyio.create_task_group() as tg,
+            ):
 
                 async def response_wrapper(scope: Scope, receive: Receive, send: Send):
                     """The EventSourceResponse returning signals a client close / disconnect.
