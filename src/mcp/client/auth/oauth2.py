@@ -657,9 +657,7 @@ class OAuthClientProvider(RedirectAwareAuth):
 
         response = yield request
 
-        step_up = (
-            response.status_code == 403 and extract_field_from_www_auth(response, "error") == "insufficient_scope"
-        )
+        step_up = response.status_code == 403 and extract_field_from_www_auth(response, "error") == "insufficient_scope"
 
         if response.status_code == 401 or step_up:
             async with self.context.lock:
