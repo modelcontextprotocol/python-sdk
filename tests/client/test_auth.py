@@ -3781,7 +3781,9 @@ async def test_refresh_waiter_sends_the_token_stored_while_it_waited(
             return self._inner.locked()
 
     lock = HoldableLock()
-    oauth_provider.context.refresh_lock = lock
+    # anyio.Lock.acquire is read-only, so the stand-in cannot be a subclass patch.
+    # The field is typed as anyio.Lock; setattr keeps the assignment off the checker.
+    object.__setattr__(oauth_provider.context, "refresh_lock", lock)
     await lock.acquire()
     lock.arm = True
     sent: list[httpx2.Request] = []
@@ -3809,3 +3811,29 @@ async def test_refresh_waiter_sends_the_token_stored_while_it_waited(
     assert len(sent) == 1
     assert sent[0].method == "GET"
     assert sent[0].headers["Authorization"] == "Bearer test_access_token"
+
+
+@pytest.mark.anyio
+async def test_stale_401_retries_once_with_the_token_stored_during_the_request(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """A 401 whose access token was replaced while the request was in flight retries once.
+
+    SDK behaviour: that retry uses the stored token and does not start a second login.
+    """
+    oauth_provider._initialized = True
+    oauth_provider.context.current_tokens = valid_tokens
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    primary = await auth_flow.__anext__()
+    assert primary.headers["Authorization"] == "Bearer test_access_token"
+
+    valid_tokens.access_token = "replaced-access"
+    retry = await auth_flow.asend(httpx2.Response(401, request=primary))
+
+    assert retry.method == "GET"
+    assert retry.headers["Authorization"] == "Bearer replaced-access"
+    try:
+        await auth_flow.asend(httpx2.Response(200, request=retry))
+    except StopAsyncIteration:
+        pass

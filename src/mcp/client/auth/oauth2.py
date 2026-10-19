@@ -173,9 +173,11 @@ class OAuthContext:
 
     # State
     #
-    # `lock` guards short-lived reads and writes of provider state. It is held
-    # only while mutating that state and is released before the primary HTTP
-    # request is yielded, so a long-poll GET SSE does not block other requests.
+    # `lock` guards short-lived reads and writes of provider state. A request
+    # that already has a usable token yields outside the lock, so a long-poll
+    # GET SSE does not block other calls. A request with no usable token holds
+    # the lock until that challenge finishes: the call that met the 401 is the
+    # one whose timeout `waiting_on_a_person` pauses, and peers wait on the lock.
     #
     # `refresh_lock` single-flights token refresh: one refresh runs, and waiters
     # re-check the token cache instead of starting another.
@@ -619,15 +621,186 @@ class OAuthClientProvider(RedirectAwareAuth):
         the 2025-03-26 well-known URL is built from (RFC 8414 §3.3)."""
         return self.context.auth_server_url or _origin_issuer(self.context.server_url)
 
+    async def _unauthorized_followups(
+        self,
+        request: httpx2.Request,
+        response: httpx2.Response,
+        sent_access_token: str | None,
+    ) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        """Run discovery and login after a 401 or scope step-up.
+
+        Caller holds ``context.lock``. Each yield is a follow-up HTTP request.
+        """
+        step_up = response.status_code == 403 and extract_field_from_www_auth(response, "error") == "insufficient_scope"
+        if self._unauthorized_token_changed(response, sent_access_token):
+            # Another request refreshed or re-authorized while this one was in flight.
+            self._add_auth_header(request)
+            yield request
+            return
+
+        # Perform full OAuth flow
+        try:
+            # Read before discovery, which may clear the tokens: on a restart the stored
+            # token's scope is the only record of what was granted (see Step 3).
+            granted_scope = self.context.current_tokens.scope if self.context.current_tokens else None
+
+            # OAuth flow must be inline due to generator constraints.
+            # Steps 1-2 run on every 401. A scope step-up reuses the metadata discovered earlier
+            # in this process, and discovers it first when none is held yet (for example when
+            # tokens were loaded from storage), so re-authorization targets the right server.
+            if response.status_code == 401 or self.context.oauth_metadata is None:
+                www_auth_resource_metadata_url = extract_resource_metadata_from_www_auth(response)
+
+                # Step 1: Discover protected resource metadata (SEP-985 with fallback support)
+                prm_discovery_urls = build_protected_resource_metadata_discovery_urls(
+                    www_auth_resource_metadata_url, self.context.server_url
+                )
+
+                prm_request_failed: int | None = None
+                for url in prm_discovery_urls:
+                    discovery_request = create_oauth_metadata_request(url)
+
+                    discovery_response = yield discovery_request  # sending request
+
+                    if discovery_response.status_code >= 500 or discovery_response.status_code == 429:
+                        prm_request_failed = discovery_response.status_code
+                    prm = await handle_protected_resource_response(discovery_response)
+                    if prm:
+                        # Validate PRM resource matches server URL (RFC 8707)
+                        await self._validate_resource_match(prm)
+                        self.context.protected_resource_metadata = prm
+
+                        self.context.auth_server_url = self._select_authorization_server(
+                            [str(url) for url in prm.authorization_servers]
+                        )
+                        break
+                    else:
+                        logger.debug(f"Protected resource metadata discovery failed: {url}")
+                else:
+                    if prm_request_failed is not None:
+                        # A server error says nothing about whether the resource publishes
+                        # metadata, so it must not send the flow down the legacy path.
+                        raise OAuthFlowError(f"Protected resource metadata request failed: HTTP {prm_request_failed}")
+
+                expected_issuer = self._expected_issuer()
+
+                # SEP-2352: stored credentials are bound to the issuer that registered them.
+                # Decided before any metadata is fetched: if the expected issuer is a different
+                # server, drop them (and the old tokens) so the flow re-registers instead of
+                # presenting another server's credentials.
+                if self.context.client_info is not None and not credentials_match_issuer(
+                    self.context.client_info, expected_issuer, self.context.client_metadata_url
+                ):
+                    logger.debug("Authorization server changed; discarding bound credentials and re-registering")
+                    self.context.client_info = None
+                    self.context.clear_tokens()
+                    # Any cached AS metadata is for the old server; drop it so a failed
+                    # rediscovery cannot leak the old registration/token endpoints into Step 4.
+                    self.context.oauth_metadata = None
+
+                asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
+                    self.context.auth_server_url, self.context.server_url
+                )
+
+                # Step 2: Discover OAuth Authorization Server Metadata (OASM) (with fallback for legacy servers)
+                for url in asm_discovery_urls:  # pragma: no branch
+                    oauth_metadata_request = create_oauth_metadata_request(url)
+                    oauth_metadata_response = yield oauth_metadata_request
+
+                    ok, asm = await handle_auth_metadata_response(oauth_metadata_response)
+                    if not ok:
+                        break
+                    if ok and asm:
+                        # SEP-2468 / RFC 8414 §3.3: the metadata must name the expected issuer.
+                        # On the legacy path a root issuer rendered with its trailing slash
+                        # names the same origin.
+                        if self.context.auth_server_url is None and issuers_match(str(asm.issuer), expected_issuer):
+                            expected_issuer = str(asm.issuer)
+                        validate_metadata_issuer(asm, expected_issuer)
+                        self.context.oauth_metadata = asm
+                        break
+                    else:
+                        logger.debug(f"OAuth metadata discovery failed: {url}")
+
+            # Step 3: Apply scope selection strategy
+            challenged_scope = get_client_metadata_scopes(
+                extract_scope_from_www_auth(response),
+                self.context.protected_resource_metadata,
+                self.context.oauth_metadata,
+                self.context.client_metadata.grant_types,
+            )
+            if step_up:
+                # SEP-2350: union previously requested scopes with the newly challenged ones so
+                # escalating one operation keeps the others' grants, folding in the granted
+                # scope read above since client_metadata.scope is not reloaded on a restart.
+                prior_scope = union_scopes(self.context.client_metadata.scope, granted_scope)
+                self.context.client_metadata.scope = union_scopes(prior_scope, challenged_scope)
+            else:
+                self.context.client_metadata.scope = challenged_scope
+
+            # Step 4: Register client or use URL-based client ID (CIMD)
+            if not self.context.client_info:
+                # SEP-2352: the issuer to bind these credentials to, once metadata for it
+                # was actually found.
+                discovered_issuer = self._expected_issuer() if self.context.oauth_metadata is not None else None
+
+                if should_use_client_metadata_url(self.context.oauth_metadata, self.context.client_metadata_url):
+                    # Use URL-based client ID (CIMD). CIMD records are portable across
+                    # authorization servers, so the issuer stamp is informational.
+                    logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
+                    client_information = create_client_info_from_metadata_url(
+                        self.context.client_metadata_url,  # type: ignore[arg-type]
+                        redirect_uris=self.context.client_metadata.redirect_uris,
+                    )
+                    client_information.issuer = discovered_issuer
+                    self.context.client_info = client_information
+                    await self.context.storage.set_client_info(client_information)
+                else:
+                    # Fallback to Dynamic Client Registration
+                    fallback_base = self.context.get_authorization_base_url(self.context.server_url)
+                    registration_request = create_client_registration_request(
+                        self.context.oauth_metadata, self.context.client_metadata, fallback_base
+                    )
+                    registration_response = yield registration_request
+                    client_information = await handle_registration_response(registration_response)
+                    check_registration_usable(client_information)
+                    # Only record the issuer when the registration above actually targeted
+                    # the discovered AS — either via its published registration_endpoint,
+                    # or because the resource-origin /register fallback is on the issuer's
+                    # own host (legacy same-origin embedded AS). Otherwise the fallback hit
+                    # a different server and recording a binding to the PRM-advertised AS
+                    # would persist a binding that was never established.
+                    if (
+                        self.context.oauth_metadata is not None
+                        and discovered_issuer is not None
+                        and (
+                            self.context.oauth_metadata.registration_endpoint is not None
+                            or self.context.get_authorization_base_url(discovered_issuer) == fallback_base
+                        )
+                    ):
+                        client_information.issuer = discovered_issuer
+                    self.context.client_info = client_information
+                    await self.context.storage.set_client_info(client_information)
+
+            # Step 5: Perform authorization and complete token exchange
+            token_response = yield await self._perform_authorization()
+            await self._handle_token_response(token_response)
+        except Exception:
+            logger.exception("OAuth flow error")
+            raise
+
+        # Retry with new tokens
+        self._add_auth_header(request)
+        yield request
+
     async def _auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
         """The OAuth flow proper; `async_auth_flow` drives it (see `RedirectAwareAuth`).
 
-        ``context.lock`` is held only while reading or mutating provider state.
-        The primary request yield (which may be a long-poll GET SSE) runs
-        outside that lock. ``refresh_lock`` single-flights token refresh.
-        Discovery and registration yields on the 401 path stay inside the lock:
-        that path is exceptional, and the steady-state request is the one that
-        must not block other calls.
+        ``context.lock`` is held only while reading or mutating provider state,
+        except while a request that has no usable token is in flight. That
+        challenge holds the lock through discovery and login so a peer waits
+        here instead of starting a second login. A request that already carries
+        a token yields outside the lock. ``refresh_lock`` single-flights refresh.
         """
         needs_refresh = False
         async with self.context.lock:
@@ -659,182 +832,41 @@ class OAuthClientProvider(RedirectAwareAuth):
                         async with self.context.lock:
                             self._initialized = False
 
+        attached = False
         async with self.context.lock:
             if self.context.is_token_valid():
                 self._add_auth_header(request)
+                attached = True
             sent_access_token = self.context.current_tokens.access_token if self.context.current_tokens else None
 
-        response = yield request
+        # No token yet: hold the lock across this yield and the login it starts.
+        # A peer blocks on the lock, so the challenged request is the one whose
+        # read timeout `waiting_on_a_person` pauses.
+        holding = False
+        try:
+            if not attached:
+                await self.context.lock.acquire()
+                holding = True
+            response = yield request
 
-        step_up = response.status_code == 403 and extract_field_from_www_auth(response, "error") == "insufficient_scope"
-
-        if response.status_code == 401 or step_up:
-            async with self.context.lock:
-                if self._unauthorized_token_changed(response, sent_access_token):
-                    # Another request refreshed or re-authorized while this one was in flight.
-                    self._add_auth_header(request)
-                    yield request
-                    return
-
-                # Perform full OAuth flow
+            step_up = (
+                response.status_code == 403 and extract_field_from_www_auth(response, "error") == "insufficient_scope"
+            )
+            if response.status_code == 401 or step_up:
+                if not holding:
+                    await self.context.lock.acquire()
+                    holding = True
+                followups = self._unauthorized_followups(request, response, sent_access_token)
                 try:
-                    # Read before discovery, which may clear the tokens: on a restart the stored
-                    # token's scope is the only record of what was granted (see Step 3).
-                    granted_scope = self.context.current_tokens.scope if self.context.current_tokens else None
-
-                    # OAuth flow must be inline due to generator constraints.
-                    # Steps 1-2 run on every 401. A scope step-up reuses the metadata discovered earlier
-                    # in this process, and discovers it first when none is held yet (for example when
-                    # tokens were loaded from storage), so re-authorization targets the right server.
-                    if response.status_code == 401 or self.context.oauth_metadata is None:
-                        www_auth_resource_metadata_url = extract_resource_metadata_from_www_auth(response)
-
-                        # Step 1: Discover protected resource metadata (SEP-985 with fallback support)
-                        prm_discovery_urls = build_protected_resource_metadata_discovery_urls(
-                            www_auth_resource_metadata_url, self.context.server_url
-                        )
-
-                        prm_request_failed: int | None = None
-                        for url in prm_discovery_urls:
-                            discovery_request = create_oauth_metadata_request(url)
-
-                            discovery_response = yield discovery_request  # sending request
-
-                            if discovery_response.status_code >= 500 or discovery_response.status_code == 429:
-                                prm_request_failed = discovery_response.status_code
-                            prm = await handle_protected_resource_response(discovery_response)
-                            if prm:
-                                # Validate PRM resource matches server URL (RFC 8707)
-                                await self._validate_resource_match(prm)
-                                self.context.protected_resource_metadata = prm
-
-                                self.context.auth_server_url = self._select_authorization_server(
-                                    [str(url) for url in prm.authorization_servers]
-                                )
-                                break
-                            else:
-                                logger.debug(f"Protected resource metadata discovery failed: {url}")
-                        else:
-                            if prm_request_failed is not None:
-                                # A server error says nothing about whether the resource publishes
-                                # metadata, so it must not send the flow down the legacy path.
-                                raise OAuthFlowError(
-                                    f"Protected resource metadata request failed: HTTP {prm_request_failed}"
-                                )
-
-                        expected_issuer = self._expected_issuer()
-
-                        # SEP-2352: stored credentials are bound to the issuer that registered them.
-                        # Decided before any metadata is fetched: if the expected issuer is a different
-                        # server, drop them (and the old tokens) so the flow re-registers instead of
-                        # presenting another server's credentials.
-                        if self.context.client_info is not None and not credentials_match_issuer(
-                            self.context.client_info, expected_issuer, self.context.client_metadata_url
-                        ):
-                            logger.debug(
-                                "Authorization server changed; discarding bound credentials and re-registering"
-                            )
-                            self.context.client_info = None
-                            self.context.clear_tokens()
-                            # Any cached AS metadata is for the old server; drop it so a failed
-                            # rediscovery cannot leak the old registration/token endpoints into Step 4.
-                            self.context.oauth_metadata = None
-
-                        asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
-                            self.context.auth_server_url, self.context.server_url
-                        )
-
-                        # Step 2: Discover OAuth Authorization Server Metadata (OASM) (with fallback for legacy servers)
-                        for url in asm_discovery_urls:  # pragma: no branch
-                            oauth_metadata_request = create_oauth_metadata_request(url)
-                            oauth_metadata_response = yield oauth_metadata_request
-
-                            ok, asm = await handle_auth_metadata_response(oauth_metadata_response)
-                            if not ok:
-                                break
-                            if ok and asm:
-                                # SEP-2468 / RFC 8414 §3.3: the metadata must name the expected issuer.
-                                # On the legacy path a root issuer rendered with its trailing slash
-                                # names the same origin.
-                                if self.context.auth_server_url is None and issuers_match(
-                                    str(asm.issuer), expected_issuer
-                                ):
-                                    expected_issuer = str(asm.issuer)
-                                validate_metadata_issuer(asm, expected_issuer)
-                                self.context.oauth_metadata = asm
-                                break
-                            else:
-                                logger.debug(f"OAuth metadata discovery failed: {url}")
-
-                    # Step 3: Apply scope selection strategy
-                    challenged_scope = get_client_metadata_scopes(
-                        extract_scope_from_www_auth(response),
-                        self.context.protected_resource_metadata,
-                        self.context.oauth_metadata,
-                        self.context.client_metadata.grant_types,
-                    )
-                    if step_up:
-                        # SEP-2350: union previously requested scopes with the newly challenged ones so
-                        # escalating one operation keeps the others' grants, folding in the granted
-                        # scope read above since client_metadata.scope is not reloaded on a restart.
-                        prior_scope = union_scopes(self.context.client_metadata.scope, granted_scope)
-                        self.context.client_metadata.scope = union_scopes(prior_scope, challenged_scope)
-                    else:
-                        self.context.client_metadata.scope = challenged_scope
-
-                    # Step 4: Register client or use URL-based client ID (CIMD)
-                    if not self.context.client_info:
-                        # SEP-2352: the issuer to bind these credentials to, once metadata for it
-                        # was actually found.
-                        discovered_issuer = self._expected_issuer() if self.context.oauth_metadata is not None else None
-
-                        if should_use_client_metadata_url(
-                            self.context.oauth_metadata, self.context.client_metadata_url
-                        ):
-                            # Use URL-based client ID (CIMD). CIMD records are portable across
-                            # authorization servers, so the issuer stamp is informational.
-                            logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
-                            client_information = create_client_info_from_metadata_url(
-                                self.context.client_metadata_url,  # type: ignore[arg-type]
-                                redirect_uris=self.context.client_metadata.redirect_uris,
-                            )
-                            client_information.issuer = discovered_issuer
-                            self.context.client_info = client_information
-                            await self.context.storage.set_client_info(client_information)
-                        else:
-                            # Fallback to Dynamic Client Registration
-                            fallback_base = self.context.get_authorization_base_url(self.context.server_url)
-                            registration_request = create_client_registration_request(
-                                self.context.oauth_metadata, self.context.client_metadata, fallback_base
-                            )
-                            registration_response = yield registration_request
-                            client_information = await handle_registration_response(registration_response)
-                            check_registration_usable(client_information)
-                            # Only record the issuer when the registration above actually targeted
-                            # the discovered AS — either via its published registration_endpoint,
-                            # or because the resource-origin /register fallback is on the issuer's
-                            # own host (legacy same-origin embedded AS). Otherwise the fallback hit
-                            # a different server and recording a binding to the PRM-advertised AS
-                            # would persist a binding that was never established.
-                            if (
-                                self.context.oauth_metadata is not None
-                                and discovered_issuer is not None
-                                and (
-                                    self.context.oauth_metadata.registration_endpoint is not None
-                                    or self.context.get_authorization_base_url(discovered_issuer) == fallback_base
-                                )
-                            ):
-                                client_information.issuer = discovered_issuer
-                            self.context.client_info = client_information
-                            await self.context.storage.set_client_info(client_information)
-
-                    # Step 5: Perform authorization and complete token exchange
-                    token_response = yield await self._perform_authorization()
-                    await self._handle_token_response(token_response)
-                except Exception:
-                    logger.exception("OAuth flow error")
-                    raise
-
-                # Retry with new tokens
-                self._add_auth_header(request)
-                yield request
+                    outgoing = await followups.__anext__()
+                    while True:
+                        incoming = yield outgoing
+                        try:
+                            outgoing = await followups.asend(incoming)
+                        except StopAsyncIteration:
+                            break
+                finally:
+                    await followups.aclose()
+        finally:
+            if holding:
+                self.context.lock.release()
