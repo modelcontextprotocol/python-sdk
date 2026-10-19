@@ -603,6 +603,16 @@ class OAuthClientProvider(RedirectAwareAuth):
         """Which of the servers listed in protected resource metadata to use: the first (the list is never empty)."""
         return advertised[0]
 
+    def _needs_token_refresh(self) -> bool:
+        return (not self.context.is_token_valid()) and self.context.can_refresh_token()
+
+    def _unauthorized_token_changed(self, response: httpx2.Response, sent_access_token: str | None) -> bool:
+        """True when a 401 is stale because another request already replaced the access token."""
+        if response.status_code != 401:
+            return False
+        current = self.context.current_tokens.access_token if self.context.current_tokens else None
+        return current is not None and current != sent_access_token
+
     def _expected_issuer(self) -> str:
         """The issuer that authorization server metadata and client credentials must belong to: the
         PRM-advertised server, or on the legacy no-PRM path the resource server's origin, which is what
@@ -626,14 +636,13 @@ class OAuthClientProvider(RedirectAwareAuth):
 
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
-            if not self.context.is_token_valid() and self.context.can_refresh_token():
-                needs_refresh = True
+            needs_refresh = self._needs_token_refresh()
 
         if needs_refresh:
             async with self.context.refresh_lock:
                 refresh_request = None
                 async with self.context.lock:
-                    if not self.context.is_token_valid() and self.context.can_refresh_token():
+                    if self._needs_token_refresh():
                         refresh_request = await self._refresh_token()
                 if refresh_request is not None:
                     refresh_response = yield refresh_request
@@ -654,12 +663,7 @@ class OAuthClientProvider(RedirectAwareAuth):
 
         if response.status_code == 401 or step_up:
             async with self.context.lock:
-                current_access_token = self.context.current_tokens.access_token if self.context.current_tokens else None
-                if (
-                    response.status_code == 401
-                    and current_access_token is not None
-                    and current_access_token != sent_access_token
-                ):
+                if self._unauthorized_token_changed(response, sent_access_token):
                     # Another request refreshed or re-authorized while this one was in flight.
                     self._add_auth_header(request)
                     yield request
