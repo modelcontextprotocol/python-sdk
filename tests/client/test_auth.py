@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+import anyio
 import httpx2
 import pytest
 from inline_snapshot import Is, snapshot
@@ -3665,5 +3666,162 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
     final_req = await auth_flow.asend(token_response)
     try:
         await auth_flow.asend(httpx2.Response(200, request=final_req))
+    except StopAsyncIteration:
+        pass
+
+
+def _expired_refreshable(oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken) -> None:
+    """Token is present and refreshable, but past its expiry. Discovery is already done."""
+    oauth_provider._initialized = True
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() - 30
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client",
+        client_secret="test_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+
+
+@pytest.mark.anyio
+async def test_expired_token_is_refreshed_then_the_original_request_is_sent(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken, mock_storage: MockTokenStorage
+):
+    """A successful refresh stores the new token and the original request goes out with it.
+
+    SDK behaviour: refresh runs outside ``context.lock``, and a 200 refresh response
+    leaves the provider initialized.
+    """
+    _expired_refreshable(oauth_provider, valid_tokens)
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    refresh_request = await auth_flow.__anext__()
+
+    assert refresh_request.method == "POST"
+    assert "grant_type=refresh_token" in refresh_request.content.decode()
+    refresh_response = httpx2.Response(
+        200,
+        json={"access_token": "refreshed-access", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "kept"},
+        request=refresh_request,
+    )
+    primary = await auth_flow.asend(refresh_response)
+
+    assert primary.method == "GET"
+    assert primary.headers["Authorization"] == "Bearer refreshed-access"
+    assert oauth_provider._initialized is True
+    stored = await mock_storage.get_tokens()
+    assert stored is not None
+    assert stored.access_token == "refreshed-access"
+    try:
+        await auth_flow.asend(httpx2.Response(200, request=primary))
+    except StopAsyncIteration:
+        pass
+
+
+@pytest.mark.anyio
+async def test_failed_refresh_clears_the_token_and_sends_the_request_unauthenticated(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """A non-200 refresh drops the stored token and the original request goes out without it.
+
+    SDK behaviour: refresh failure marks the provider uninitialized so the next call rediscovers.
+    """
+    _expired_refreshable(oauth_provider, valid_tokens)
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    refresh_request = await auth_flow.__anext__()
+    assert refresh_request.method == "POST"
+    primary = await auth_flow.asend(httpx2.Response(400, json={"error": "invalid_grant"}, request=refresh_request))
+
+    assert primary.method == "GET"
+    assert "Authorization" not in primary.headers
+    assert oauth_provider._initialized is False
+    assert oauth_provider.context.current_tokens is None
+    try:
+        await auth_flow.asend(httpx2.Response(200, request=primary))
+    except StopAsyncIteration:
+        pass
+
+
+@pytest.mark.anyio
+async def test_refresh_waiter_sends_the_token_stored_while_it_waited(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """A caller that finds an expired token does not refresh if a peer stored a valid one while it waited.
+
+    The re-check is under ``refresh_lock``. This drives ``async_auth_flow`` and holds that lock
+    so the wait is real; the public client has no other way to observe the single-flight.
+    """
+    _expired_refreshable(oauth_provider, valid_tokens)
+
+    class HoldableLock:
+        """Stand-in for ``refresh_lock`` that signals when a waiter arrives."""
+
+        def __init__(self) -> None:
+            self._inner = anyio.Lock()
+            self.waiting = anyio.Event()
+            self.arm = False
+
+        async def __aenter__(self):
+            if self.arm:
+                self.waiting.set()
+            await self._inner.acquire()
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            self._inner.release()
+
+    lock = HoldableLock()
+    # anyio.Lock.acquire is read-only, so the stand-in cannot be a subclass patch.
+    # The field is typed as anyio.Lock; setattr keeps the assignment off the checker.
+    object.__setattr__(oauth_provider.context, "refresh_lock", lock)
+    # First entry is before the waiter is armed, so both arms of `__aenter__` run.
+    await lock.__aenter__()
+    lock.arm = True
+    sent: list[httpx2.Request] = []
+
+    async def drive() -> None:
+        auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+        request = await auth_flow.__anext__()
+        sent.append(request)
+        try:
+            await auth_flow.asend(httpx2.Response(200, request=request))
+        except StopAsyncIteration:
+            pass
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(drive)
+        with anyio.fail_after(5):
+            await lock.waiting.wait()
+        oauth_provider.context.token_expiry_time = time.time() + 3600
+        await lock.__aexit__(None, None, None)
+
+    assert len(sent) == 1
+    assert sent[0].method == "GET"
+    assert sent[0].headers["Authorization"] == "Bearer test_access_token"
+
+
+@pytest.mark.anyio
+async def test_stale_401_retries_once_with_the_token_stored_during_the_request(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """A 401 whose access token was replaced while the request was in flight retries once.
+
+    SDK behaviour: that retry uses the stored token and does not start a second login.
+    """
+    oauth_provider._initialized = True
+    oauth_provider.context.current_tokens = valid_tokens
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    primary = await auth_flow.__anext__()
+    assert primary.headers["Authorization"] == "Bearer test_access_token"
+
+    valid_tokens.access_token = "replaced-access"
+    retry = await auth_flow.asend(httpx2.Response(401, request=primary))
+
+    assert retry.method == "GET"
+    assert retry.headers["Authorization"] == "Bearer replaced-access"
+    try:
+        await auth_flow.asend(httpx2.Response(200, request=retry))
     except StopAsyncIteration:
         pass
