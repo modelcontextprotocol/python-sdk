@@ -640,14 +640,23 @@ class OAuthClientProvider(RedirectAwareAuth):
 
         if needs_refresh:
             async with self.context.refresh_lock:
-                refresh_request = None
+                # Re-check outside the inner `async with` so a peer refresh that
+                # landed while this caller waited is a normal branch, not one
+                # hidden in the lock's exit.
+                still_needs_refresh = False
                 async with self.context.lock:
-                    if self._needs_token_refresh():
+                    still_needs_refresh = self._needs_token_refresh()
+                refresh_request = None
+                if still_needs_refresh:
+                    async with self.context.lock:
                         refresh_request = await self._refresh_token()
                 if refresh_request is not None:
                     refresh_response = yield refresh_request
+                    refresh_ok = False
                     async with self.context.lock:
-                        if not await self._handle_refresh_response(refresh_response):
+                        refresh_ok = await self._handle_refresh_response(refresh_response)
+                    if not refresh_ok:
+                        async with self.context.lock:
                             self._initialized = False
 
         async with self.context.lock:
