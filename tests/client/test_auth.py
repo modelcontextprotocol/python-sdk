@@ -3771,20 +3771,12 @@ async def test_refresh_waiter_sends_the_token_stored_while_it_waited(
         async def __aexit__(self, *_exc: object) -> None:
             self._inner.release()
 
-        async def acquire(self) -> None:
-            await self._inner.acquire()
-
-        def release(self) -> None:
-            self._inner.release()
-
-        def locked(self) -> bool:
-            return self._inner.locked()
-
     lock = HoldableLock()
     # anyio.Lock.acquire is read-only, so the stand-in cannot be a subclass patch.
     # The field is typed as anyio.Lock; setattr keeps the assignment off the checker.
     object.__setattr__(oauth_provider.context, "refresh_lock", lock)
-    await lock.acquire()
+    # First entry is before the waiter is armed, so both arms of `__aenter__` run.
+    await lock.__aenter__()
     lock.arm = True
     sent: list[httpx2.Request] = []
 
@@ -3797,16 +3789,12 @@ async def test_refresh_waiter_sends_the_token_stored_while_it_waited(
         except StopAsyncIteration:
             pass
 
-    try:
-        async with anyio.create_task_group() as task_group:
-            task_group.start_soon(drive)
-            with anyio.fail_after(5):
-                await lock.waiting.wait()
-            oauth_provider.context.token_expiry_time = time.time() + 3600
-            lock.release()
-    finally:
-        if lock.locked():
-            lock.release()
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(drive)
+        with anyio.fail_after(5):
+            await lock.waiting.wait()
+        oauth_provider.context.token_expiry_time = time.time() + 3600
+        await lock.__aexit__(None, None, None)
 
     assert len(sent) == 1
     assert sent[0].method == "GET"
