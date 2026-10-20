@@ -244,6 +244,26 @@ class TestOAuthContext:
         assert not context.is_token_valid()
         assert context.can_refresh_token()  # Can still refresh
 
+        # Exactly at expiry boundary (current time equals expiry)
+        now = time.time()
+        context.token_expiry_time = now
+        with mock.patch("time.time", return_value=now):
+            assert not context.is_token_valid()  # Token must not be accepted on or after expiry
+
+        # Token with expires_in=0 should be immediately invalid at issuance time
+        zero_expiry_token = OAuthToken(
+            access_token="zero_token",
+            token_type="Bearer",
+            expires_in=0,
+        )
+        context.current_tokens = zero_expiry_token
+        with mock.patch("time.time", return_value=now):
+            context.update_token_expiry(zero_expiry_token)
+            assert not context.is_token_valid()
+
+        context.current_tokens = valid_tokens
+        context.token_expiry_time = time.time() - 100
+
         # Remove refresh token
         context.current_tokens.refresh_token = None
         assert not context.can_refresh_token()
