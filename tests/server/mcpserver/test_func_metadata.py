@@ -1520,3 +1520,30 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+@pytest.mark.parametrize("annotation", [dict, list, tuple])
+def test_bare_container_return_annotations_get_a_wrapped_output_model(annotation: Any) -> None:
+    """A bare `dict` / `list` / `tuple` must not silently opt out of structured output.
+
+    They carry no type hints, so the generic class branch produced no model at all:
+    no outputSchema, no structuredContent, and `structured_output=True` raised
+    InvalidSignature claiming the type was not serializable.
+    """
+
+    def func() -> annotation:  # type: ignore[valid-type]
+        return {} if annotation is dict else []
+
+    metadata = func_metadata(func)
+    assert metadata.output_model is not None, "bare container annotation lost its output model"
+    assert metadata.wrap_output is True
+
+
+def test_bare_dict_structured_output_roundtrips() -> None:
+    def func() -> dict:  # type: ignore[type-arg]
+        return {"a": 1}
+
+    metadata = func_metadata(func, structured_output=True)
+    assert metadata.output_model is not None
+    validated = metadata.output_model.model_validate(func())
+    assert validated.model_dump()["result"] == {"a": 1}
+

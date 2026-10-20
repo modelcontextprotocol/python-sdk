@@ -535,6 +535,15 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
             model = _create_wrapped_model(func_name, original_annotation)
             wrap_output = True
 
+        # Case 3b: Bare containers. A bare `dict` / `list` / `tuple` carries no type
+        # hints, so it used to fall through to Case 4, where `get_type_hints()` is
+        # empty and the model stayed None: the tool silently lost its outputSchema and
+        # structuredContent. Treat them as their parameterised equivalents, which is
+        # what the documented behaviour promises (`dict` == `dict[Any, Any]`).
+        elif type_annotation in (dict, list, tuple):
+            model = _create_wrapped_model(func_name, original_annotation)
+            wrap_output = True
+
         # Case 4: Other class types (dataclasses, regular classes with annotations)
         else:
             type_hints = get_type_hints(type_annotation)
