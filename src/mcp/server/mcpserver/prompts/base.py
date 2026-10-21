@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
@@ -187,6 +188,9 @@ class Prompt(BaseModel):
                 result = await fn(**call_args)
             else:
                 result = await anyio.to_thread.run_sync(functools.partial(self.fn, **call_args))
+
+            if inspect.isawaitable(result):
+                result = await result
 
             if isinstance(result, InputRequiredResult):
                 return result

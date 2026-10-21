@@ -1,4 +1,5 @@
 import threading
+from collections.abc import Awaitable
 from pathlib import Path
 from typing import Any
 
@@ -332,3 +333,20 @@ async def test_prompt_returning_media_with_an_unreadable_file_fails_to_render(tm
 
     with pytest.raises(ValueError):
         await Prompt.from_function(fn).render(None, Context())
+
+
+@pytest.mark.anyio
+async def test_prompt_render_awaits_awaitable_returned_by_sync_callback():
+    async def resolve() -> list[str]:
+        return []
+
+    coroutine = resolve()
+
+    def prompt() -> Awaitable[list[str]]:
+        return coroutine
+
+    try:
+        messages = await Prompt.from_function(prompt).render(None, Context())
+    finally:
+        coroutine.close()
+    assert messages == []
