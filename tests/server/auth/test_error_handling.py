@@ -347,3 +347,127 @@ async def test_oversized_cross_origin_request_gets_413_with_cors_headers(client:
     )
     assert response.status_code == 413
     assert response.headers["access-control-allow-origin"] == "*"
+
+
+@pytest.mark.anyio
+async def test_rfc6749_token_unauthorized_client(client: httpx2.AsyncClient, oauth_provider: MockOAuthProvider):
+    """RFC 6749 §5.2: when a grant is supported by the server but not authorized for this client,
+    the server must return error='unauthorized_client'.
+    """
+    reg_response = await client.post(
+        "/register",
+        json={
+            "client_name": "Test Client",
+            "redirect_uris": ["https://client.example.com/callback"],
+            "grant_types": ["authorization_code"],
+            "token_endpoint_auth_method": "client_secret_post",
+        },
+    )
+    client_data = reg_response.json()
+
+    response = await client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "some-token",
+            "client_id": client_data["client_id"],
+            "client_secret": client_data["client_secret"],
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "unauthorized_client"
+
+
+@pytest.mark.anyio
+async def test_rfc6749_token_unsupported_grant_type(client: httpx2.AsyncClient, oauth_provider: MockOAuthProvider):
+    """RFC 6749 §5.2: when a grant type is not supported by the server,
+    the server must return error='unsupported_grant_type'.
+    """
+    reg_response = await client.post(
+        "/register",
+        json={
+            "client_name": "Test Client",
+            "redirect_uris": ["https://client.example.com/callback"],
+            "grant_types": ["authorization_code"],
+            "token_endpoint_auth_method": "client_secret_post",
+        },
+    )
+    client_data = reg_response.json()
+
+    response = await client.post(
+        "/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_data["client_id"],
+            "client_secret": client_data["client_secret"],
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "unsupported_grant_type"
+
+
+@pytest.mark.anyio
+async def test_rfc6749_token_basic_auth_failure_www_authenticate(
+    client: httpx2.AsyncClient, oauth_provider: MockOAuthProvider
+):
+    """RFC 6749 §5.2: failed client authentication via Authorization header must return 401
+    with invalid_client and a matching WWW-Authenticate header.
+    """
+    reg_response = await client.post(
+        "/register",
+        json={
+            "client_name": "Test Client",
+            "redirect_uris": ["https://client.example.com/callback"],
+            "grant_types": ["authorization_code"],
+            "token_endpoint_auth_method": "client_secret_basic",
+        },
+    )
+    client_data = reg_response.json()
+
+    auth_header = "Basic " + base64.b64encode(f"{client_data['client_id']}:wrong_secret".encode()).decode()
+    response = await client.post(
+        "/token",
+        headers={"Authorization": auth_header},
+        data={
+            "grant_type": "authorization_code",
+            "code": "any_code",
+            "client_id": client_data["client_id"],
+        },
+    )
+    assert response.status_code == 401
+    assert response.json()["error"] == "invalid_client"
+    assert "www-authenticate" in response.headers
+    assert response.headers["www-authenticate"].lower().startswith("basic")
+
+
+@pytest.mark.anyio
+async def test_rfc7009_revoke_invalid_client_and_www_authenticate(
+    client: httpx2.AsyncClient, oauth_provider: MockOAuthProvider
+):
+    """RFC 7009 §2.2.1: failed client authentication on /revoke must return error='invalid_client'
+    (not 'unauthorized_client'), status 401, with matching WWW-Authenticate header.
+    """
+    reg_response = await client.post(
+        "/register",
+        json={
+            "client_name": "Test Client",
+            "redirect_uris": ["https://client.example.com/callback"],
+            "grant_types": ["authorization_code"],
+            "token_endpoint_auth_method": "client_secret_basic",
+        },
+    )
+    client_data = reg_response.json()
+
+    auth_header = "Basic " + base64.b64encode(f"{client_data['client_id']}:wrong_secret".encode()).decode()
+    response = await client.post(
+        "/revoke",
+        headers={"Authorization": auth_header},
+        data={
+            "token": "any_token",
+            "client_id": client_data["client_id"],
+        },
+    )
+    assert response.status_code == 401
+    assert response.json()["error"] == "invalid_client"
+    assert "www-authenticate" in response.headers
+    assert response.headers["www-authenticate"].lower().startswith("basic")

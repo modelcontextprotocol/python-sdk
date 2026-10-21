@@ -101,26 +101,45 @@ class TokenHandler:
         )
 
     async def handle(self, request: Request):
+        auth_header = request.headers.get("Authorization", "")
         try:
             client_info = await self.client_authenticator.authenticate_request(request)
         except AuthenticationError as e:
             # Authentication failures should return 401
+            headers = {
+                "Cache-Control": "no-store",
+                "Pragma": "no-cache",
+            }
+            if auth_header.lower().startswith("basic "):
+                headers["WWW-Authenticate"] = 'Basic realm="OAuth"'
+
             return PydanticJSONResponse(
                 content=TokenErrorResponse(
                     error="invalid_client",
                     error_description=e.message,
                 ),
                 status_code=401,
-                headers={
-                    "Cache-Control": "no-store",
-                    "Pragma": "no-cache",
-                },
+                headers=headers,
+            )
+
+        form_data = await request.form()
+        form_dict = dict(form_data)
+        grant_type = form_dict.get("grant_type")
+
+        supported_grants = {"authorization_code", "refresh_token"}
+        if self.identity_assertion_enabled:
+            supported_grants.add("urn:ietf:params:oauth:grant-type:jwt-bearer")
+
+        if grant_type and str(grant_type) not in supported_grants:
+            return self.response(
+                TokenErrorResponse(
+                    error="unsupported_grant_type",
+                    error_description=f"Unsupported grant type: {grant_type}",
+                )
             )
 
         try:
-            form_data = await request.form()
-            # TODO(Marcelo): Can someone check if this `dict()` wrapper is necessary?
-            token_request = token_request_adapter.validate_python(dict(form_data))
+            token_request = token_request_adapter.validate_python(form_dict)
         except ValidationError as validation_error:
             return self.response(
                 TokenErrorResponse(
@@ -132,8 +151,11 @@ class TokenHandler:
         if token_request.grant_type not in client_info.grant_types:
             return self.response(
                 TokenErrorResponse(
-                    error="unsupported_grant_type",
-                    error_description=(f"Unsupported grant type (supported grant types are {client_info.grant_types})"),
+                    error="unauthorized_client",
+                    error_description=(
+                        f"Client is not authorized to use grant type {token_request.grant_type} "
+                        f"(authorized grant types are {client_info.grant_types})"
+                    ),
                 )
             )
 

@@ -24,7 +24,7 @@ class RevocationRequest(BaseModel):
 
 
 class RevocationErrorResponse(BaseModel):
-    error: Literal["invalid_request", "unauthorized_client"]
+    error: Literal["invalid_request", "invalid_client", "unsupported_token_type", "unauthorized_client"]
     error_description: str | None = None
 
 
@@ -35,15 +35,24 @@ class RevocationHandler:
 
     async def handle(self, request: Request) -> Response:
         """Handler for the OAuth 2.0 Token Revocation endpoint."""
+        auth_header = request.headers.get("Authorization", "")
+        headers = {
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+        }
+        if auth_header.lower().startswith("basic "):
+            headers["WWW-Authenticate"] = 'Basic realm="OAuth"'
+
         try:
             client = await self.client_authenticator.authenticate_request(request)
         except AuthenticationError as e:  # pragma: no cover
             return PydanticJSONResponse(
                 status_code=401,
                 content=RevocationErrorResponse(
-                    error="unauthorized_client",
+                    error="invalid_client",
                     error_description=e.message,
                 ),
+                headers=headers,
             )
 
         try:
