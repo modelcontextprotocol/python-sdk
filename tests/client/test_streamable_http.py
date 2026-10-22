@@ -21,6 +21,7 @@ from mcp_types import (
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
+    REQUEST_TIMEOUT,
     CallToolRequestParams,
     CallToolResult,
     JSONRPCError,
@@ -1279,3 +1280,152 @@ Redirect to http://backend.lan:8000/mcp/ not followed: it would downgrade this H
 The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,
 often combined with a trailing-slash difference. Try https://backend.lan:8000/mcp/ instead, or fix the proxy settings.\
 """)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["legacy", LATEST_MODERN_VERSION])
+@pytest.mark.parametrize("during_body", [False, True], ids=["response-headers", "json-body"])
+async def test_http_read_timeout_fails_only_its_call_and_keeps_the_client_usable(mode: str, during_body: bool) -> None:
+    """SDK-defined: a POST read timeout leaves sibling and subsequent calls usable.
+
+    The HTTP seam injects an error the in-process server cannot produce itself.
+    """
+    sibling_started = anyio.Event()
+    release_sibling = anyio.Event()
+    body_closed = anyio.Event()
+    calls: list[str] = []
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        assert params.name in ("sibling", "after")
+        return CallToolResult(content=[TextContent(text=params.name)])
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[Tool(name=name, input_schema={"type": "object"}) for name in ("slow", "sibling", "after")]
+        )
+
+    manager = StreamableHTTPSessionManager(
+        app=Server("timeout-isolation", on_call_tool=call_tool, on_list_tools=list_tools)
+    )
+    app = Starlette(routes=[Mount("/mcp", app=manager.handle_request)])
+    transport = StreamingASGITransport(app)
+
+    class TimeoutBody(httpx2.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b'{"jsonrpc":'
+            raise httpx2.ReadTimeout("sensitive upstream detail")
+
+        async def aclose(self) -> None:
+            body_closed.set()
+
+    async def handle(request: httpx2.Request) -> httpx2.Response:
+        if request.method == "POST":
+            body = json.loads(request.content)
+            if body.get("method") == "tools/call":
+                name = body["params"]["name"]
+                calls.append(name)
+                if name == "slow":
+                    await sibling_started.wait()
+                    if during_body:
+                        return httpx2.Response(200, headers={"content-type": "application/json"}, stream=TimeoutBody())
+                    raise httpx2.ReadTimeout("sensitive upstream detail", request=request)
+                if name == "sibling":
+                    sibling_started.set()
+                    await release_sibling.wait()
+        return await transport.handle_async_request(request)
+
+    with anyio.fail_after(5):
+        async with (
+            manager.run(),
+            transport,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handle)) as http,
+            Client(streamable_http_client("http://localhost/mcp/", http_client=http), mode=mode) as client,
+        ):
+
+            async def slow_call() -> None:
+                with pytest.raises(MCPError) as exc_info:
+                    await client.call_tool("slow", {})
+                assert exc_info.value.error.code == REQUEST_TIMEOUT
+                assert exc_info.value.error.message == snapshot("HTTP response timed out")
+                release_sibling.set()
+
+            async with anyio.create_task_group() as group:
+                group.start_soon(slow_call)
+                sibling = await client.call_tool("sibling", {})
+                assert sibling.content == [TextContent(text="sibling")]
+            after = await client.call_tool("after", {})
+
+    assert after.content == [TextContent(text="after")]
+    assert sorted(calls) == ["after", "sibling", "slow"]
+    assert body_closed.is_set() == during_body
+
+
+@pytest.mark.anyio
+async def test_http_read_timeout_on_resumption_resolves_the_original_request() -> None:
+    """SDK-defined: a failed resumption GET resolves the original request without a POST retry.
+
+    The raw transport API supplies the resumption token hidden by Client.
+    """
+    seen: list[tuple[str, str | None]] = []
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        seen.append((request.method, request.headers.get("last-event-id")))
+        raise httpx2.ReadTimeout("upstream detail", request=request)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handle)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    JSONRPCRequest(jsonrpc="2.0", id="resume-1", method="tools/call", params={}),
+                    metadata=ClientMessageMetadata(resumption_token="evt-41"),
+                )
+            )
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == "resume-1"
+    assert reply.message.error.code == REQUEST_TIMEOUT
+    assert reply.message.error.message == snapshot("HTTP response timed out")
+    assert seen == [("GET", "evt-41")]
+
+
+@pytest.mark.anyio
+async def test_notification_read_timeout_still_ends_the_post_writer(caplog: pytest.LogCaptureFixture) -> None:
+    """Pinned gap: notification timeouts still end the writer; request isolation does not cover them.
+
+    The raw transport API exposes the writer closure, which Client hides behind session errors.
+    """
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ReadTimeout("notification failed", request=request)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handle)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (_read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/message")))
+            await anyio.wait_all_tasks_blocked()
+            with pytest.raises(anyio.BrokenResourceError):
+                await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="ping")))
+    assert "Error in post_writer" in caplog.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("mode", "method"), [("auto", "server/discover"), ("legacy", "initialize")])
+async def test_connect_read_timeout_still_propagates_without_a_fallback(mode: str, method: str) -> None:
+    """SDK-defined: connect-time read timeouts retain their raw error and do not start another handshake."""
+    methods: list[str] = []
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        methods.append(json.loads(request.content)["method"])
+        raise httpx2.ReadTimeout("handshake timed out", request=request)
+
+    with anyio.fail_after(5):
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handle)) as http:
+            with pytest.RaisesGroup(httpx2.ReadTimeout, flatten_subgroups=True):
+                await Client(streamable_http_client("http://test/mcp", http_client=http), mode=mode).__aenter__()
+    assert methods == [method]

@@ -41,6 +41,13 @@ Two things to notice:
 
 Keep the `timeout=`. It is the one the SDK's own client uses (30 seconds, 300 for reads); an `httpx2.AsyncClient` built without one gets `httpx2`'s 5-second default, and a tool call that runs longer than that fails with a read timeout.
 
+An HTTP read timeout while sending a request POST or reading its JSON response
+raises `MCPError` with code `REQUEST_TIMEOUT` (-32001) for that request. Other
+in-flight requests and subsequent calls on the same client remain usable. The
+transport does not retry the request; a timeout does not prove that the server
+stopped executing it. Timeouts during the initial `initialize` or `server/discover`
+handshake still propagate as transport errors.
+
 One TLS note: `httpx2` verifies certificates against the operating system trust store (via
 [`truststore`](https://pypi.org/project/truststore/)), not a bundled CA list. In an environment with
 no usable system CA store (some minimal containers), set the standard `SSL_CERT_FILE`/`SSL_CERT_DIR`

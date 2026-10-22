@@ -18,6 +18,7 @@ from mcp_types import (
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
+    REQUEST_TIMEOUT,
     ErrorData,
     JSONRPCError,
     JSONRPCMessage,
@@ -656,10 +657,20 @@ class StreamableHTTPTransport:
                     )
 
                     async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                        try:
+                            if is_resumption:
+                                await self._handle_resumption_request(ctx)
+                            else:
+                                await self._handle_post_request(ctx)
+                        except httpx2.ReadTimeout:
+                            if not isinstance(message, JSONRPCRequest):
+                                raise
+                            if message.method in ("initialize", "server/discover"):
+                                raise
+                            # One HTTP response timing out must not cancel sibling requests.
+                            await self._resolve_abandoned_request(
+                                ctx.read_stream_writer, message.id, "HTTP response timed out", code=REQUEST_TIMEOUT
+                            )
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):
