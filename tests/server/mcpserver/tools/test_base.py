@@ -147,3 +147,69 @@ async def test_tool_with_valid_x_mcp_header_annotations_is_registered():
         raise NotImplementedError
 
     assert [tool.name for tool in await mcp.list_tools()] == ["fetch"]
+
+
+@pytest.mark.anyio
+async def test_tool_reserved_parameter_does_not_collide_with_prefixed_field_name():
+    from mcp_types import TextContent
+
+    from mcp import Client
+    from mcp.server.mcpserver import MCPServer
+
+    mcp = MCPServer(name="srv")
+
+    @mcp.tool()
+    def inspect(model_dump: int, field_model_dump: int) -> str:
+        return f"seen:{model_dump}:{field_model_dump}"
+
+    @mcp.tool()
+    def inspect_reversed(field_model_dump: int, model_dump: int) -> str:
+        return f"seen_rev:{field_model_dump}:{model_dump}"
+
+    @mcp.tool()
+    def inspect_multiple_collisions(model_dump: int, field_model_dump: int, field_model_dump_1: int) -> str:
+        return f"seen_multi:{model_dump}:{field_model_dump}:{field_model_dump_1}"
+
+    @mcp.tool()
+    def inspect_argmodel_reserved(model_dump_one_level: int, model_fields: str) -> str:
+        return f"seen_reserved:{model_dump_one_level}:{model_fields}"
+
+    tools = await mcp.list_tools()
+    tools_by_name = {tool.name: tool for tool in tools}
+
+    assert "model_dump" in tools_by_name["inspect"].input_schema["properties"]
+    assert "field_model_dump" in tools_by_name["inspect"].input_schema["properties"]
+
+    assert "model_dump" in tools_by_name["inspect_reversed"].input_schema["properties"]
+    assert "field_model_dump" in tools_by_name["inspect_reversed"].input_schema["properties"]
+
+    multi_props = tools_by_name["inspect_multiple_collisions"].input_schema["properties"]
+    assert {"model_dump", "field_model_dump", "field_model_dump_1"} <= multi_props.keys()
+
+    reserved_props = tools_by_name["inspect_argmodel_reserved"].input_schema["properties"]
+    assert {"model_dump_one_level", "model_fields"} <= reserved_props.keys()
+
+    async with Client(mcp) as client:
+        res1 = await client.call_tool(
+            "inspect",
+            arguments={"model_dump": 1, "field_model_dump": 2},
+        )
+        assert res1.content == [TextContent(type="text", text="seen:1:2")]
+
+        res2 = await client.call_tool(
+            "inspect_reversed",
+            arguments={"field_model_dump": 2, "model_dump": 1},
+        )
+        assert res2.content == [TextContent(type="text", text="seen_rev:2:1")]
+
+        res3 = await client.call_tool(
+            "inspect_multiple_collisions",
+            arguments={"model_dump": 1, "field_model_dump": 2, "field_model_dump_1": 3},
+        )
+        assert res3.content == [TextContent(type="text", text="seen_multi:1:2:3")]
+
+        res4 = await client.call_tool(
+            "inspect_argmodel_reserved",
+            arguments={"model_dump_one_level": 42, "model_fields": "foo"},
+        )
+        assert res4.content == [TextContent(type="text", text="seen_reserved:42:foo")]

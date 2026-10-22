@@ -339,13 +339,18 @@ def func_metadata(
 
         if param.annotation is inspect.Parameter.empty:
             field_metadata.append(WithJsonSchema({"title": param.name, "type": "string"}))
-        # Check if the parameter name conflicts with BaseModel attributes
-        # This is necessary because Pydantic warns about shadowing parent attributes
-        if hasattr(BaseModel, field_name) and callable(getattr(BaseModel, field_name)):
+        # Check if the parameter name conflicts with ArgModelBase attributes
+        # This is necessary because Pydantic warns or errors about shadowing parent attributes
+        if hasattr(ArgModelBase, field_name):
             # Use an alias to avoid the shadowing warning
             field_kwargs["alias"] = field_name
-            # Use a prefixed field name
-            field_name = f"field_{field_name}"
+            # Use a prefixed field name that avoids collisions with other parameters
+            candidate = f"field_{field_name}"
+            counter = 1
+            while candidate in params or candidate in dynamic_pydantic_model_params or hasattr(ArgModelBase, candidate):
+                candidate = f"field_{field_name}_{counter}"
+                counter += 1
+            field_name = candidate
 
         if param.default is not inspect.Parameter.empty:
             dynamic_pydantic_model_params[field_name] = (
