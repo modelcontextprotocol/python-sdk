@@ -228,13 +228,17 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         ...
 
     async def exchange_authorization_code(
-        self, client: OAuthClientInformationFull, authorization_code: AuthorizationCodeT
+        self,
+        client: OAuthClientInformationFull,
+        authorization_code: AuthorizationCodeT,
+        resource: str | None = None,
     ) -> OAuthToken:
         """Exchanges an authorization code for an access token and refresh token.
 
         Args:
             client: The client exchanging the authorization code.
             authorization_code: The authorization code to exchange.
+            resource: Optional RFC 8707 resource indicator requested by the client in the token request.
 
         Returns:
             The OAuth token, containing access and refresh tokens.
@@ -261,6 +265,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         client: OAuthClientInformationFull,
         refresh_token: RefreshTokenT,
         scopes: list[str],
+        resource: str | None = None,
     ) -> OAuthToken:
         """Exchanges a refresh token for an access token and refresh token.
 
@@ -270,6 +275,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
             client: The client exchanging the refresh token.
             refresh_token: The refresh token to exchange.
             scopes: Optional scopes to request with the new access token.
+            resource: Optional RFC 8707 resource indicator requested by the client in the token request.
 
         Returns:
             The OAuth token, containing access and refresh tokens.

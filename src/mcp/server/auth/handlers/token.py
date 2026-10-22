@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import inspect
 import time
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
@@ -80,6 +81,47 @@ class TokenErrorResponse(BaseModel):
 TokenSuccessResponse = OAuthToken
 
 
+def _accepts_resource(func: Any) -> bool:
+    try:
+        sig = inspect.signature(func)
+        return "resource" in sig.parameters or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
+    except (ValueError, TypeError):
+        return True
+
+
+async def _exchange_authorization_code(
+    provider: OAuthAuthorizationServerProvider[Any, Any, Any],
+    client_info: Any,
+    auth_code: Any,
+    resource: str | None,
+) -> OAuthToken:
+    if _accepts_resource(provider.exchange_authorization_code):
+        try:
+            return await provider.exchange_authorization_code(client_info, auth_code, resource=resource)
+        except TypeError as te:
+            if "resource" not in str(te):
+                raise
+    return await provider.exchange_authorization_code(client_info, auth_code)
+
+
+async def _exchange_refresh_token(
+    provider: OAuthAuthorizationServerProvider[Any, Any, Any],
+    client_info: Any,
+    refresh_token: Any,
+    scopes: list[str],
+    resource: str | None,
+) -> OAuthToken:
+    if _accepts_resource(provider.exchange_refresh_token):
+        try:
+            return await provider.exchange_refresh_token(client_info, refresh_token, scopes, resource=resource)
+        except TypeError as te:
+            if "resource" not in str(te):
+                raise
+    return await provider.exchange_refresh_token(client_info, refresh_token, scopes)
+
+
 @dataclass
 class TokenHandler:
     provider: OAuthAuthorizationServerProvider[Any, Any, Any]
@@ -119,8 +161,11 @@ class TokenHandler:
 
         try:
             form_data = await request.form()
-            # TODO(Marcelo): Can someone check if this `dict()` wrapper is necessary?
-            token_request = token_request_adapter.validate_python(dict(form_data))
+            # Parse token request from body form data, falling back to query parameters
+            # for parameters like RFC 8707 `resource` if provided in query string.
+            request_data = dict(request.query_params)
+            request_data.update(dict(form_data))
+            token_request = token_request_adapter.validate_python(request_data)
         except ValidationError as validation_error:
             return self.response(
                 TokenErrorResponse(
@@ -197,7 +242,9 @@ class TokenHandler:
 
                 try:
                     # Exchange authorization code for tokens
-                    tokens = await self.provider.exchange_authorization_code(client_info, auth_code)
+                    tokens = await _exchange_authorization_code(
+                        self.provider, client_info, auth_code, token_request.resource
+                    )
                 except TokenError as e:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
 
@@ -235,7 +282,9 @@ class TokenHandler:
 
                 try:
                     # Exchange refresh token for new tokens
-                    tokens = await self.provider.exchange_refresh_token(client_info, refresh_token, scopes)
+                    tokens = await _exchange_refresh_token(
+                        self.provider, client_info, refresh_token, scopes, token_request.resource
+                    )
                 except TokenError as e:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
 

@@ -79,6 +79,8 @@ class InMemoryAuthorizationServerProvider(
         # The most recent jwt-bearer request the SDK handler passed to exchange_identity_assertion,
         # for tests to assert what the client sent (None until the first exchange).
         self.last_assertion_params: IdentityAssertionParams | None = None
+        self.last_auth_code_resource: str | None = None
+        self.last_refresh_resource: str | None = None
 
     def _next_expires_in(self) -> int:
         self._tokens_issued += 1
@@ -145,19 +147,24 @@ class InMemoryAuthorizationServerProvider(
         return self.codes.get(authorization_code)
 
     async def exchange_authorization_code(
-        self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode
+        self,
+        client: OAuthClientInformationFull,
+        authorization_code: AuthorizationCode,
+        resource: str | None = None,
     ) -> OAuthToken:
         """Mint an access token and a refresh token for a valid authorization code, then consume the code."""
         assert client.client_id is not None
+        self.last_auth_code_resource = resource
+        target_resource = resource if resource is not None else authorization_code.resource
         access = self.mint_access_token(
-            client_id=client.client_id, scopes=authorization_code.scopes, resource=authorization_code.resource
+            client_id=client.client_id, scopes=authorization_code.scopes, resource=target_resource
         )
         refresh = f"refresh_{secrets.token_hex(16)}"
         self.refresh_tokens[refresh] = RefreshToken(
             token=refresh,
             client_id=client.client_id,
             scopes=authorization_code.scopes,
-            resource=authorization_code.resource,
+            resource=target_resource,
         )
         del self.codes[authorization_code.code]
         return OAuthToken(
@@ -177,17 +184,23 @@ class InMemoryAuthorizationServerProvider(
         return self.refresh_tokens.get(refresh_token)
 
     async def exchange_refresh_token(
-        self, client: OAuthClientInformationFull, refresh_token: RefreshToken, scopes: list[str]
+        self,
+        client: OAuthClientInformationFull,
+        refresh_token: RefreshToken,
+        scopes: list[str],
+        resource: str | None = None,
     ) -> OAuthToken:
         """Mint a new access token and rotate the refresh token, consuming the old one."""
         assert client.client_id is not None
+        self.last_refresh_resource = resource
         if self._fail_next_refresh:
             self._fail_next_refresh = False
             raise TokenError(error="invalid_grant", error_description="refresh denied by harness")
-        access = self.mint_access_token(client_id=client.client_id, scopes=scopes, resource=refresh_token.resource)
+        target_resource = resource if resource is not None else refresh_token.resource
+        access = self.mint_access_token(client_id=client.client_id, scopes=scopes, resource=target_resource)
         new_refresh = f"refresh_{secrets.token_hex(16)}"
         self.refresh_tokens[new_refresh] = RefreshToken(
-            token=new_refresh, client_id=client.client_id, scopes=scopes, resource=refresh_token.resource
+            token=new_refresh, client_id=client.client_id, scopes=scopes, resource=target_resource
         )
         del self.refresh_tokens[refresh_token.token]
         return OAuthToken(
