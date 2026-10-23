@@ -500,7 +500,7 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         wrap_output = True
 
     # Handle GenericAlias types (list[str], dict[str, int], Union[str, int], etc.)
-    elif isinstance(type_expr, GenericAlias):
+    elif get_origin(type_expr) is not None:
         origin = get_origin(type_expr)
 
         if origin is dict:
