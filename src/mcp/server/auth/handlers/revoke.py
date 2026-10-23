@@ -10,7 +10,11 @@ from mcp.server.auth.errors import (
     stringify_pydantic_error,
 )
 from mcp.server.auth.json_response import PydanticJSONResponse
-from mcp.server.auth.middleware.client_auth import AuthenticationError, ClientAuthenticator
+from mcp.server.auth.middleware.client_auth import (
+    AuthenticationError,
+    ClientAuthenticator,
+    www_authenticate_headers,
+)
 from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvider, RefreshToken
 
 
@@ -24,7 +28,8 @@ class RevocationRequest(BaseModel):
 
 
 class RevocationErrorResponse(BaseModel):
-    error: Literal["invalid_request", "unauthorized_client"]
+    # RFC 7009 §2.2.1: the error presentation conforms to RFC 6749 §5.2.
+    error: Literal["invalid_request", "invalid_client", "unauthorized_client"]
     error_description: str | None = None
 
 
@@ -37,13 +42,15 @@ class RevocationHandler:
         """Handler for the OAuth 2.0 Token Revocation endpoint."""
         try:
             client = await self.client_authenticator.authenticate_request(request)
-        except AuthenticationError as e:  # pragma: no cover
+        except AuthenticationError as e:
+            # RFC 6749 §5.2 / RFC 7009 §2.2.1: failed client authentication is invalid_client.
             return PydanticJSONResponse(
                 status_code=401,
                 content=RevocationErrorResponse(
-                    error="unauthorized_client",
+                    error="invalid_client",
                     error_description=e.message,
                 ),
+                headers=www_authenticate_headers(request),
             )
 
         try:

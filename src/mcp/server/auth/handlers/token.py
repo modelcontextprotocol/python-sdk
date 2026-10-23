@@ -9,14 +9,22 @@ from starlette.requests import Request
 
 from mcp.server.auth.errors import stringify_pydantic_error
 from mcp.server.auth.json_response import PydanticJSONResponse
-from mcp.server.auth.middleware.client_auth import AuthenticationError, ClientAuthenticator
+from mcp.server.auth.middleware.client_auth import AuthenticationError, ClientAuthenticator, www_authenticate_headers
 from mcp.server.auth.provider import (
     IdentityAssertionParams,
     OAuthAuthorizationServerProvider,
     TokenError,
     TokenErrorCode,
 )
-from mcp.shared.auth import OAuthToken
+from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthToken
+
+
+def supported_grant_types(*, identity_assertion_enabled: bool) -> list[str]:
+    """Grant types this authorization server implements and advertises."""
+    grant_types = ["authorization_code", "refresh_token"]
+    if identity_assertion_enabled:
+        grant_types.append(JWT_BEARER_GRANT_TYPE)
+    return grant_types
 
 
 class AuthorizationCodeRequest(BaseModel):
@@ -104,7 +112,7 @@ class TokenHandler:
         try:
             client_info = await self.client_authenticator.authenticate_request(request)
         except AuthenticationError as e:
-            # Authentication failures should return 401
+            # RFC 6749 §5.2: failed client authentication is invalid_client.
             return PydanticJSONResponse(
                 content=TokenErrorResponse(
                     error="invalid_client",
@@ -114,13 +122,28 @@ class TokenHandler:
                 headers={
                     "Cache-Control": "no-store",
                     "Pragma": "no-cache",
+                    **www_authenticate_headers(request),
                 },
             )
 
+        form_data = await request.form()
+        # TODO(Marcelo): Can someone check if this `dict()` wrapper is necessary?
+        form = dict(form_data)
+        grant_type = form.get("grant_type")
+        # A grant this server does not implement is unsupported_grant_type, before the
+        # request union is validated, so the body is not a pydantic error (RFC 6749 §5.2).
+        if isinstance(grant_type, str) and grant_type not in supported_grant_types(
+            identity_assertion_enabled=self.identity_assertion_enabled
+        ):
+            return self.response(
+                TokenErrorResponse(
+                    error="unsupported_grant_type",
+                    error_description="The authorization grant type is not supported by the authorization server",
+                )
+            )
+
         try:
-            form_data = await request.form()
-            # TODO(Marcelo): Can someone check if this `dict()` wrapper is necessary?
-            token_request = token_request_adapter.validate_python(dict(form_data))
+            token_request = token_request_adapter.validate_python(form)
         except ValidationError as validation_error:
             return self.response(
                 TokenErrorResponse(
@@ -129,11 +152,12 @@ class TokenHandler:
                 )
             )
 
+        # The server implements this grant, but this client is not registered for it.
         if token_request.grant_type not in client_info.grant_types:
             return self.response(
                 TokenErrorResponse(
-                    error="unsupported_grant_type",
-                    error_description=(f"Unsupported grant type (supported grant types are {client_info.grant_types})"),
+                    error="unauthorized_client",
+                    error_description="The authenticated client is not authorized to use this authorization grant type",
                 )
             )
 
@@ -240,14 +264,6 @@ class TokenHandler:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
 
             case JwtBearerRequest():  # pragma: no branch
-                if not self.identity_assertion_enabled:
-                    return self.response(
-                        TokenErrorResponse(
-                            error="unsupported_grant_type",
-                            error_description="The JWT bearer grant is not supported by this authorization server",
-                        )
-                    )
-
                 # SDK policy, adopting the SHOULD in draft-ietf-oauth-identity-assertion-authz-grant-04
                 # §9.1: only confidential clients may present an ID-JAG. ClientAuthenticator already
                 # rejects a secret-based method with no stored secret; this additionally rejects the

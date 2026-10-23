@@ -13,12 +13,12 @@ from mcp.server.auth.handlers.authorize import AuthorizationHandler
 from mcp.server.auth.handlers.metadata import MetadataHandler, ProtectedResourceMetadataHandler
 from mcp.server.auth.handlers.register import RegistrationHandler
 from mcp.server.auth.handlers.revoke import RevocationHandler
-from mcp.server.auth.handlers.token import TokenHandler
+from mcp.server.auth.handlers.token import TokenHandler, supported_grant_types
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
-from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthMetadata, ProtectedResourceMetadata
+from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 
@@ -158,12 +158,11 @@ def build_metadata(
     authorization_url = AnyHttpUrl(str(issuer_url).rstrip("/") + AUTHORIZATION_PATH)
     token_url = AnyHttpUrl(str(issuer_url).rstrip("/") + TOKEN_PATH)
 
-    grant_types_supported = ["authorization_code", "refresh_token"]
+    grant_types_supported = supported_grant_types(identity_assertion_enabled=supports_identity_assertion)
     # SEP-990 / ext-auth §6: support for the ID-JAG flow is advertised as a grant PROFILE, not as
     # the jwt-bearer grant type (which an AS might support for other purposes).
     authorization_grant_profiles_supported: list[str] | None = None
     if supports_identity_assertion:
-        grant_types_supported.append(JWT_BEARER_GRANT_TYPE)
         authorization_grant_profiles_supported = [ID_JAG_GRANT_PROFILE]
 
     # Create metadata

@@ -16,6 +16,20 @@ class AuthenticationError(Exception):
         self.message = message
 
 
+def www_authenticate_headers(request: Request) -> dict[str, str]:
+    """RFC 6749 §5.2 challenge when the client attempted HTTP Basic authentication.
+
+    A failed attempt via the Authorization header must be a 401 whose
+    WWW-Authenticate value matches that scheme. Basic challenges include a
+    realm (RFC 7617 §2); "OAuth" names this server's client-authentication
+    protection space. Other schemes are not rewritten into a Basic challenge.
+    """
+    authorization = request.headers.get("Authorization", "")
+    if authorization.split(" ", 1)[0].lower() != "basic":
+        return {}
+    return {"WWW-Authenticate": 'Basic realm="OAuth"'}
+
+
 class ClientAuthenticator:
     """ClientAuthenticator is a callable which validates requests from a client
     application, used to verify /token calls.

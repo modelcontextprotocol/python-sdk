@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx2
 import pytest
 from httpx2 import ASGITransport
+from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
@@ -347,3 +348,172 @@ async def test_oversized_cross_origin_request_gets_413_with_cors_headers(client:
     )
     assert response.status_code == 413
     assert response.headers["access-control-allow-origin"] == "*"
+
+
+async def _register(
+    client: httpx2.AsyncClient,
+    *,
+    grant_types: list[str],
+    token_endpoint_auth_method: str,
+) -> dict[str, Any]:
+    response = await client.post(
+        "/register",
+        json={
+            "redirect_uris": ["https://client.example.com/callback"],
+            "token_endpoint_auth_method": token_endpoint_auth_method,
+            "grant_types": grant_types,
+            "response_types": ["code"],
+            "client_name": "Test Client",
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    return body
+
+
+@pytest.mark.anyio
+async def test_refresh_for_a_client_not_registered_for_it_is_unauthorized_client(client: httpx2.AsyncClient):
+    """A grant this server implements, but this client is not registered for, is unauthorized_client.
+
+    RFC 6749 §5.2 reserves unsupported_grant_type for a grant the authorization server
+    itself does not implement.
+    """
+    registered = await _register(
+        client, grant_types=["authorization_code"], token_endpoint_auth_method="client_secret_post"
+    )
+    client_id = registered["client_id"]
+    client_secret = registered["client_secret"]
+    assert isinstance(client_id, str)
+    assert isinstance(client_secret, str)
+
+    response = await client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "not-a-real-token",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == snapshot(
+        {
+            "error": "unauthorized_client",
+            "error_description": "The authenticated client is not authorized to use this authorization grant type",
+        }
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("grant_type", ["client_credentials", "password", "not_a_grant"])
+async def test_grant_the_server_does_not_implement_is_unsupported_grant_type(
+    client: httpx2.AsyncClient, grant_type: str
+):
+    """A grant outside the set this server advertises is unsupported_grant_type, with no validation text.
+
+    RFC 6749 §5.2. The code is chosen from grant_type before the request union is validated,
+    so client_credentials and password do not surface as invalid_request.
+    """
+    registered = await _register(
+        client, grant_types=["authorization_code"], token_endpoint_auth_method="client_secret_post"
+    )
+    client_id = registered["client_id"]
+    client_secret = registered["client_secret"]
+    assert isinstance(client_id, str)
+    assert isinstance(client_secret, str)
+
+    response = await client.post(
+        "/token",
+        data={"grant_type": grant_type, "client_id": client_id, "client_secret": client_secret},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == snapshot(
+        {
+            "error": "unsupported_grant_type",
+            "error_description": "The authorization grant type is not supported by the authorization server",
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_authenticated_token_request_without_grant_type_is_invalid_request(client: httpx2.AsyncClient):
+    """Omitting grant_type is a malformed request, so the code stays invalid_request.
+
+    RFC 6749 §5.2: a missing required parameter is invalid_request. The description is
+    pydantic's validation text, so only its presence is pinned.
+    """
+    registered = await _register(
+        client,
+        grant_types=["authorization_code", "refresh_token"],
+        token_endpoint_auth_method="client_secret_post",
+    )
+    client_id = registered["client_id"]
+    client_secret = registered["client_secret"]
+    assert isinstance(client_id, str)
+    assert isinstance(client_secret, str)
+
+    response = await client.post("/token", data={"client_id": client_id, "client_secret": client_secret})
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"] == "invalid_request"
+    assert body["error_description"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/token", "/revoke"])
+async def test_failed_basic_authentication_includes_www_authenticate(client: httpx2.AsyncClient, path: str):
+    """Failed HTTP Basic client authentication is 401 invalid_client with a Basic challenge.
+
+    RFC 6749 §5.2 requires WWW-Authenticate matching the scheme the client used, and
+    RFC 7617 §2 requires a realm on a Basic challenge. RFC 7009 §2.2.1 uses that same
+    presentation for /revoke, so a bad secret there is invalid_client.
+    """
+    registered = await _register(
+        client, grant_types=["authorization_code"], token_endpoint_auth_method="client_secret_basic"
+    )
+    client_id = registered["client_id"]
+    assert isinstance(client_id, str)
+    credentials = base64.b64encode(f"{client_id}:wrong".encode()).decode()
+
+    response = await client.post(
+        path,
+        headers={"Authorization": f"Basic {credentials}"},
+        data={"client_id": client_id, "grant_type": "refresh_token", "refresh_token": "rt", "token": "rt"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == snapshot({"error": "invalid_client", "error_description": "Invalid client_secret"})
+    assert response.headers["www-authenticate"] == 'Basic realm="OAuth"'
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/token", "/revoke"])
+async def test_failed_client_secret_post_authentication_omits_www_authenticate(client: httpx2.AsyncClient, path: str):
+    """A client_secret_post failure is invalid_client and carries no WWW-Authenticate header.
+
+    RFC 6749 §5.2 requires that header only when the client used the Authorization field.
+    /revoke uses the same code (RFC 7009 §2.2.1).
+    """
+    registered = await _register(
+        client, grant_types=["authorization_code"], token_endpoint_auth_method="client_secret_post"
+    )
+    client_id = registered["client_id"]
+    assert isinstance(client_id, str)
+
+    response = await client.post(
+        path,
+        data={
+            "client_id": client_id,
+            "client_secret": "wrong",
+            "grant_type": "refresh_token",
+            "refresh_token": "rt",
+            "token": "rt",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json() == snapshot({"error": "invalid_client", "error_description": "Invalid client_secret"})
+    assert "www-authenticate" not in response.headers

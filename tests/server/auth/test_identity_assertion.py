@@ -288,7 +288,10 @@ async def test_malformed_request_missing_assertion_is_invalid_request(client: ht
 async def test_client_without_the_grant_registered_is_rejected(
     client: httpx2.AsyncClient, provider: IdentityAssertionProvider
 ):
-    """A confidential client whose registration omits the jwt-bearer grant is refused the grant."""
+    """A confidential client whose registration omits the jwt-bearer grant is refused the grant.
+
+    RFC 6749 §5.2: the server implements this grant, so the code is unauthorized_client.
+    """
     provider.clients["no-grant-client"] = OAuthClientInformationFull(
         client_id="no-grant-client",
         client_secret="s",
@@ -309,7 +312,7 @@ async def test_client_without_the_grant_registered_is_rejected(
     )
 
     assert response.status_code == 400
-    assert response.json()["error"] == "unsupported_grant_type"
+    assert response.json()["error"] == "unauthorized_client"
     assert provider.last_params is None
 
 
