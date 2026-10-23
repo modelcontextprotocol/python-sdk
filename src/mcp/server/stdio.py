@@ -11,18 +11,21 @@ Example:
     ```
 """
 
+import json
 import os
+import re
 import sys
 import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from io import TextIOWrapper
-from typing import BinaryIO, Literal, TextIO
+from typing import BinaryIO, Literal, TextIO, cast
 
 import anyio
 import anyio.lowlevel
 import mcp_types as types
+from pydantic import ValidationError
 
 from mcp.os.win32.utilities import rebind_std_handle_to_fd
 from mcp.shared._context_streams import create_context_streams
@@ -158,6 +161,49 @@ def _claim_fd(
     return os.fdopen(private_fd, mode, closefd=False), release
 
 
+_RAW_ID_PATTERN = re.compile(r'"id"\s*:\s*(-?\d+|"(?:[^"\\]|\\.)*")')
+
+
+def _request_id_from_raw_line(line: str) -> types.RequestId | None:
+    """Best-effort recovery of a request id from a line that failed validation.
+
+    A full parse is tried first; lines too malformed for it fall back to a
+    pattern scan, since the id sits ahead of the payload that usually breaks.
+    """
+    try:
+        parsed: object = json.loads(line)
+    except (json.JSONDecodeError, RecursionError):
+        match = _RAW_ID_PATTERN.search(line)
+        if match is None:
+            return None
+        try:
+            parsed = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            return None
+    if isinstance(parsed, dict):
+        parsed = cast(dict[str, object], parsed).get("id")
+    if isinstance(parsed, str) or type(parsed) is int:
+        return parsed
+    return None
+
+
+def _validation_error_response(line: str, exc: Exception) -> SessionMessage:
+    """The JSON-RPC error frame for a line that failed message validation.
+
+    The message stays bare: the validation error text embeds the offending
+    input, which can be arbitrarily large.
+    """
+    if isinstance(exc, ValidationError) and any(error["type"] == "json_invalid" for error in exc.errors()):
+        code, message = types.PARSE_ERROR, "Parse error"
+    else:
+        code, message = types.INVALID_REQUEST, "Invalid request"
+    return SessionMessage(
+        types.JSONRPCError(
+            jsonrpc="2.0", id=_request_id_from_raw_line(line), error=types.ErrorData(code=code, message=message)
+        )
+    )
+
+
 @asynccontextmanager
 async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
     """Serve MCP over the process's stdin and stdout.
@@ -188,7 +234,10 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                         try:
                             message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
                         except Exception as exc:
-                            await read_stream_writer.send(exc)
+                            # A failed line must still complete its request: send the
+                            # error frame on the wire instead of surfacing a bare
+                            # exception the server dispatcher has no observer for.
+                            await write_stream.send(_validation_error_response(line, exc))
                             continue
 
                         session_message = SessionMessage(message)
