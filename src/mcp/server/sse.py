@@ -15,6 +15,8 @@ Example:
 
     # Define handler functions
     async def handle_sse(request):
+    if scope["method"] == "HEAD":
+        return Response(media_type="text/event-stream", headers={"Cache-Control": "no-store"})
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
