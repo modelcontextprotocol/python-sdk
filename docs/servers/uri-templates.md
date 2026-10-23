@@ -239,7 +239,8 @@ Three things are happening in the highlighted lines:
   template; `template.match(uri)` returns the extracted variables as a
   `dict`, or `None` if the URI doesn't fit. URL decoding happens inside
   `match()`; the decoded values are returned as-is without path-safety
-  validation. Values come out as strings: convert them yourself
+  validation. A URI with a percent-escape that isn't valid UTF-8
+  (`%FF`) doesn't match. Values come out as strings: convert them yourself
   (`int(matched["id"])`, `Path(matched["path"])`).
 * **Apply the safety checks yourself.** The `..` and absolute-path
   checks `MCPServer` runs by default live in `mcp.shared.path_security`.

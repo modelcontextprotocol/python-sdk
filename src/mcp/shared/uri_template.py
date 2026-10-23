@@ -472,7 +472,9 @@ class UriTemplate:
         will not match across a literal ``/`` in the URI (the scan stops
         there), but a percent-encoded ``%2F`` that decodes to ``/`` is
         accepted as part of the value. Path-safety validation belongs at
-        a higher layer; see :mod:`mcp.shared.path_security`.
+        a higher layer; see :mod:`mcp.shared.path_security`. A URI whose
+        percent-escapes don't decode as UTF-8 (e.g. ``%FF``) does not
+        match.
 
         Example::
 
@@ -518,6 +520,14 @@ class UriTemplate:
         if len(uri) > max_uri_length:
             return None
 
+        try:
+            return self._match(uri)
+        except UnicodeDecodeError:
+            # A %XX escape that isn't valid UTF-8 would otherwise decode
+            # to U+FFFD and hand the handler a different value.
+            return None
+
+    def _match(self, uri: str) -> dict[str, str | list[str]] | None:
         if self._query_variables:
             # Two-phase: scan matches the path, the query is split and
             # decoded manually. Query params may be partial, reordered,
@@ -583,6 +593,10 @@ class UriTemplate:
         return self.template
 
 
+def _decode(value: str) -> str:
+    return unquote(value, errors="strict")
+
+
 def _parse_query(query: str) -> dict[str, str]:
     """Parse a query string into a name→value mapping.
 
@@ -604,7 +618,7 @@ def _parse_query(query: str) -> dict[str, str]:
     for pair in query.split("&"):
         name, _, value = pair.partition("=")
         if name and name not in result:
-            result[name] = unquote(value)
+            result[name] = _decode(value)
     return result
 
 
@@ -622,7 +636,7 @@ def _extract_greedy(var: Variable, raw: str) -> str | list[str] | None:
     if not var.explode:
         if any(c in stops for c in raw):
             return None
-        return unquote(raw)
+        return _decode(raw)
 
     sep = spec.separator
     if not raw:
@@ -654,7 +668,7 @@ def _extract_greedy(var: Variable, raw: str) -> str | list[str] | None:
                 seg = ""
             else:
                 return None
-        segments.append(unquote(seg))
+        segments.append(_decode(seg))
     return segments
 
 
@@ -1012,7 +1026,7 @@ def _scan_suffix(
             eq = uri.find("=", earliest, pos)
             if eq == -1:
                 return None
-            result[var.name] = unquote(uri[eq + 1 : pos])
+            result[var.name] = _decode(uri[eq + 1 : pos])
             pos = eq
             i -= 1
             continue
@@ -1045,7 +1059,7 @@ def _scan_suffix(
                     return None
                 start = idx + len(prev.text)
 
-        result[var.name] = unquote(uri[start:pos])
+        result[var.name] = _decode(uri[start:pos])
         pos = start
         i -= 1
     return result, pos
@@ -1111,6 +1125,6 @@ def _scan_prefix(
         if end == -1:
             return None
 
-        result[var.name] = unquote(uri[pos:end])
+        result[var.name] = _decode(uri[pos:end])
         pos = end
     return result, pos

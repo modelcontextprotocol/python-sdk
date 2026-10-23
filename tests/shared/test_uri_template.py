@@ -764,6 +764,21 @@ def test_match_decodes_percent_encoding():
     assert t.match("file://docs/hello%20world.txt") == {"name": "hello world.txt"}
 
 
+@pytest.mark.parametrize(
+    ("template", "uri"),
+    [
+        ("file://docs/{name}", "file://docs/%FF"),
+        ("file://docs/{+path}", "file://docs/a/%C3"),
+        ("/files{/path*}", "/files/a/%FFb"),
+        ("{;filter}", ";filter=%80"),
+        ("logs://{service}{?level}", "logs://api?level=%FE"),
+        ("{+path}/end{.ext}", "a/end.%FF"),
+    ],
+)
+def test_match_rejects_invalid_utf8_escapes(template: str, uri: str):
+    assert UriTemplate.parse(template).match(uri) is None
+
+
 def test_match_escapes_template_literals():
     # Regression: previous impl didn't escape . in literals, making it
     # a regex wildcard. "fileXtxt" should NOT match "file.txt/{id}".
