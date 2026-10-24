@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, Field
 
@@ -915,17 +916,21 @@ def test_tool_schemas_keep_only_titles_set_explicitly():
 
     tool = ToolManager().add_tool(find_book)
 
-    assert tool.parameters == {
-        "type": "object",
-        "properties": {
-            "query": {"title": "Search query", "type": "string"},
-            "limit": {"default": 10, "type": "integer"},
-        },
-        "required": ["query"],
-    }
-    assert tool.output_schema == {
-        "type": "object",
-        "properties": {"name": {"title": "Book title", "type": "string"}, "year": {"type": "integer"}},
-        "required": ["name", "year"],
-        "title": "Book",
-    }
+    assert tool.parameters == snapshot(
+        {
+            "properties": {
+                "query": {"title": "Search query", "type": "string"},
+                "limit": {"default": 10, "type": "integer"},
+            },
+            "required": ["query"],
+            "type": "object",
+        }
+    )
+    assert tool.output_schema == snapshot(
+        {
+            "properties": {"name": {"title": "Book title", "type": "string"}, "year": {"type": "integer"}},
+            "required": ["name", "year"],
+            "title": "Book",
+            "type": "object",
+        }
+    )
