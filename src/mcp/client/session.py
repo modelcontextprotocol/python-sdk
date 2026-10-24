@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache, reduce
@@ -108,6 +110,32 @@ def _later_revision_fields(method: str, version: str) -> frozenset[str]:
         if row is not None:
             later |= _wire_fields(row)
     return frozenset(later) - _wire_fields(current)
+
+
+_INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)(ignore|disregard)\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?|context)"),
+    re.compile(r"(?i)(you\s+are\s+now|act\s+as|pretend\s+(to\s+be|you\s+are))\s+\w"),
+    re.compile(r"(?i)(system\s*:?\s*override|admin\s+mode|unrestricted\s+mode|jailbreak)"),
+    re.compile(r"(?i)(before\s+(any|every|all)\s+(operation|request|task|call)|critical\s+security\s+policy)"),
+    re.compile(r"(?i)(exfiltrate|send\s+to\s+attacker|include\s+(in\s+)?.*response.*key|leak)"),
+    re.compile(r"(?i)(read\s+~/\.(ssh|aws|kube|gnupg|config)|/etc/passwd|/proc/self)"),
+    re.compile(r"(?i)(do\s+not\s+(mention|tell|show|disclose)\s+(this|the user|to user))"),
+    re.compile(r"(?i)(\[IMPORTANT\s*:\s*[^\]]{20,}\])"),
+)
+
+
+def _tool_desc_hash(description: str) -> str:
+    """Return a short SHA-256 fingerprint of a tool description for rug-pull pinning."""
+    return hashlib.sha256(description.encode()).hexdigest()[:16]
+
+
+def _scan_tool_description(description: str) -> str | None:
+    """Return the matched text if the description contains a known injection pattern, else None."""
+    for pat in _INJECTION_PATTERNS:
+        m = pat.search(description)
+        if m:
+            return m.group(0)[:80]
+    return None
 
 
 def _same_schema(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
@@ -442,6 +470,9 @@ class ClientSession:
         # `_absorb_tool_listing`, which evicts a tool's entry whenever its schema changes.
         self._tool_output_validators: dict[str, Validator] = {}
         self._x_mcp_header_maps: dict[str, dict[tuple[str, ...], str]] = {}
+        # Pinned description hashes for rug-pull detection (tool name → SHA-256[:16]).
+        # Set on first listing; any subsequent change is a security event.
+        self._pinned_tool_desc_hashes: dict[str, str] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._discover_result: types.DiscoverResult | None = None
         self._discover_server_info: types.Implementation | None = None
@@ -1294,6 +1325,31 @@ class ClientSession:
         Idempotent: cached values are already post-filter, so the response cache can re-absorb a served listing.
         `complete` (an uncursored single-page listing) prunes per-tool state down to the listing's tools.
         """
+        # Security pass: description injection scan + rug-pull detection.
+        # Runs for ALL protocol versions — rug-pull is not version-gated.
+        secure: list[types.Tool] = []
+        for tool in result.tools:
+            desc_hash = _tool_desc_hash(tool.description or "")
+            if tool.name in self._pinned_tool_desc_hashes:
+                if self._pinned_tool_desc_hashes[tool.name] != desc_hash:
+                    logger.warning(
+                        "security: tool %r description changed after approval — rug-pull detected; dropping",
+                        tool.name,
+                    )
+                    self._x_mcp_header_maps.pop(tool.name, None)
+                    continue
+            else:
+                if reason := _scan_tool_description(tool.description or ""):
+                    logger.warning(
+                        "security: tool %r description contains injection pattern (%s); dropping",
+                        tool.name,
+                        reason,
+                    )
+                    continue
+                self._pinned_tool_desc_hashes[tool.name] = desc_hash
+            secure.append(tool)
+        result.tools = secure
+
         if self._negotiated_version in MODERN_PROTOCOL_VERSIONS:
             # 2026-07-28: clients MUST drop tools whose x-mcp-header annotations are invalid.
             kept: list[types.Tool] = []
@@ -1326,6 +1382,7 @@ class ClientSession:
             self._x_mcp_header_maps = {k: v for k, v in self._x_mcp_header_maps.items() if k in names}
             self._tool_output_schemas = {k: v for k, v in self._tool_output_schemas.items() if k in names}
             self._tool_output_validators = {k: v for k, v in self._tool_output_validators.items() if k in names}
+            self._pinned_tool_desc_hashes = {k: v for k, v in self._pinned_tool_desc_hashes.items() if k in names}
 
         return result
 

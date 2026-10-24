@@ -44,8 +44,13 @@ class TransportSecurityMiddleware:
     """Middleware to enforce DNS rebinding protection for MCP transport endpoints."""
 
     def __init__(self, settings: TransportSecuritySettings | None = None):
-        # If not specified, disable DNS rebinding protection by default for backwards compatibility
-        self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
+        self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=True)
+        if self.settings.enable_dns_rebinding_protection and not self.settings.allowed_hosts:
+            logger.warning(
+                "TransportSecurityMiddleware: DNS rebinding protection is enabled but allowed_hosts is empty — "
+                "all requests will be rejected. Set allowed_hosts (e.g. ['localhost', '127.0.0.1:*']) "
+                "or pass TransportSecuritySettings(enable_dns_rebinding_protection=False) to disable."
+            )
 
     def _validate_host(self, host: str | None) -> bool:
         """Validate the Host header against allowed values."""

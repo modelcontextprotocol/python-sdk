@@ -45,7 +45,7 @@ def _get_npx_command():
         # Try both npx.cmd and npx.exe on Windows
         for cmd in ["npx.cmd", "npx.exe", "npx"]:
             try:
-                subprocess.run([cmd, "--version"], check=True, capture_output=True, shell=True)
+                subprocess.run([cmd, "--version"], check=True, capture_output=True)
                 return cmd
             except subprocess.CalledProcessError:
                 continue
