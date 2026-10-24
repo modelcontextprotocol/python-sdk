@@ -272,7 +272,7 @@ def test_structured_output_dict_str_types():
 
     meta = func_metadata(func_dict_any)
 
-    assert meta.output_schema == IsPartialDict(type="object", title="func_dict_anyDictOutput")
+    assert meta.output_schema == IsPartialDict(type="object")
 
     # Test dict[str, str]
     def func_dict_str() -> dict[str, str]:  # pragma: no cover
@@ -282,7 +282,6 @@ def test_structured_output_dict_str_types():
     assert meta.output_schema == {
         "type": "object",
         "additionalProperties": {"type": "string"},
-        "title": "func_dict_strDictOutput",
     }
 
     # Test dict[str, list[int]]
@@ -293,7 +292,6 @@ def test_structured_output_dict_str_types():
     assert meta.output_schema == {
         "type": "object",
         "additionalProperties": {"type": "array", "items": {"type": "integer"}},
-        "title": "func_dict_listDictOutput",
     }
 
     def func_typing_dict() -> typing.Dict[str, str]:  # noqa: UP006
@@ -327,8 +325,8 @@ async def test_lambda_function():
     # Test schema
     assert meta.arg_model.model_json_schema() == {
         "properties": {
-            "x": {"title": "x", "type": "string"},
-            "y": {"default": 5, "title": "y", "type": "string"},
+            "x": {"title": "X", "type": "string"},
+            "y": {"default": 5, "title": "Y", "type": "string"},
         },
         "required": ["x"],
         "title": "<lambda>Arguments",
@@ -459,7 +457,7 @@ def test_complex_function_json_schema():
                 "title": "Field With Default Via Field Annotation Before Nondefault Arg",
                 "type": "integer",
             },
-            "unannotated": {"title": "unannotated", "type": "string"},
+            "unannotated": {"title": "Unannotated", "type": "string"},
             "my_model_a": {"$ref": "#/$defs/SomeInputModelA"},
             "my_model_a_forward_ref": {"$ref": "#/$defs/SomeInputModelA"},
             "my_model_b": {"$ref": "#/$defs/SomeInputModelB"},
@@ -471,7 +469,7 @@ def test_complex_function_json_schema():
             },
             "unannotated_with_default": {
                 "default": 5,
-                "title": "unannotated_with_default",
+                "title": "Unannotated With Default",
                 "type": "string",
             },
             "my_model_a_with_default": {
@@ -644,9 +642,8 @@ def test_structured_output_requires_return_annotation():
     meta = func_metadata(func_none_annotation)
     assert meta.output_schema == {
         "type": "object",
-        "properties": {"result": {"title": "Result", "type": "null"}},
+        "properties": {"result": {"type": "null"}},
         "required": ["result"],
-        "title": "func_none_annotationOutput",
     }
 
 
@@ -665,9 +662,9 @@ def test_structured_output_basemodel():
     assert meta.output_schema == {
         "type": "object",
         "properties": {
-            "name": {"title": "Name", "type": "string"},
-            "age": {"title": "Age", "type": "integer"},
-            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Email"},
+            "name": {"type": "string"},
+            "age": {"type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
         },
         "required": ["name", "age"],
         "title": "PersonModel",
@@ -696,45 +693,40 @@ def test_structured_output_primitives():
     meta = func_metadata(func_str)
     assert meta.output_schema == {
         "type": "object",
-        "properties": {"result": {"title": "Result", "type": "string"}},
+        "properties": {"result": {"type": "string"}},
         "required": ["result"],
-        "title": "func_strOutput",
     }
 
     # Test int
     meta = func_metadata(func_int)
     assert meta.output_schema == {
         "type": "object",
-        "properties": {"result": {"title": "Result", "type": "integer"}},
+        "properties": {"result": {"type": "integer"}},
         "required": ["result"],
-        "title": "func_intOutput",
     }
 
     # Test float
     meta = func_metadata(func_float)
     assert meta.output_schema == {
         "type": "object",
-        "properties": {"result": {"title": "Result", "type": "number"}},
+        "properties": {"result": {"type": "number"}},
         "required": ["result"],
-        "title": "func_floatOutput",
     }
 
     # Test bool
     meta = func_metadata(func_bool)
     assert meta.output_schema == {
         "type": "object",
-        "properties": {"result": {"title": "Result", "type": "boolean"}},
+        "properties": {"result": {"type": "boolean"}},
         "required": ["result"],
-        "title": "func_boolOutput",
     }
 
     # Test bytes
     meta = func_metadata(func_bytes)
     assert meta.output_schema == {
         "type": "object",
-        "properties": {"result": {"title": "Result", "type": "string", "format": "binary"}},
+        "properties": {"result": {"type": "string", "format": "binary"}},
         "required": ["result"],
-        "title": "func_bytesOutput",
     }
 
 
@@ -757,9 +749,8 @@ def test_structured_output_generic_types():
     meta = func_metadata(func_list_str)
     assert meta.output_schema == {
         "type": "object",
-        "properties": {"result": {"title": "Result", "type": "array", "items": {"type": "string"}}},
+        "properties": {"result": {"type": "array", "items": {"type": "string"}}},
         "required": ["result"],
-        "title": "func_list_strOutput",
     }
 
     # Test dict[str, int] - should NOT be wrapped
@@ -767,25 +758,22 @@ def test_structured_output_generic_types():
     assert meta.output_schema == {
         "type": "object",
         "additionalProperties": {"type": "integer"},
-        "title": "func_dict_str_intDictOutput",
     }
 
     # Test Union
     meta = func_metadata(func_union)
     assert meta.output_schema == {
         "type": "object",
-        "properties": {"result": {"title": "Result", "anyOf": [{"type": "string"}, {"type": "integer"}]}},
+        "properties": {"result": {"anyOf": [{"type": "string"}, {"type": "integer"}]}},
         "required": ["result"],
-        "title": "func_unionOutput",
     }
 
     # Test Optional
     meta = func_metadata(func_optional)
     assert meta.output_schema == {
         "type": "object",
-        "properties": {"result": {"title": "Result", "anyOf": [{"type": "string"}, {"type": "null"}]}},
+        "properties": {"result": {"anyOf": [{"type": "string"}, {"type": "null"}]}},
         "required": ["result"],
-        "title": "func_optionalOutput",
     }
 
     UserId = typing.NewType("UserId", int)
@@ -822,13 +810,12 @@ def test_structured_output_dataclass():
     assert meta.output_schema == {
         "type": "object",
         "properties": {
-            "name": {"title": "Name", "type": "string"},
-            "age": {"title": "Age", "type": "integer"},
-            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Email"},
+            "name": {"type": "string"},
+            "age": {"type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
             "tags": {
                 "anyOf": [{"items": {"type": "string"}, "type": "array"}, {"type": "null"}],
                 "default": None,
-                "title": "Tags",
             },
         },
         "required": ["name", "age"],
@@ -851,8 +838,8 @@ def test_structured_output_typeddict():
     assert meta.output_schema == {
         "type": "object",
         "properties": {
-            "name": {"title": "Name", "type": "string"},
-            "age": {"title": "Age", "type": "integer"},
+            "name": {"type": "string"},
+            "age": {"type": "integer"},
         },
         "required": ["name"],
         "title": "PersonTypedDictOptional",
@@ -875,9 +862,9 @@ def test_structured_output_typeddict():
     assert meta.output_schema == {
         "type": "object",
         "properties": {
-            "name": {"title": "Name", "type": "string"},
-            "age": {"title": "Age", "type": "integer"},
-            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Email"},
+            "name": {"type": "string"},
+            "age": {"type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         },
         "required": ["name", "age", "email"],
         "title": "PersonTypedDictRequired",
@@ -910,10 +897,10 @@ def test_structured_output_typeddict_qualifiers_and_metadata():
         "title": "Forecast",
         "description": "Tomorrow's weather.",
         "properties": {
-            "cityName": {"title": "Cityname", "type": "string", "description": "City name"},
-            "high": {"title": "High", "type": "number"},
-            "low": {"title": "Low", "type": "number"},
-            "summary": {"title": "Summary", "type": "string", "maxLength": 80},
+            "cityName": {"type": "string", "description": "City name"},
+            "high": {"type": "number"},
+            "low": {"type": "number"},
+            "summary": {"type": "string", "maxLength": 80},
         },
         "required": ["cityName", "high"],
     }
@@ -976,9 +963,9 @@ def test_structured_output_ordinary_class():
     assert meta.output_schema == {
         "type": "object",
         "properties": {
-            "name": {"title": "Name", "type": "string"},
-            "age": {"title": "Age", "type": "integer"},
-            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Email"},
+            "name": {"type": "string"},
+            "age": {"type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         },
         "required": ["name", "age", "email"],
         "title": "PersonClass",
@@ -1088,7 +1075,7 @@ def test_tool_call_result_annotated_is_structured_and_converted():
     assert meta.output_schema == {
         "type": "object",
         "properties": {
-            "name": {"title": "Name", "type": "string"},
+            "name": {"type": "string"},
         },
         "required": ["name"],
         "title": "PersonClass",
@@ -1185,8 +1172,8 @@ def test_structured_output_with_field_descriptions():
     assert meta.output_schema == {
         "type": "object",
         "properties": {
-            "name": {"title": "Name", "type": "string", "description": "The person's full name"},
-            "age": {"title": "Age", "type": "integer", "description": "Age in years", "minimum": 0, "maximum": 150},
+            "name": {"type": "string", "description": "The person's full name"},
+            "age": {"type": "integer", "description": "Age in years", "minimum": 0, "maximum": 150},
         },
         "required": ["name", "age"],
         "title": "ModelWithDescriptions",
@@ -1215,16 +1202,16 @@ def test_structured_output_nested_models():
             "Address": {
                 "type": "object",
                 "properties": {
-                    "street": {"title": "Street", "type": "string"},
-                    "city": {"title": "City", "type": "string"},
-                    "zipcode": {"title": "Zipcode", "type": "string"},
+                    "street": {"type": "string"},
+                    "city": {"type": "string"},
+                    "zipcode": {"type": "string"},
                 },
                 "required": ["street", "city", "zipcode"],
                 "title": "Address",
             }
         },
         "properties": {
-            "name": {"title": "Name", "type": "string"},
+            "name": {"type": "string"},
             "address": {"$ref": "#/$defs/Address"},
         },
         "required": ["name", "address"],
@@ -1245,8 +1232,8 @@ def test_structured_output_self_referential_model_gets_an_object_root():
 
     node_definition: dict[str, Any] = {
         "properties": {
-            "name": {"title": "Name", "type": "string"},
-            "children": {"default": [], "items": {"$ref": "#/$defs/Node"}, "title": "Children", "type": "array"},
+            "name": {"type": "string"},
+            "children": {"default": [], "items": {"$ref": "#/$defs/Node"}, "type": "array"},
         },
         "required": ["name"],
         "title": "Node",
@@ -1481,7 +1468,7 @@ def test_preserves_pydantic_metadata():
     meta = func_metadata(func_with_metadata)
 
     assert meta.output_schema is not None
-    assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
+    assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "type": "integer"}
 
 
 def test_convert_result_passes_input_required_result_through_unchanged():
@@ -1529,7 +1516,12 @@ def test_basemodel_union_input_required_result_derives_model_schema():
     meta = func_metadata(fn)
     assert meta.output_model is Payload
     assert meta.wrap_output is False
-    assert meta.output_schema == Payload.model_json_schema()
+    assert meta.output_schema == {
+        "properties": {"x": {"type": "integer"}},
+        "required": ["x"],
+        "title": "Payload",
+        "type": "object",
+    }
 
 
 def test_call_tool_result_in_union_with_input_required_result_is_still_rejected():
