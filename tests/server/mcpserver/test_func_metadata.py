@@ -3,6 +3,7 @@
 # pyright: reportMissingParameterType=false
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownLambdaType=false
+import typing
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, NotRequired, Required, TypedDict
@@ -292,6 +293,18 @@ def test_structured_output_dict_str_types():
         "type": "object",
         "additionalProperties": {"type": "array", "items": {"type": "integer"}},
     }
+
+    def func_typing_dict() -> typing.Dict[str, str]:  # noqa: UP006
+        return {"name": "John"}
+
+    meta = func_metadata(func_typing_dict)
+    assert meta.output_schema == {
+        "type": "object",
+        "additionalProperties": {"type": "string"},
+    }
+    result = meta.convert_result(func_typing_dict())
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"name": "John"}
 
     # Test dict[int, str] - should be wrapped since key is not str
     def func_dict_int_key() -> dict[int, str]:  # pragma: no cover
@@ -761,6 +774,21 @@ def test_structured_output_generic_types():
         "properties": {"result": {"anyOf": [{"type": "string"}, {"type": "null"}]}},
         "required": ["result"],
     }
+
+    UserId = typing.NewType("UserId", int)
+
+    def func_new_type() -> UserId:
+        return UserId(1)
+
+    meta = func_metadata(func_new_type)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"type": "integer"}},
+        "required": ["result"],
+    }
+    result = meta.convert_result(func_new_type())
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"result": 1}
 
 
 def test_structured_output_dataclass():
