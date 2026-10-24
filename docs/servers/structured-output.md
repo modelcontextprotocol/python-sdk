@@ -149,7 +149,7 @@ Ask for a two-day forecast and `structured_content` is `{"result": [{...}, {...}
 
 ## Dictionaries
 
-`dict[str, ...]` is the one generic that already *is* a JSON object, so it isn't wrapped:
+`dict[str, ...]` (or `typing.Dict[str, ...]`) is the one generic that already *is* a JSON object, so it isn't wrapped:
 
 ```python title="server.py" hl_lines="9"
 --8<-- "docs_src/structured_output/tutorial006.py"
