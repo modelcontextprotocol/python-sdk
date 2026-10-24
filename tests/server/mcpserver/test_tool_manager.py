@@ -1,11 +1,11 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
 
 import pytest
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from mcp.server.context import LifespanContextT, RequestT
 from mcp.server.mcpserver import Context, MCPServer
@@ -563,7 +563,7 @@ class TestStructuredOutput:
 
         # Test that output_schema is populated
         expected_schema = {
-            "properties": {"name": {"type": "string", "title": "Name"}, "age": {"type": "integer", "title": "Age"}},
+            "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
             "required": ["name", "age"],
             "title": "UserOutput",
             "type": "object",
@@ -904,3 +904,28 @@ class TestRemoveTools:
         # Remove with correct case
         manager.remove_tool("test_func")
         assert manager.get_tool("test_func") is None
+
+
+def test_tool_schemas_keep_only_titles_set_explicitly():
+    class Book(BaseModel):
+        name: str = Field(title="Book title")
+        year: int
+
+    def find_book(query: Annotated[str, Field(title="Search query")], limit: int = 10) -> Book: ...
+
+    tool = ToolManager().add_tool(find_book)
+
+    assert tool.parameters == {
+        "type": "object",
+        "properties": {
+            "query": {"title": "Search query", "type": "string"},
+            "limit": {"default": 10, "type": "integer"},
+        },
+        "required": ["query"],
+    }
+    assert tool.output_schema == {
+        "type": "object",
+        "properties": {"name": {"title": "Book title", "type": "string"}, "year": {"type": "integer"}},
+        "required": ["name", "year"],
+        "title": "Book",
+    }

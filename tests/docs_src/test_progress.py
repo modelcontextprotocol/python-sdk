@@ -19,9 +19,7 @@ async def test_context_parameter_is_invisible_to_the_model() -> None:
     """tutorial001: `ctx` comes from the type hint and never reaches the input schema."""
     async with Client(tutorial001.mcp) as client:
         (tool,) = (await client.list_tools()).tools
-        assert tool.input_schema["properties"] == {
-            "urls": {"items": {"type": "string"}, "title": "Urls", "type": "array"}
-        }
+        assert tool.input_schema["properties"] == {"urls": {"items": {"type": "string"}, "type": "array"}}
         assert tool.input_schema["required"] == ["urls"]
 
 

@@ -749,7 +749,7 @@ async def test_typeddict_tool_omitting_optional_keys_passes_client_validation():
         assert tool.output_schema == {
             "type": "object",
             "title": "Person",
-            "properties": {"name": {"title": "Name", "type": "string"}, "age": {"title": "Age", "type": "integer"}},
+            "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
             "required": ["name"],
         }
         result = await client.call_tool("get_person", {})

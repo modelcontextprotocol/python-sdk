@@ -19,10 +19,9 @@ Because of it, the tool the SDK sends during `tools/list` carries an `output_sch
 ```json
 {
   "properties": {
-    "result": {"title": "Result", "type": "integer"}
+    "result": {"type": "integer"}
   },
   "required": ["result"],
-  "title": "get_temperatureOutput",
   "type": "object"
 }
 ```
@@ -59,9 +58,9 @@ Declare the shape as a Pydantic `BaseModel` and return an instance:
 ```json
 {
   "properties": {
-    "temperature": {"description": "Degrees Celsius.", "title": "Temperature", "type": "number"},
-    "humidity": {"description": "Relative humidity, 0 to 1.", "title": "Humidity", "type": "number"},
-    "conditions": {"title": "Conditions", "type": "string"}
+    "temperature": {"description": "Degrees Celsius.", "type": "number"},
+    "humidity": {"description": "Relative humidity, 0 to 1.", "type": "number"},
+    "conditions": {"type": "string"}
   },
   "required": ["temperature", "humidity", "conditions"],
   "title": "WeatherData",
@@ -125,9 +124,9 @@ A `list[...]` isn't a JSON object either, so it gets the `{"result": ...}` wrapp
   "$defs": {
     "WeatherData": {
       "properties": {
-        "temperature": {"title": "Temperature", "type": "number"},
-        "humidity": {"title": "Humidity", "type": "number"},
-        "conditions": {"title": "Conditions", "type": "string"}
+        "temperature": {"type": "number"},
+        "humidity": {"type": "number"},
+        "conditions": {"type": "string"}
       },
       "required": ["temperature", "humidity", "conditions"],
       "title": "WeatherData",
@@ -135,10 +134,9 @@ A `list[...]` isn't a JSON object either, so it gets the `{"result": ...}` wrapp
     }
   },
   "properties": {
-    "result": {"items": {"$ref": "#/$defs/WeatherData"}, "title": "Result", "type": "array"}
+    "result": {"items": {"$ref": "#/$defs/WeatherData"}, "type": "array"}
   },
   "required": ["result"],
-  "title": "get_forecastOutput",
   "type": "object"
 }
 ```
@@ -158,7 +156,6 @@ Ask for a two-day forecast and `structured_content` is `{"result": [{...}, {...}
 ```json
 {
   "additionalProperties": {"type": "number"},
-  "title": "get_temperaturesDictOutput",
   "type": "object"
 }
 ```
@@ -169,7 +166,7 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 
 The keys must be `str`. A `dict[int, float]` can't be a JSON object, so it falls back to the `{"result": ...}` wrapper.
 
-Dictionary results use Pydantic's `TypeAdapter` for validation and serialization. If you inspect a tool's `FuncMetadata.output_model`, it holds the dictionary type annotation with its schema title.
+Dictionary results use Pydantic's `TypeAdapter` for validation and serialization. If you inspect a tool's `FuncMetadata.output_model`, it holds the dictionary type annotation itself.
 
 ## Validation
 
