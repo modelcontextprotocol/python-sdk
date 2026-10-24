@@ -2705,6 +2705,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("sse",),
         note="Only observable over the legacy SSE transport.",
     ),
+    "transport:sse:head": Requirement(
+        source="issue:#3736",
+        behavior=(
+            "A HEAD request to the SSE endpoint of `MCPServer.sse_app()` is answered 405 with `Allow: GET` "
+            "without opening a session or a stream, so the connection stays usable."
+        ),
+        transports=("sse",),
+        note="Only observable over the legacy SSE transport.",
+    ),
     "transport:stdio": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#stdio",
         behavior=(

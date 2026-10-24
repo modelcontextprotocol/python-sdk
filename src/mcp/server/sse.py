@@ -15,6 +15,9 @@ Example:
 
     # Define handler functions
     async def handle_sse(request):
+        # Starlette also routes HEAD here; the stream never ends, so a HEAD would never complete
+        if request.method == "HEAD":
+            return Response(status_code=405, headers={"Allow": "GET"})
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
