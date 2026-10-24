@@ -15,17 +15,27 @@ register for the whole page.
   -ㅂ니다: "The SDK does the rest." → SDK가 나머지를 처리합니다.
 - Short imperatives (steps, instructions, calls to action) use -세요:
   "Create a file `server.py`" → `server.py` 파일을 만드세요. Never -십시오, never
-  the bare 해요체 (-어요 / -예요 / -해요), and never plain-style -다 endings.
+  -ㅂ시다 ("Let's change it" → 바꿔 보세요, not 바꿔 봅시다), never the bare
+  해요체 (-어요 / -예요 / -해요), and never plain-style -다 endings.
 - Headings are noun phrases where the English heading is a noun phrase
   ("Installation" → 설치). An English heading phrased as a sentence or a
   question becomes a noun phrase too: "What's new in v2" → v2에서 달라진 점.
-  Do not write -나요? or -습니까? headings.
+  A heading never ends in a verb ending of any kind: not -나요? or -습니까?,
+  not -ㄹ까 or -는가, and not a -습니다 sentence. "It costs nothing until you
+  want it" → 필요할 때까지 비용 없음; "Which one to raise" → 발생시킬 예외 고르기.
 - Never address the reader with 당신, 여러분 or 우리. Korean drops the
   subject: "you can pass a URL" → URL을 전달할 수 있습니다. Where a subject is
   unavoidable, name the role — 클라이언트, 서버, 사용자 — never a pronoun.
   "Your server" is 서버 or, when the contrast matters, 작성한 서버.
 - One page, one register. Mixing -습니다 with -어요, or -세요 with -십시오, is
   wrong even when each sentence is correct on its own.
+- The shared rules keep the strength of a requirement; in Korean each level
+  has a fixed ending: must → -해야 합니다, must not → -해서는 안 됩니다,
+  should → -하는 것이 좋습니다, should not → -하지 않는 것이 좋습니다,
+  may → -할 수 있습니다. "Should not" is advice: "New code should not be
+  built on these" → 새 코드는 이 기능을 기반으로 하지 않는 것이 좋습니다,
+  never -해서는 안 됩니다, -면 안 됩니다 or -지 않아야 합니다, which read as
+  must not.
 
 ## 2. Voice
 
@@ -105,9 +115,12 @@ Translate the information, not the joke.
   3개, 30초, 8000번 포트, 5MB. Version numbers and the protocol's date-shaped
   revision strings are identifiers and are copied byte-for-byte (they are in
   the glossary's keep list). A calendar date written out in prose, if any,
-  becomes 2026년 7월 28일.
+  becomes 2026년 7월 28일. When a revision string marks the point at which
+  something changes, add 사양부터: "deprecated at `2026-07-28`" →
+  `2026-07-28` 사양부터 지원 중단 예정입니다. Never `2026-07-28`에서, which reads
+  as a calendar date.
 - Parenthetical originals use ASCII parentheses with no space before them:
-  엘리시테이션(elicitation).
+  사용자 입력 요청(elicitation).
 
 ## 5. Terminology pointer
 
@@ -130,14 +143,18 @@ glossary does not pin:
   line, a log message, a UI label) stays exactly as the code emits it,
   usually English.
 - 한글(English) 병기: the glossary marks a few MCP-specific nouns for a
-  parenthetical original on first mention only — 엘리시테이션(elicitation) once,
-  then 엘리시테이션. Class names never get a Hangul gloss.
+  parenthetical original on first mention only — 사용자 입력 요청(elicitation)
+  once, then 사용자 입력 요청. Class names never get a Hangul gloss.
 - One term, one rendering, throughout the page. Do not alternate between
   객체 and 오브젝트, or between 컨텍스트 and 맥락, for the same source term.
 - Abbreviations stay Latin and lose the English plural "s": "the APIs" → API.
 
 ## 6. Provisional note
 
-Every decision in this file is provisional pending review by native Korean
-speakers. To propose a change, edit this file (or `glossary.json`) in a pull
-request — never edit the generated pages under `pages/`.
+A native Korean speaker compared 45 of the 52 generated pages with the
+English (#3732; `advanced/` was not covered). That review added the
+requirement-strength, heading and -ㅂ시다 rules in §1 and the 사양부터 rule in
+§4, and the glossary entries it changed or added are marked "Native review
+(#3732)". Every other decision is still provisional pending native review.
+To propose a change, edit this file (or `glossary.json`) in a pull request
+— never edit the generated pages under `pages/`.

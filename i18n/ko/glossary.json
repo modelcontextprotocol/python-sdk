@@ -89,13 +89,14 @@
     },
     {
       "source": "elicitation",
-      "target": "엘리시테이션",
-      "note": "Transliteration; write 엘리시테이션(elicitation) at the first occurrence on a page, 엘리시테이션 alone afterwards. The verb \"elicit\" in prose is 사용자에게 입력을 요청하다; `ctx.elicit(...)` stays code. Provisional pending native review — the least settled term in this file; 유도 is the candidate alternative to confirm against, so it is noted here rather than banned; 도출 is not a candidate."
+      "target": "사용자 입력 요청",
+      "note": "The server asking the user for input through the client. Write 사용자 입력 요청(elicitation) at the first occurrence on a page, 사용자 입력 요청 alone afterwards. Compounds: form elicitation → 폼 입력 요청, URL-mode elicitation → URL 모드 입력 요청, push elicitation → 푸시 입력 요청. An \"elicitation request\" is just 사용자 입력 요청, never 사용자 입력 요청 요청. The verb \"elicit\" in prose is 사용자에게 입력을 요청하다; `ctx.elicit(...)` and `elicitation/create` stay code. Not the transliteration 엘리시테이션, which carries no meaning for Korean readers, and not 유도, which reads as nudging the user. Native review (#3732).",
+      "avoid": ["엘리시테이션", "요청 요청"]
     },
     {
       "source": "capability",
-      "target": "기능",
-      "note": "A negotiated protocol feature (\"capability negotiation\" → 기능 협상), not 역량 or 능력; the `capabilities` wire field and `client.server_capabilities` stay Latin in code. Provisional pending native review — 기능 doubles as \"feature\"; native review should confirm the collision is acceptable."
+      "target": "지원 기능",
+      "note": "What a client or server declares that it supports, negotiated when the connection starts (\"capability negotiation\" → 지원 기능 협상). Plain 기능 stays reserved for \"feature\", so the two remain distinct even in adjacent sentences: \"A callback is a capability\" → 콜백 등록이 곧 지원 기능 선언. Not 역량 or 능력; the `capabilities` wire field and `client.server_capabilities` stay Latin in code. Native review (#3732)."
     },
     {
       "source": "transport",
@@ -169,7 +170,8 @@
     {
       "source": "deprecated",
       "target": "지원 중단 예정",
-      "note": "Advisory status: still works but discouraged. First occurrence on a page may add the original: 지원 중단 예정(deprecated). \"Removed\" is a different word (제거됨); the corpus contrasts the two, so never render deprecated as 폐기됨 or 제거됨. Provisional pending native review."
+      "note": "Advisory status: still works but discouraged. First occurrence on a page may add the original: 지원 중단 예정(deprecated). Never shorten it to 지원 중단, which reads as already unsupported: \"deprecation warning\" → 지원 중단 예정 경고. When a protocol revision marks the point of deprecation, write 사양부터: \"deprecated at `2026-07-28`\" → `2026-07-28` 사양부터 지원 중단 예정, never `2026-07-28`에서, which reads as a calendar date. \"Removed\" is a different word (제거됨); the corpus contrasts the two, so never render deprecated as 폐기됨 or 제거됨. Native review (#3732).",
+      "avoid": ["지원 중단 경고"]
     },
     {
       "source": "round-trip",
@@ -180,6 +182,70 @@
       "source": "lifespan",
       "target": "lifespan",
       "note": "Keep the English word in Korean prose (lifespan 함수, 호스트 앱의 lifespan), matching the `lifespan=` parameter it names. Provisional pending native review — 수명 주기 was rejected because it collides with \"lifecycle\" (생명 주기)."
+    },
+    {
+      "source": "era (2025-era, 2026-era, handshake era, modern era)",
+      "target": "프로토콜 버전",
+      "note": "An era is a group of protocol revisions, not a period of time, so it gets no Korean noun of its own: name the versions instead. 2025-era and handshake-era → `2025-11-25` 이하 버전; 2026-era and modern era → `2026-07-28`; pre-2026 → `2026-07-28` 이전 버전; a generic \"era\" (\"any era of server\", \"MCP has two eras\") → 프로토콜 버전. Never a time word: not -년대 (a decade, so 2025년대 is not Korean), 시대, 시절 or 세대. Native review (#3732).",
+      "avoid": ["년대"]
+    },
+    {
+      "source": "wire (on the wire, wire name, wire format)",
+      "target": "실제로 주고받는 메시지",
+      "note": "No single noun; render by context. On or across the wire → 실제로 주고받는 메시지에서; a wire name, key or format → 프로토콜상 이름 / 키 / 형식; the wire as the channel (stdout under stdio) → 통신 채널; the verb \"wire\" (to connect) → 연결하다. Never the transliteration 와이어. Native review (#3732).",
+      "avoid": ["와이어"]
+    },
+    {
+      "source": "server-initiated request",
+      "target": "서버가 시작하는 요청",
+      "note": "A request the server sends to the client (sampling, elicitation, roots). Not 서버 시작 요청, which reads as a request to start the server, and not 서버 주도. Native review (#3732).",
+      "avoid": ["서버 시작 요청"]
+    },
+    {
+      "source": "Completions (the MCP primitive)",
+      "target": "자동 완성",
+      "note": "The argument-completion primitive and the title of its page; the same rendering in link text pointing to that page. `completion/complete` stays code. Native review (#3732)."
+    },
+    {
+      "source": "completion (what a model generates)",
+      "target": "completion",
+      "note": "The text an LLM produces (\"sampling asks the client's model for a completion\"). Keep the English word in Korean prose, as with lifespan. Not 완성, 완성 결과 or 컴플리션; the Completions primitive is the separate entry above (자동 완성). Native review (#3732).",
+      "avoid": ["컴플리션", "완성 결과"]
+    },
+    {
+      "source": "provider",
+      "target": "provider",
+      "note": "OAuth and identity providers: keep the English word in Korean prose (OAuth provider, identity provider), as with lifespan. Not 프로바이더 or 공급자. Native review (#3732).",
+      "avoid": ["프로바이더", "공급자"]
+    },
+    {
+      "source": "argument",
+      "target": "인자",
+      "note": "A function, tool or prompt argument; matches the Korean glossary of the Python documentation (docs.python.org/ko/3/glossary.html). Not 인수. Native review (#3732).",
+      "avoid": ["인수"]
+    },
+    {
+      "source": "parameter",
+      "target": "매개변수",
+      "note": "A function or tool parameter; matches the Korean glossary of the Python documentation. Not 파라미터. Native review (#3732).",
+      "avoid": ["파라미터"]
+    },
+    {
+      "source": "annotation",
+      "target": "어노테이션",
+      "note": "Type annotations and tool annotations; matches the Korean glossary of the Python documentation. Not 애너테이션. Native review (#3732).",
+      "avoid": ["애너테이션"]
+    },
+    {
+      "source": "docstring",
+      "target": "독스트링",
+      "note": "Matches the Korean glossary of the Python documentation; not left in Latin script in prose. Native review (#3732)."
+    },
+    {
+      "source": "spec (specification)",
+      "target": "사양",
+      "note": "The MCP specification; one rendering everywhere, not 명세 on some pages. Native review (#3732).",
+      "avoid": ["명세"]
     },
     {
       "source": "Get started",
