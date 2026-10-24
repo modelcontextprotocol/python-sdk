@@ -212,7 +212,7 @@ The opposite, `structured_output=True`, turns the automatic detection into a req
 
 Content blocks and media (`TextContent`, `EmbeddedResource`, `Image`, `Audio` and friends, on their own, as the items of a `list`, `tuple` or `Sequence`, or as the arms of a union) are opted out for you: they are for the model to read, so auto-detection derives no schema from them (**[Images, audio & icons](media.md)** covers `Image` and `Audio`). `structured_output=True` still forces one for the content-block classes.
 
-A bare `list` or `tuple` is opted out too. Nothing in the annotation says its items aren't blocks, and a schema would send any image it holds twice: once as a block for the model, and again as base64 in `structured_content`. Write the item type (`list[str]`, `tuple[int, ...]`) to get a schema, or pass `structured_output=True` to wrap it as a list of anything.
+A bare `list` or `tuple` is opted out too. Nothing in the annotation says its items aren't blocks, and a schema would send any image it holds twice: once as a block for the model, and again as base64 in `structured_content`. Write the item type (`list[str]`, `tuple[int, ...]`) to get a schema, or pass `structured_output=True` to wrap it as a list of anything. The forced wrapper still has to serialize every item as JSON, so an `Image` or `Audio` in it makes the call fail. Only a bare `list` or `tuple` as the whole annotation is opted out: `list | None` is wrapped like any other union.
 
 ## A class without type hints
 
@@ -243,7 +243,7 @@ There is one way to end up unstructured without asking for it: return a class th
 ## Recap
 
 * The **return type annotation** is the output schema. It's published in `tools/list` as `output_schema`.
-* Scalars, lists, tuples and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes, `dict[str, ...]` and a bare `dict` are objects already and stay as they are.
+* Scalars, `list[...]`, `tuple[...]`, sets and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes, `dict[str, ...]` and a bare `dict` are objects already and stay as they are.
 * Every result carries `content` (text, for the model) **and** `structured_content` (data, for the application).
 * What you return is validated against the schema. A mismatch is a tool error, not a corrupt result.
 * `structured_output=False` opts a tool out. Content blocks, `Image`, `Audio` and a bare `list` or `tuple` opt out by default; a class without type hints opts out silently, so watch for it.

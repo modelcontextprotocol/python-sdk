@@ -51,10 +51,10 @@ _CONTENT_SEQUENCE_ORIGINS = (list, tuple, Sequence)
 def _returns_content(annotation: Any) -> bool:
     """Whether a return annotation declares content blocks or the `Image`/`Audio` helpers, bare or as
     the items of a list/tuple or the arms of a union: the values `_convert_to_content` renders as blocks
-    rather than dumping as data. Keep the two in sync. A bare `list`/`tuple` may hold blocks too."""
+    rather than dumping as data. Keep the two in sync."""
     origin = get_origin(annotation)
     if origin is None:
-        return annotation in (list, tuple) or (isinstance(annotation, type) and issubclass(annotation, _CONTENT_TYPES))
+        return isinstance(annotation, type) and issubclass(annotation, _CONTENT_TYPES)
     if origin is Annotated:
         return _returns_content(get_args(annotation)[0])
     if is_union_origin(origin) or origin in _CONTENT_SEQUENCE_ORIGINS:
@@ -446,10 +446,11 @@ def func_metadata(
     else:
         original_annotation = effective_annotation
 
-    if structured_output is None and _returns_content(return_type_expr):
+    if structured_output is None and (return_type_expr in (list, tuple) or _returns_content(return_type_expr)):
         # Content blocks and the Image/Audio helpers are what the model reads, not data for the
         # application: a derived schema would advertise the block's own model as output_schema (and,
         # unless the tool builds its own CallToolResult, echo every block into structured_content).
+        # A bare list/tuple says nothing about its items, so it may hold blocks too.
         # structured_output=True still forces one.
         return FuncMetadata(arg_model=arguments_model)
 

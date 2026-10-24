@@ -1046,44 +1046,96 @@ def test_structured_output_true_overrides_the_content_block_rule():
 
 
 def test_structured_output_true_wraps_a_bare_list():
+    """SDK-defined: the explicit flag wraps a bare list as a list of anything instead of rejecting it."""
     meta = func_metadata(_returns_bare_list, structured_output=True)
 
     assert meta.output_schema == snapshot(
         {"properties": {"result": {"items": {}, "type": "array"}}, "required": ["result"], "type": "object"}
     )
-    result = meta.convert_result(_returns_bare_list())
-    assert isinstance(result, CallToolResult)
-    assert result.structured_content == {"result": [1, "a"]}
+    assert meta.convert_result(_returns_bare_list()) == snapshot(
+        CallToolResult(content=[TextContent(text="1"), TextContent(text="a")], structured_content={"result": [1, "a"]})
+    )
 
 
-def test_bare_dict_set_and_frozenset_returns_are_structured():
-    def bare_dict() -> dict:
-        return {"id": 1}
+def _returns_optional_bare_list() -> list | None:
+    return [1]
 
-    def bare_set() -> set:
-        return {1}
 
-    def bare_frozenset() -> frozenset:
-        return frozenset({1})
+def test_a_bare_list_inside_a_union_keeps_its_schema():
+    """SDK-defined: only a bare list/tuple as the whole annotation is opted out; nested ones stay wrapped."""
+    meta = func_metadata(_returns_optional_bare_list)
 
-    meta = func_metadata(bare_dict)
+    assert meta.output_schema == snapshot(
+        {
+            "properties": {"result": {"anyOf": [{"items": {}, "type": "array"}, {"type": "null"}]}},
+            "required": ["result"],
+            "type": "object",
+        }
+    )
+    assert meta.convert_result(_returns_optional_bare_list()) == snapshot(
+        CallToolResult(content=[TextContent(text="1")], structured_content={"result": [1]})
+    )
+
+
+def _returns_bare_dict() -> dict:
+    return {"id": 1}
+
+
+def test_a_bare_dict_is_structured_like_dict_str_any():
+    """SDK-defined: a bare dict is a JSON object already, so it gets an object schema and is not wrapped."""
+    meta = func_metadata(_returns_bare_dict)
+
     assert meta.output_schema == snapshot({"additionalProperties": True, "type": "object"})
-    result = meta.convert_result(bare_dict())
-    assert isinstance(result, CallToolResult)
-    assert result.structured_content == {"id": 1}
-
-    for func in (bare_set, bare_frozenset):
-        meta = func_metadata(func)
-        assert meta.output_schema == snapshot(
-            {
-                "properties": {"result": {"items": {}, "type": "array", "uniqueItems": True}},
-                "required": ["result"],
-                "type": "object",
-            }
+    assert meta.convert_result(_returns_bare_dict()) == snapshot(
+        CallToolResult(
+            content=[
+                TextContent(
+                    text="""\
+{
+  "id": 1
+}\
+"""
+                )
+            ],
+            structured_content={"id": 1},
         )
-        result = meta.convert_result(func())
-        assert isinstance(result, CallToolResult)
-        assert result.structured_content == {"result": [1]}
+    )
+
+
+def _returns_bare_set() -> set:
+    return {1}
+
+
+def _returns_bare_frozenset() -> frozenset:
+    return frozenset({1})
+
+
+@pytest.mark.parametrize("tool", [_returns_bare_set, _returns_bare_frozenset])
+def test_a_bare_set_is_wrapped(tool: Callable[..., Any]):
+    """SDK-defined: a bare set/frozenset is wrapped like its parameterized form; it cannot hold content blocks."""
+    meta = func_metadata(tool)
+
+    assert meta.output_schema == snapshot(
+        {
+            "properties": {"result": {"items": {}, "type": "array", "uniqueItems": True}},
+            "required": ["result"],
+            "type": "object",
+        }
+    )
+    assert meta.convert_result(tool()) == snapshot(
+        CallToolResult(
+            content=[
+                TextContent(
+                    text="""\
+[
+  1
+]\
+"""
+                )
+            ],
+            structured_content={"result": [1]},
+        )
+    )
 
 
 class _Report(BaseModel):
