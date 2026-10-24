@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   checks:
-    uses: ./.github/workflows/shared.yml
+    uses: $/.github/workflows/shared.yml
 
   all-green:
     if: always()
