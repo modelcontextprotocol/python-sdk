@@ -4,7 +4,6 @@ import json
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
-from types import GenericAlias
 from typing import Annotated, Any, NotRequired, Union, cast, get_args, get_origin
 
 import anyio
@@ -499,10 +498,8 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         model = _create_wrapped_model(func_name, original_annotation)
         wrap_output = True
 
-    # Handle GenericAlias types (list[str], dict[str, int], Union[str, int], etc.)
-    elif isinstance(type_expr, GenericAlias):
-        origin = get_origin(type_expr)
-
+    # Handle parameterized generics (list[str], typing.Dict[str, int], Union[str, int], etc.)
+    elif (origin := get_origin(type_expr)) is not None:
         if origin is dict:
             args = get_args(type_expr)
             if len(args) == 2 and args[0] is str:
@@ -545,8 +542,6 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
 
     # Handle any other types not covered above
     else:
-        # This includes typing constructs that aren't GenericAlias in Python 3.10
-        # (e.g., Union, Optional in some Python versions)
         model = _create_wrapped_model(func_name, original_annotation)
         wrap_output = True
 
