@@ -301,7 +301,6 @@ def test_structured_output_dict_str_types():
     assert meta.output_schema == {
         "type": "object",
         "additionalProperties": {"type": "string"},
-        "title": "func_typing_dictDictOutput",
     }
     result = meta.convert_result(func_typing_dict())
     assert isinstance(result, CallToolResult)
@@ -784,9 +783,8 @@ def test_structured_output_generic_types():
     meta = func_metadata(func_new_type)
     assert meta.output_schema == {
         "type": "object",
-        "properties": {"result": {"title": "Result", "type": "integer"}},
+        "properties": {"result": {"type": "integer"}},
         "required": ["result"],
-        "title": "func_new_typeOutput",
     }
     result = meta.convert_result(func_new_type())
     assert isinstance(result, CallToolResult)
