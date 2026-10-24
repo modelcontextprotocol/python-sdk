@@ -446,10 +446,11 @@ def func_metadata(
     else:
         original_annotation = effective_annotation
 
-    if structured_output is None and _returns_content(return_type_expr):
+    if structured_output is None and (return_type_expr in (list, tuple) or _returns_content(return_type_expr)):
         # Content blocks and the Image/Audio helpers are what the model reads, not data for the
         # application: a derived schema would advertise the block's own model as output_schema (and,
         # unless the tool builds its own CallToolResult, echo every block into structured_content).
+        # A bare list/tuple says nothing about its items, so it may hold blocks too.
         # structured_output=True still forces one.
         return FuncMetadata(arg_model=arguments_model)
 
@@ -540,12 +541,16 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         elif is_typeddict(type_annotation):
             model = type_annotation
 
-        # Case 3: Primitive types that need wrapping
-        elif type_annotation in (str, int, float, bool, bytes, type(None)):
+        # Case 3: A bare dict is a JSON object already, like dict[str, Any]
+        elif type_annotation is dict:
+            model = dict[str, Any]
+
+        # Case 4: Primitive types and bare collections that need wrapping
+        elif type_annotation in (str, int, float, bool, bytes, type(None), list, tuple, set, frozenset):
             model = _create_wrapped_model(func_name, original_annotation)
             wrap_output = True
 
-        # Case 4: Other class types (dataclasses, regular classes with annotations)
+        # Case 5: Other class types (dataclasses, regular classes with annotations)
         else:
             type_hints = get_type_hints(type_annotation)
             if type_hints:

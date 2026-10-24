@@ -143,11 +143,11 @@ A `list[...]` isn't a JSON object either, so it gets the `{"result": ...}` wrapp
 
 Ask for a two-day forecast and `structured_content` is `{"result": [{...}, {...}]}`. `content` becomes **two** `TextContent` blocks, one per item: a list is flattened for the model rather than dumped as one string.
 
-`tuple[...]`, unions, and `Optional[...]` are wrapped the same way.
+`tuple[...]`, unions, and `Optional[...]` are wrapped the same way, and so are `set` and `frozenset`, with or without an item type. A bare `list` or `tuple` is not: see **[Content blocks and media](#content-blocks-and-media)**.
 
 ## Dictionaries
 
-`dict[str, ...]` (or `typing.Dict[str, ...]`) is the one generic that already *is* a JSON object, so it isn't wrapped:
+`dict[str, ...]` (or `typing.Dict[str, ...]`, or a bare `dict`, read as `dict[str, Any]`) is the one generic that already *is* a JSON object, so it isn't wrapped:
 
 ```python title="server.py" hl_lines="9"
 --8<-- "docs_src/structured_output/tutorial006.py"
@@ -212,6 +212,8 @@ The opposite, `structured_output=True`, turns the automatic detection into a req
 
 Content blocks and media (`TextContent`, `EmbeddedResource`, `Image`, `Audio` and friends, on their own, as the items of a `list`, `tuple` or `Sequence`, or as the arms of a union) are opted out for you: they are for the model to read, so auto-detection derives no schema from them (**[Images, audio & icons](media.md)** covers `Image` and `Audio`). `structured_output=True` still forces one for the content-block classes.
 
+A bare `list` or `tuple` is opted out too. Nothing in the annotation says its items aren't blocks, and a schema would send any image it holds twice: once as a block for the model, and again as base64 in `structured_content`. Write the item type (`list[str]`, `tuple[int, ...]`) to get a schema, or pass `structured_output=True` to wrap it as a list of anything. The forced wrapper still has to serialize every item as JSON, so an `Image` or `Audio` in it makes the call fail. Only a bare `list` or `tuple` as the whole annotation is opted out: `list | None` is wrapped like any other union.
+
 ## A class without type hints
 
 There is one way to end up unstructured without asking for it: return a class that has **no annotations on its body**.
@@ -241,9 +243,9 @@ There is one way to end up unstructured without asking for it: return a class th
 ## Recap
 
 * The **return type annotation** is the output schema. It's published in `tools/list` as `output_schema`.
-* Scalars, lists, tuples and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes and `dict[str, ...]` are objects already and stay as they are.
+* Scalars, `list[...]`, `tuple[...]`, sets and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes, `dict[str, ...]` and a bare `dict` are objects already and stay as they are.
 * Every result carries `content` (text, for the model) **and** `structured_content` (data, for the application).
 * What you return is validated against the schema. A mismatch is a tool error, not a corrupt result.
-* `structured_output=False` opts a tool out. Content blocks, `Image` and `Audio` opt out by default; a class without type hints opts out silently, so watch for it.
+* `structured_output=False` opts a tool out. Content blocks, `Image`, `Audio` and a bare `list` or `tuple` opt out by default; a class without type hints opts out silently, so watch for it.
 
 You now own everything a tool can say back. Next, the second primitive: **[Resources](resources.md)**.

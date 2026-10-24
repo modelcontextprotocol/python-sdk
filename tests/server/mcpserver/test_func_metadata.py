@@ -3,6 +3,8 @@
 # pyright: reportMissingParameterType=false
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownLambdaType=false
+# pyright: reportMissingTypeArgument=false
+# pyright: reportUnknownVariableType=false
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,6 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, NotRequired
 import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
+from inline_snapshot import snapshot
 from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequiredResult, TextContent
 from pydantic import BaseModel, Field, ValidationError
 from typing_extensions import ReadOnly
@@ -1008,6 +1011,14 @@ def _returns_call_tool_result_annotated_with_blocks() -> Annotated[CallToolResul
     raise NotImplementedError
 
 
+def _returns_bare_list() -> list:
+    return [1, "a"]
+
+
+def _returns_bare_tuple() -> tuple:
+    raise NotImplementedError
+
+
 @pytest.mark.parametrize(
     "tool",
     [
@@ -1017,18 +1028,114 @@ def _returns_call_tool_result_annotated_with_blocks() -> Annotated[CallToolResul
         _returns_audio_clips,
         _returns_described_blocks,
         _returns_call_tool_result_annotated_with_blocks,
+        _returns_bare_list,
+        _returns_bare_tuple,
     ],
 )
 def test_content_block_return_annotation_yields_no_output_schema(tool: Callable[..., Any]):
     """SDK-defined: content blocks and the Image/Audio helpers anywhere in the return annotation are
     presentation, not data, so auto-detection derives no output schema (and `list[str | Image]` /
-    `tuple[Audio, ...]`, which pydantic cannot build a schema for, register instead of raising)."""
+    `tuple[Audio, ...]`, which pydantic cannot build a schema for, register instead of raising). A bare
+    `list`/`tuple` may hold blocks, so it gets no schema either."""
     assert func_metadata(tool).output_schema is None
 
 
 def test_structured_output_true_overrides_the_content_block_rule():
     """SDK-defined: the explicit flag still publishes the block's own schema for callers who want it."""
     assert func_metadata(_returns_block, structured_output=True).output_model is EmbeddedResource
+
+
+def test_structured_output_true_wraps_a_bare_list():
+    """SDK-defined: the explicit flag wraps a bare list as a list of anything instead of rejecting it."""
+    meta = func_metadata(_returns_bare_list, structured_output=True)
+
+    assert meta.output_schema == snapshot(
+        {"properties": {"result": {"items": {}, "type": "array"}}, "required": ["result"], "type": "object"}
+    )
+    assert meta.convert_result(_returns_bare_list()) == snapshot(
+        CallToolResult(content=[TextContent(text="1"), TextContent(text="a")], structured_content={"result": [1, "a"]})
+    )
+
+
+def _returns_optional_bare_list() -> list | None:
+    return [1]
+
+
+def test_a_bare_list_inside_a_union_keeps_its_schema():
+    """SDK-defined: only a bare list/tuple as the whole annotation is opted out; nested ones stay wrapped."""
+    meta = func_metadata(_returns_optional_bare_list)
+
+    assert meta.output_schema == snapshot(
+        {
+            "properties": {"result": {"anyOf": [{"items": {}, "type": "array"}, {"type": "null"}]}},
+            "required": ["result"],
+            "type": "object",
+        }
+    )
+    assert meta.convert_result(_returns_optional_bare_list()) == snapshot(
+        CallToolResult(content=[TextContent(text="1")], structured_content={"result": [1]})
+    )
+
+
+def _returns_bare_dict() -> dict:
+    return {"id": 1}
+
+
+def test_a_bare_dict_is_structured_like_dict_str_any():
+    """SDK-defined: a bare dict is a JSON object already, so it gets an object schema and is not wrapped."""
+    meta = func_metadata(_returns_bare_dict)
+
+    assert meta.output_schema == snapshot({"additionalProperties": True, "type": "object"})
+    assert meta.convert_result(_returns_bare_dict()) == snapshot(
+        CallToolResult(
+            content=[
+                TextContent(
+                    text="""\
+{
+  "id": 1
+}\
+"""
+                )
+            ],
+            structured_content={"id": 1},
+        )
+    )
+
+
+def _returns_bare_set() -> set:
+    return {1}
+
+
+def _returns_bare_frozenset() -> frozenset:
+    return frozenset({1})
+
+
+@pytest.mark.parametrize("tool", [_returns_bare_set, _returns_bare_frozenset])
+def test_a_bare_set_is_wrapped(tool: Callable[..., Any]):
+    """SDK-defined: a bare set/frozenset is wrapped like its parameterized form; it cannot hold content blocks."""
+    meta = func_metadata(tool)
+
+    assert meta.output_schema == snapshot(
+        {
+            "properties": {"result": {"items": {}, "type": "array", "uniqueItems": True}},
+            "required": ["result"],
+            "type": "object",
+        }
+    )
+    assert meta.convert_result(tool()) == snapshot(
+        CallToolResult(
+            content=[
+                TextContent(
+                    text="""\
+[
+  1
+]\
+"""
+                )
+            ],
+            structured_content={"result": [1]},
+        )
+    )
 
 
 class _Report(BaseModel):
