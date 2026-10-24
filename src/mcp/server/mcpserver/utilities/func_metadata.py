@@ -63,7 +63,17 @@ def _returns_content(annotation: Any) -> bool:
     return False
 
 
-class StrictJsonSchema(GenerateJsonSchema):
+class UntitledJsonSchema(GenerateJsonSchema):
+    """A JSON schema generator that leaves out the titles pydantic derives from field names.
+
+    They only repeat the property key; titles set explicitly with `Field(title=...)` are kept.
+    """
+
+    def field_title_should_be_set(self, schema: Any) -> bool:
+        return False
+
+
+class StrictJsonSchema(UntitledJsonSchema):
     """A JSON schema generator that raises exceptions instead of emitting warnings.
 
     This is used to detect non-serializable types during schema generation.
@@ -128,6 +138,9 @@ class FuncMetadata(BaseModel):
         if self.output_model is not None and self.output_schema is None:
             # StrictJsonSchema raises instead of warning, so an unserializable return type fails construction.
             schema = self._output_adapter(self.output_model).json_schema(schema_generator=StrictJsonSchema)
+            if self.wrap_output:
+                # The `{"result": ...}` wrapper is ours, so its class-name title says nothing.
+                schema.pop("title", None)
             self.output_schema = _inline_root_ref(schema)
 
     def _output_adapter(self, output_model: Any) -> TypeAdapter[Any]:
@@ -338,7 +351,7 @@ def func_metadata(
         field_metadata: list[Any] = []
 
         if param.annotation is inspect.Parameter.empty:
-            field_metadata.append(WithJsonSchema({"title": param.name, "type": "string"}))
+            field_metadata.append(WithJsonSchema({"type": "string"}))
         # Check if the parameter name conflicts with BaseModel attributes
         # This is necessary because Pydantic warns about shadowing parent attributes
         if hasattr(BaseModel, field_name) and callable(getattr(BaseModel, field_name)):
@@ -508,7 +521,7 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
             if len(args) == 2 and args[0] is str:
                 # TODO: should we use the original annotation? We are losing any potential `Annotated`
                 # metadata for Pydantic here:
-                model = Annotated[type_expr, Field(title=f"{func_name}DictOutput")]
+                model = type_expr
             else:
                 # dict with non-str keys needs wrapping
                 model = _create_wrapped_model(func_name, original_annotation)
