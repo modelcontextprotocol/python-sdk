@@ -127,6 +127,13 @@ class _Pending:
     send: MemoryObjectSendStream[dict[str, Any] | ErrorData]
     receive: MemoryObjectReceiveStream[dict[str, Any] | ErrorData]
     on_progress: ProgressFnT | None = None
+    progress_chain: anyio.Event | None = None
+    """Done-event of the most recently spawned progress-callback task for this request.
+
+    Each notification's task awaits its predecessor's done-event before invoking
+    the callback, so callbacks run one at a time in arrival order. `send_raw_request`
+    drains the tail before the request completes; see `_spawn_progress`.
+    """
 
 
 @dataclass(slots=True)
@@ -378,6 +385,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         # saw, while skipping it would leak a delivered request's handler.
         request_write_started = False
         timeout_armed = False
+        progress_chain: anyio.Event | None = None
 
         target = out_params.get("name")
         span_name = f"MCP send {method}{f' {target}' if isinstance(target, str) else ''}"
@@ -453,9 +461,22 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             raise
         finally:
             # Remove the waiter on every path so a late response is dropped, not leaked.
+            # Captured before the pop: progress notifications still correlating to this
+            # pending have already been spawned by the sequential read loop, and the tail
+            # of their chain is what the drain below waits for.
+            progress_chain = pending.progress_chain
             self._pending.pop(pending_key, None)
             send.close()
             receive.close()
+
+        # Wait for the request's progress callbacks to finish, serialized behind
+        # `progress_chain`, so the request does not complete while an earlier
+        # progress callback is still running (#3747). Shielded so a caller
+        # cancellation cannot strand the chain mid-drain. Bounded: the pending
+        # entry is gone, so no further callbacks can be spawned for this request.
+        if progress_chain is not None:
+            with anyio.CancelScope(shield=True):
+                await progress_chain.wait()
 
         if isinstance(outcome, ErrorData):
             raise MCPError(code=outcome.code, message=outcome.message, data=outcome.data)
@@ -653,8 +674,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 ):
                     total = msg.params.get("total")
                     message = msg.params.get("message")
-                    self._spawn(
-                        _shielded_progress(pending.on_progress),
+                    self._spawn_progress(
+                        pending,
                         float(progress),
                         float(total) if isinstance(total, int | float) else None,
                         message if isinstance(message, str) else None,
@@ -674,6 +695,47 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             transport=transport_ctx, _dispatcher=self, _request_id=None, message_metadata=metadata
         )
         self._spawn(_contained_notify(on_notify), dctx, msg.method, msg.params, sender_ctx=sender_ctx)
+
+    def _spawn_progress(
+        self,
+        pending: _Pending,
+        progress: float,
+        total: float | None,
+        message: str | None,
+        sender_ctx: contextvars.Context | None,
+    ) -> None:
+        """Deliver one progress notification to `pending.on_progress`, in arrival order.
+
+        The read loop sees notifications one at a time, but spawning each callback
+        outright lets them overlap: callbacks for the same request then run
+        concurrently, finish in any order, and can still be running when
+        `send_raw_request` hands back the result (#3747). Instead each task first
+        awaits its predecessor's done-event, so the callbacks for a request run
+        one at a time in the order the notifications arrived. The newest
+        done-event is kept on `pending.progress_chain`, which `send_raw_request`
+        drains before the request completes.
+
+        The callback stays shielded and exception-contained (via `_shielded_progress`),
+        so a slow or failing callback cannot stall the read loop or the task group;
+        the done-event is set in a `finally`, so the chain and the drain always
+        release even when the dispatcher is cancelled.
+        """
+        previous = pending.progress_chain
+        done = anyio.Event()
+        on_progress = pending.on_progress
+        assert on_progress is not None  # only called for a pending that carries a callback
+        callback = _shielded_progress(on_progress)
+
+        async def run() -> None:
+            try:
+                if previous is not None:
+                    await previous.wait()
+                await callback(progress, total, message)
+            finally:
+                done.set()
+
+        pending.progress_chain = done
+        self._spawn(run, sender_ctx=sender_ctx)
 
     def _resolve_pending(self, request_id: RequestId | None, outcome: dict[str, Any] | ErrorData) -> None:
         pending = self._pending.get(coerce_request_id(request_id)) if request_id is not None else None

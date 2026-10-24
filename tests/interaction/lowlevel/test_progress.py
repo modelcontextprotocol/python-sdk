@@ -277,3 +277,41 @@ async def test_non_increasing_progress_values_are_forwarded_unchanged(connect: C
         await client.call_tool("zigzag", {}, progress_callback=collect)
 
     assert received == snapshot([0.5, 0.3, 0.9])
+
+
+@requirement("protocol:progress:callback")
+async def test_progress_callbacks_are_serialized_and_finish_before_the_result(connect: Connect) -> None:
+    """Progress callbacks for one request run one at a time, in order, and before the result.
+
+    Regression test for #3747: each ``notifications/progress`` used to spawn its own
+    task, so callbacks for the same request ran concurrently, completed in any order,
+    and could still be running after ``call_tool()`` had returned. The existing
+    in-order test cannot catch this because its callback never awaits.
+    """
+    events: list[str] = []
+
+    async def collect(progress: float, total: float | None, message: str | None) -> None:
+        # Reverse the sleep durations so overlapping callbacks are observable:
+        # notification 3 would finish first if they ran concurrently.
+        await anyio.sleep(0.1 * (4 - progress))
+        events.append(f"progress {progress}")
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="download", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "download"
+        await ctx.session.report_progress(1.0, total=3.0)
+        await ctx.session.report_progress(2.0, total=3.0)
+        await ctx.session.report_progress(3.0, total=3.0)
+        return CallToolResult(content=[TextContent(text="downloaded")])
+
+    server = Server("downloader", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        await client.call_tool("download", {}, progress_callback=collect)
+        events.append("call_tool returned")
+
+    assert events == ["progress 1.0", "progress 2.0", "progress 3.0", "call_tool returned"]
