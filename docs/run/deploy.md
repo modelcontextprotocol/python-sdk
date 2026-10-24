@@ -170,6 +170,30 @@ Nothing about the fan-out cares which server object a stream is attached to. Two
 * Streams are **not** resumable and events are **not** replayed. Losing a replica drops its streams; the clients re-listen and re-fetch. There is no event store to share and nothing else to configure. This is the one place where scaling out is genuinely just more of the same.
 * A server that needs no change notifications skips the bus: **[turn them off](../handlers/subscriptions.md#turning-it-off)**.
 
+## Runtimes that reuse a process
+
+Some serverless adapters, including AWS Lambda adapters, start and stop the ASGI lifespan for each invocation while keeping the Python process warm. Keep your registered `MCPServer`, but call `streamable_http_app()` inside each invocation before passing the returned app to the adapter:
+
+```python title="server.py"
+from starlette.applications import Starlette
+
+from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
+
+mcp = MCPServer("example")
+security = TransportSecuritySettings(allowed_hosts=["mcp.example.com", "mcp.example.com:*"])
+
+
+def app_for_invocation() -> Starlette:
+    return mcp.streamable_http_app(stateless_http=True, transport_security=security)
+```
+
+Call `app_for_invocation()` from your adapter's handler on every invocation. If you mount the MCP app in a host Starlette or FastAPI app, build the host app, its lifespan, and the mount inside that handler too. Each new HTTP app has a new `StreamableHTTPSessionManager`; re-entering the old app's lifespan fails because its manager can run only once.
+
+Replace `mcp.example.com` with your public Host header. If browsers call the endpoint, also configure `allowed_origins`; see [the Host allowlist](#before-anything-else-the-host-allowlist).
+
+The example uses `stateless_http=True` so legacy clients do not try to resume a session that ended with the previous invocation. It gives up the legacy server-to-client back-channel; see [Serving legacy clients](legacy-clients.md). Your server's own `lifespan=` also runs on every invocation, so keep resources that must outlive an invocation outside it. Modern requests are sessionless, but they still need a fresh app when the adapter restarts its lifespan. If your adapter keeps one lifespan open across invocations, keep the app for that lifespan instead.
+
 ## What the SDK does not give you
 
 An `MCPServer` is a protocol implementation, not an application server. The deployment knobs you go looking for next are missing on purpose:
@@ -187,6 +211,7 @@ An `MCPServer` is a protocol implementation, not an application server. The depl
 * The default `requestState` key is `os.urandom(32)`, minted per process. A multi-round-trip retry that reaches a different worker fails with `-32602` *"Invalid or expired requestState"*.
 * The fix is `RequestStateSecurity(keys=[...])` **and** the same server name on every instance. The name is the token's default audience claim. Same keys, same name.
 * Change notifications cross replicas through one shared `SubscriptionBus`. The SDK's only implementation is in-process; the two-method `Protocol` over your own pub/sub is yours to write.
+* If an adapter restarts ASGI lifespan on each warm-process invocation, call `streamable_http_app()` for each invocation. A manager cannot enter `run()` twice.
 * There is no `workers=`, no health route, no production settings object. Bring your own ASGI server.
 
 The other thing a real hostname needs in front of it is a token: **[Authorization](authorization.md)**.
