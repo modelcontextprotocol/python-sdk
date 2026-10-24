@@ -51,10 +51,10 @@ _CONTENT_SEQUENCE_ORIGINS = (list, tuple, Sequence)
 def _returns_content(annotation: Any) -> bool:
     """Whether a return annotation declares content blocks or the `Image`/`Audio` helpers, bare or as
     the items of a list/tuple or the arms of a union: the values `_convert_to_content` renders as blocks
-    rather than dumping as data. Keep the two in sync."""
+    rather than dumping as data. Keep the two in sync. A bare `list`/`tuple` may hold blocks too."""
     origin = get_origin(annotation)
     if origin is None:
-        return isinstance(annotation, type) and issubclass(annotation, _CONTENT_TYPES)
+        return annotation in (list, tuple) or (isinstance(annotation, type) and issubclass(annotation, _CONTENT_TYPES))
     if origin is Annotated:
         return _returns_content(get_args(annotation)[0])
     if is_union_origin(origin) or origin in _CONTENT_SEQUENCE_ORIGINS:
@@ -540,12 +540,16 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         elif is_typeddict(type_annotation):
             model = type_annotation
 
-        # Case 3: Primitive types that need wrapping
-        elif type_annotation in (str, int, float, bool, bytes, type(None)):
+        # Case 3: A bare dict is a JSON object already, like dict[str, Any]
+        elif type_annotation is dict:
+            model = dict[str, Any]
+
+        # Case 4: Primitive types and bare collections that need wrapping
+        elif type_annotation in (str, int, float, bool, bytes, type(None), list, tuple, set, frozenset):
             model = _create_wrapped_model(func_name, original_annotation)
             wrap_output = True
 
-        # Case 4: Other class types (dataclasses, regular classes with annotations)
+        # Case 5: Other class types (dataclasses, regular classes with annotations)
         else:
             type_hints = get_type_hints(type_annotation)
             if type_hints:

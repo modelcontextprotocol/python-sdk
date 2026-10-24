@@ -3,6 +3,8 @@
 # pyright: reportMissingParameterType=false
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownLambdaType=false
+# pyright: reportMissingTypeArgument=false
+# pyright: reportUnknownVariableType=false
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,6 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, NotRequired
 import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
+from inline_snapshot import snapshot
 from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequiredResult, TextContent
 from pydantic import BaseModel, Field, ValidationError
 from typing_extensions import ReadOnly
@@ -1008,6 +1011,14 @@ def _returns_call_tool_result_annotated_with_blocks() -> Annotated[CallToolResul
     raise NotImplementedError
 
 
+def _returns_bare_list() -> list:
+    return [1, "a"]
+
+
+def _returns_bare_tuple() -> tuple:
+    raise NotImplementedError
+
+
 @pytest.mark.parametrize(
     "tool",
     [
@@ -1017,18 +1028,62 @@ def _returns_call_tool_result_annotated_with_blocks() -> Annotated[CallToolResul
         _returns_audio_clips,
         _returns_described_blocks,
         _returns_call_tool_result_annotated_with_blocks,
+        _returns_bare_list,
+        _returns_bare_tuple,
     ],
 )
 def test_content_block_return_annotation_yields_no_output_schema(tool: Callable[..., Any]):
     """SDK-defined: content blocks and the Image/Audio helpers anywhere in the return annotation are
     presentation, not data, so auto-detection derives no output schema (and `list[str | Image]` /
-    `tuple[Audio, ...]`, which pydantic cannot build a schema for, register instead of raising)."""
+    `tuple[Audio, ...]`, which pydantic cannot build a schema for, register instead of raising). A bare
+    `list`/`tuple` may hold blocks, so it gets no schema either."""
     assert func_metadata(tool).output_schema is None
 
 
 def test_structured_output_true_overrides_the_content_block_rule():
     """SDK-defined: the explicit flag still publishes the block's own schema for callers who want it."""
     assert func_metadata(_returns_block, structured_output=True).output_model is EmbeddedResource
+
+
+def test_structured_output_true_wraps_a_bare_list():
+    meta = func_metadata(_returns_bare_list, structured_output=True)
+
+    assert meta.output_schema == snapshot(
+        {"properties": {"result": {"items": {}, "type": "array"}}, "required": ["result"], "type": "object"}
+    )
+    result = meta.convert_result(_returns_bare_list())
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"result": [1, "a"]}
+
+
+def test_bare_dict_set_and_frozenset_returns_are_structured():
+    def bare_dict() -> dict:
+        return {"id": 1}
+
+    def bare_set() -> set:
+        return {1}
+
+    def bare_frozenset() -> frozenset:
+        return frozenset({1})
+
+    meta = func_metadata(bare_dict)
+    assert meta.output_schema == snapshot({"additionalProperties": True, "type": "object"})
+    result = meta.convert_result(bare_dict())
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"id": 1}
+
+    for func in (bare_set, bare_frozenset):
+        meta = func_metadata(func)
+        assert meta.output_schema == snapshot(
+            {
+                "properties": {"result": {"items": {}, "type": "array", "uniqueItems": True}},
+                "required": ["result"],
+                "type": "object",
+            }
+        )
+        result = meta.convert_result(func())
+        assert isinstance(result, CallToolResult)
+        assert result.structured_content == {"result": [1]}
 
 
 class _Report(BaseModel):
