@@ -51,7 +51,8 @@ from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.routing import Mount, Route, request_response
+from starlette.routing import Mount, Route
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
@@ -98,7 +99,11 @@ from mcp.server.streamable_http_manager import (
     StreamableHTTPSessionManager,
 )
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
-from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
+from mcp.server.transport_security import (
+    DEFAULT_MAX_REQUEST_BODY_SIZE,
+    TransportSecurityMiddleware,
+    TransportSecuritySettings,
+)
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
 
@@ -1171,23 +1176,23 @@ class MCPServer(Generic[LifespanResultT]):
             message_path, security_settings=transport_security, max_request_body_size=max_request_body_size
         )
 
-        async def sse_endpoint(request: Request) -> Response:
-            if request.method == "HEAD":
-                # GET's headers without its never-ending stream; a Content-Length would claim an empty one.
-                response = Response(
-                    media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
-                )
-                del response.headers["content-length"]
-                return response
-            async with sse.connect_sse(  # pragma: no cover
-                request.scope,
-                request.receive,
-                request._send,  # type: ignore[reportPrivateUsage]
-            ) as streams:
+        security = TransportSecurityMiddleware(transport_security)
+
+        async def handle_sse(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["method"] == "HEAD":
+                response = await security.validate_request(Request(scope, receive))
+                if response is None:
+                    # GET's headers without its never-ending stream; a Content-Length would claim an empty one.
+                    response = Response(
+                        media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
+                    )
+                    del response.headers["content-length"]
+                await response(scope, receive, send)
+                return
+            async with sse.connect_sse(scope, receive, send) as streams:  # pragma: no cover
                 await self._lowlevel_server.run(
                     streams[0], streams[1], self._lowlevel_server.create_initialization_options()
                 )
-            return Response()  # pragma: no cover
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -1245,9 +1250,7 @@ class MCPServer(Generic[LifespanResultT]):
             routes.append(
                 Route(
                     sse_path,
-                    endpoint=RequireAuthMiddleware(
-                        request_response(sse_endpoint), required_scopes, resource_metadata_url
-                    ),
+                    endpoint=RequireAuthMiddleware(handle_sse, required_scopes, resource_metadata_url),
                     methods=["GET"],
                 )
             )
@@ -1262,7 +1265,7 @@ class MCPServer(Generic[LifespanResultT]):
             routes.append(
                 Route(
                     sse_path,
-                    endpoint=sse_endpoint,
+                    endpoint=_ASGIEndpoint(handle_sse),
                     methods=["GET"],
                 )
             )
@@ -1426,3 +1429,14 @@ def require_client_extension(ctx: ServerRequestContext[Any, Any], identifier: st
             message=f"Client did not declare required extension {identifier!r}",
             data=data.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
+
+
+class _ASGIEndpoint:
+    """Hands a `Route` a raw ASGI app; a plain function would be wrapped as a request/response endpoint,
+    which sends a second response after the SSE stream has already completed."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self.app(scope, receive, send)

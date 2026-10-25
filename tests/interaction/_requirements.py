@@ -2709,7 +2709,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="issue:#3736",
         behavior=(
             "A HEAD request to the SSE endpoint of `MCPServer.sse_app()` is answered at once with the "
-            "headers a GET would get and no body or Content-Length, without opening a session or a stream."
+            "headers a GET would get, no body and no Content-Length, after the same Host/Origin checks as a GET."
         ),
         transports=("sse",),
         note="Only observable over the legacy SSE transport.",
