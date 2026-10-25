@@ -98,11 +98,7 @@ from mcp.server.streamable_http_manager import (
     StreamableHTTPSessionManager,
 )
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
-from mcp.server.transport_security import (
-    DEFAULT_MAX_REQUEST_BODY_SIZE,
-    TransportSecurityMiddleware,
-    TransportSecuritySettings,
-)
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
 
@@ -1175,18 +1171,9 @@ class MCPServer(Generic[LifespanResultT]):
             message_path, security_settings=transport_security, max_request_body_size=max_request_body_size
         )
 
-        security = TransportSecurityMiddleware(transport_security)
-
         async def sse_endpoint(request: Request) -> Response:
             if request.method == "HEAD":
-                if error_response := await security.validate_request(request):
-                    return error_response
-                # GET's headers without its never-ending stream; a Content-Length would claim an empty one.
-                response = Response(
-                    media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
-                )
-                del response.headers["content-length"]
-                return response
+                return await sse.head_response(request)
             async with sse.connect_sse(  # pragma: no cover
                 request.scope,
                 request.receive,
