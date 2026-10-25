@@ -76,7 +76,6 @@ class StreamableHttpParameters(BaseModel):
     auth: httpx2.Auth | None = Field(default=None, description="Optional HTTPX authentication handler.", exclude=True)
 
 
-
 ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
 
 
