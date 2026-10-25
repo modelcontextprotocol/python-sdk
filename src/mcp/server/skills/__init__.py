@@ -13,6 +13,9 @@ handlers that answer `skills/list`/`skills/get`/`resources/directory/read`
 however their catalog is stored, and serves the underlying `skill://` file
 content through the server's ordinary resource-registration APIs.
 
+To serve skills from a directory (or any other source of files) without writing
+handlers, use `SkillCatalog` with a `SkillProvider` such as `FilesystemSkillProvider`.
+
     async def list_skills(ctx, params):
         return ListSkillsResult(skills=[...])
 
@@ -24,6 +27,10 @@ content through the server's ordinary resource-registration APIs.
     mcp = MCPServer("catalog", extensions=[Skills(list_skills=list_skills, get_skill=get_skill)])
 """
 
+# The handler aliases were importable from `mcp.server.skills` when it was a single module.
+from mcp.server.skills._extension import GetSkillHandler as GetSkillHandler
+from mcp.server.skills._extension import ListSkillsHandler as ListSkillsHandler
+from mcp.server.skills._extension import ReadDirectoryHandler as ReadDirectoryHandler
 from mcp.server.skills._extension import Skills
 from mcp.server.skills.catalog import SkillCatalog
 from mcp.server.skills.filesystem import FilesystemSkillProvider

@@ -11,16 +11,23 @@ import hashlib
 import logging
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from mcp_types import INTERNAL_ERROR, INVALID_PARAMS, BlobResourceContents, TextResourceContents
 from pydantic import BaseModel, ConfigDict
 
+import mcp.server.skills as skills_package
 from mcp.client.client import Client
 from mcp.client.extensions.skills import Skills as ClientSkills
 from mcp.server.mcpserver import MCPServer
-from mcp.server.skills import FilesystemSkillProvider, SkillCatalog
+from mcp.server.skills import (
+    FilesystemSkillProvider,
+    GetSkillHandler,
+    ListSkillsHandler,
+    ReadDirectoryHandler,
+    SkillCatalog,
+)
 from mcp.shared.exceptions import MCPError
 from mcp.shared.skills import (
     MAX_RESOURCES_PER_SKILL,
@@ -253,6 +260,31 @@ async def test_a_frontmatter_value_that_is_not_json_serializable_makes_the_skill
     assert "bad/SKILL.md" in str(exc_info.value)
 
 
+async def test_a_frontmatter_value_with_no_json_form_makes_the_skill_invalid() -> None:
+    """SDK-defined: NaN can't be carried verbatim as JSON, so it is rejected instead of being silently rewritten."""
+
+    def parse_with_nan(text: str) -> Mapping[str, Any]:
+        return {"name": "bad", "description": "d", "ratio": float("nan")}
+
+    provider = _MemoryProvider({"bad/SKILL.md": _skill_md("bad")})
+    with pytest.raises(ValueError) as exc_info:
+        await SkillCatalog.load(provider, parse_frontmatter=parse_with_nan, strict=True)
+    assert "bad/SKILL.md" in str(exc_info.value)
+
+
+async def test_a_provider_may_return_any_iterable_of_paths() -> None:
+    """SDK-defined: the listing is consumed once, so a generator doesn't silently yield an empty catalog."""
+
+    class GeneratorProvider(_MemoryProvider):
+        async def list_files(self) -> Sequence[str]:
+            return cast(Sequence[str], (path for path in self.files))
+
+    catalog = await SkillCatalog.load(
+        GeneratorProvider({"git-workflow/SKILL.md": _skill_md("git-workflow")}), parse_frontmatter=_parse
+    )
+    assert [skill.uri for skill in catalog.skills] == ["skill://git-workflow/SKILL.md"]
+
+
 async def test_strict_load_raises_one_error_naming_every_invalid_skill() -> None:
     """SDK-defined (matches typescript-sdk #3047 `strict`): all problems are reported together."""
     provider = _MemoryProvider(
@@ -279,6 +311,7 @@ async def test_strict_load_raises_one_error_naming_every_invalid_skill() -> None
         pytest.param(["a/../SKILL.md"], id="dot-dot-segment"),
         pytest.param(["a//SKILL.md"], id="empty-segment"),
         pytest.param(["a/SKILL.md", "a/SKILL.md"], id="duplicate"),
+        pytest.param(["a/SKILL.md", "a/notes", "a/notes/more.txt"], id="file-beneath-a-file"),
     ],
 )
 async def test_a_provider_listing_a_malformed_path_is_a_value_error_even_when_not_strict(
@@ -351,7 +384,9 @@ async def test_skill_md_is_served_as_markdown_with_its_own_name_and_description(
         {
             "git-workflow/SKILL.md": _skill_md("git-workflow", description="Follow our Git rules"),
             "git-workflow/notes.json": b"{}",
+            "git-workflow/references/GUIDE.MD": b"# Guide",
             "git-workflow/blob.unknownext": b"x",
+            "git-workflow/no-extension": b"x",
         }
     )
     async with Client(server) as client:
@@ -365,7 +400,9 @@ async def test_skill_md_is_served_as_markdown_with_its_own_name_and_description(
     )
     assert listed["skill://git-workflow/notes.json"].name == "notes.json"
     assert listed["skill://git-workflow/notes.json"].mime_type == "application/json"
+    assert listed["skill://git-workflow/references/GUIDE.MD"].mime_type == "text/markdown"
     assert listed["skill://git-workflow/blob.unknownext"].mime_type == "application/octet-stream"
+    assert listed["skill://git-workflow/no-extension"].mime_type == "application/octet-stream"
 
 
 async def test_reading_a_file_that_changed_after_load_is_an_internal_error() -> None:
@@ -508,6 +545,126 @@ async def test_cache_hints_reach_list_get_and_directory_reads_on_the_2026_07_28_
         ]
     assert [(raw.model_extra or {})["ttlMs"] for raw in raws] == [60_000] * 3
     assert [(raw.model_extra or {})["cacheScope"] for raw in raws] == ["public"] * 3
+
+
+def _five_skills() -> dict[str, bytes]:
+    return {f"skill-{n}/SKILL.md": _skill_md(f"skill-{n}") for n in range(5)}
+
+
+async def test_list_skills_pages_through_the_catalog_when_a_page_size_is_set() -> None:
+    """SEP-2640: `skills/list` mirrors base-protocol pagination; each `nextCursor` is passed back as `cursor`."""
+    server = await _server(_five_skills(), page_size=2)
+    async with Client(server) as client:
+        first = await client.session.send_request(ListSkillsRequest(), ListSkillsResult)
+        second = await client.session.send_request(
+            ListSkillsRequest(params=ListSkillsParams(cursor=first.next_cursor)), ListSkillsResult
+        )
+        assert second.next_cursor is not None
+        third = await client.session.send_request(
+            ListSkillsRequest(params=ListSkillsParams(cursor=second.next_cursor)), ListSkillsResult
+        )
+
+    pages = [[skill.uri for skill in page.skills] for page in (first, second, third)]
+    assert pages == [
+        ["skill://skill-0/SKILL.md", "skill://skill-1/SKILL.md"],
+        ["skill://skill-2/SKILL.md", "skill://skill-3/SKILL.md"],
+        ["skill://skill-4/SKILL.md"],
+    ]
+    assert first.next_cursor is not None
+    assert third.next_cursor is None
+
+
+async def test_the_client_follows_next_cursor_to_collect_every_skill_with_whole_entries() -> None:
+    """SEP-2640: an entry is atomic, so a skill's manifest is complete on whichever page carries it."""
+    files = {**_five_skills(), "skill-0/references/guide.md": b"guide", "skill-0/references/more.md": b"more"}
+    server = await _server(files, page_size=2)
+    async with Client(server, extensions=[ClientSkills()]) as client:
+        skills = await client.extension(ClientSkills).list_skills()
+
+    assert [skill.uri for skill in skills] == [f"skill://skill-{n}/SKILL.md" for n in range(5)]
+    assert isinstance(skills[0].resources, list)
+    assert len(skills[0].resources) == 3
+
+
+async def test_a_page_size_larger_than_the_catalog_returns_one_page_without_a_cursor() -> None:
+    """SDK-defined: `nextCursor` is only present when another page follows."""
+    server = await _server(_five_skills(), page_size=5)
+    async with Client(server) as client:
+        result = await client.session.send_request(ListSkillsRequest(), ListSkillsResult)
+    assert len(result.skills) == 5
+    assert result.next_cursor is None
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        pytest.param("not base64 !", id="not-base64"),
+        pytest.param("\u00e9", id="not-ascii"),
+        pytest.param("", id="empty"),
+        pytest.param(base64.urlsafe_b64encode(b"abc").decode(), id="not-a-number"),
+        pytest.param(base64.urlsafe_b64encode(b"0").decode(), id="zero"),
+        pytest.param(base64.urlsafe_b64encode(b"3").decode(), id="not-a-page-boundary"),
+        pytest.param(base64.urlsafe_b64encode(b"10").decode(), id="past-the-end"),
+        pytest.param(base64.urlsafe_b64encode(b" 2").decode(), id="non-canonical"),
+    ],
+)
+async def test_a_cursor_the_catalog_did_not_issue_is_invalid_params(cursor: str) -> None:
+    """Base protocol: an invalid cursor is Invalid params (-32602)."""
+    server = await _server(_five_skills(), page_size=2)
+    async with Client(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.session.send_request(
+                ListSkillsRequest(params=ListSkillsParams(cursor=cursor)), ListSkillsResult
+            )
+    assert exc_info.value.code == INVALID_PARAMS
+
+
+async def test_directory_read_pages_through_the_children_when_a_page_size_is_set() -> None:
+    """SEP-2640: `resources/directory/read` mirrors `resources/list` pagination."""
+    files = {"git-workflow/SKILL.md": _skill_md("git-workflow")}
+    files.update({f"git-workflow/references/f{n}.txt": b"x" for n in range(5)})
+    server = await _server(files, directory_read=True, page_size=2)
+    async with Client(server, extensions=[ClientSkills()]) as client:
+        first = await client.session.send_request(
+            ReadDirectoryRequest(params=ReadDirectoryParams(uri="skill://git-workflow/references")),
+            ReadDirectoryResult,
+        )
+        everything = await client.extension(ClientSkills).read_directory("skill://git-workflow/references")
+        with pytest.raises(MCPError) as exc_info:
+            await client.session.send_request(
+                ReadDirectoryRequest(params=ReadDirectoryParams(uri="skill://git-workflow/references", cursor="bogus")),
+                ReadDirectoryResult,
+            )
+
+    assert len(first.resources) == 2
+    assert first.next_cursor is not None
+    assert [r.uri for r in everything] == [f"skill://git-workflow/references/f{n}.txt" for n in range(5)]
+    assert exc_info.value.code == INVALID_PARAMS
+
+
+@pytest.mark.parametrize("page_size", [0, -1])
+async def test_a_page_size_below_one_is_rejected_when_the_catalog_loads(page_size: int) -> None:
+    """SDK-defined: a page must hold at least one entry."""
+    provider = _MemoryProvider({"git-workflow/SKILL.md": _skill_md("git-workflow")})
+    with pytest.raises(ValueError):
+        await SkillCatalog.load(provider, parse_frontmatter=_parse, page_size=page_size)
+
+
+async def test_a_negative_ttl_is_rejected_when_the_catalog_loads() -> None:
+    """SEP-2549: `ttlMs` is a non-negative integer, so a bad option fails at load rather than on every request."""
+    provider = _MemoryProvider({"git-workflow/SKILL.md": _skill_md("git-workflow")})
+    with pytest.raises(ValueError):
+        await SkillCatalog.load(provider, parse_frontmatter=_parse, ttl_ms=-1)
+
+
+async def test_the_handler_aliases_stay_importable_from_the_package() -> None:
+    """Compatibility: `mcp.server.skills` was a module before it became a package; its public names survive."""
+    assert (GetSkillHandler, ListSkillsHandler, ReadDirectoryHandler) == (
+        skills_package.GetSkillHandler,
+        skills_package.ListSkillsHandler,
+        skills_package.ReadDirectoryHandler,
+    )
+    assert skills_package.__all__ == ["Skills", "SkillCatalog", "SkillProvider", "FilesystemSkillProvider"]
 
 
 async def test_cache_hints_default_to_a_private_zero_ttl() -> None:

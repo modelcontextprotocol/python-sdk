@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import logging
 import mimetypes
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
-from typing import Any, Literal, cast
+from pathlib import PurePosixPath
+from typing import Any, Literal, TypeVar
 from urllib.parse import quote
 
 import anyio.to_thread
-from mcp_types import INVALID_PARAMS
+from mcp_types import INVALID_PARAMS, CacheableResult
 from mcp_types import Resource as ResourceEntry
-from pydantic import PrivateAttr, ValidationError
+from pydantic import BaseModel, PrivateAttr, TypeAdapter, ValidationError
 from pydantic_core import to_jsonable_python
 
 from mcp.server.context import ServerRequestContext
@@ -27,6 +29,7 @@ from mcp.shared.exceptions import MCPError
 from mcp.shared.skills import (
     MAX_RESOURCES_PER_SKILL,
     MAX_TOTAL_SIZE,
+    Frontmatter,
     GetSkillParams,
     GetSkillResult,
     ListSkillsParams,
@@ -44,12 +47,20 @@ logger = logging.getLogger(__name__)
 _SKILL_FILE = "SKILL.md"
 _DIRECTORY_MIME_TYPE = "inode/directory"
 _FRONTMATTER_DELIMITER = "---"
+_MIME_TYPE_OVERRIDES = {
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+}
 
 
-@dataclass(frozen=True)
-class _Fingerprint:
+class _Fingerprint(BaseModel, frozen=True):
     digest: str
     size: int
+
+
+_FRONTMATTER_ADAPTER: TypeAdapter[Frontmatter] = TypeAdapter(Frontmatter)
 
 
 class _SkillFileResource(Resource):
@@ -102,7 +113,13 @@ class SkillCatalog(Skills):
         directories: Mapping[str, Sequence[ResourceEntry]] | None,
         ttl_ms: int,
         cache_scope: Literal["public", "private"],
+        page_size: int | None,
     ) -> None:
+        """Assemble a catalog from already-validated parts; use `SkillCatalog.load()` instead.
+
+        Raises:
+            ValidationError: If `ttl_ms` is negative.
+        """
         super().__init__(
             list_skills=self._list_handler,
             get_skill=self._get_handler,
@@ -112,8 +129,8 @@ class SkillCatalog(Skills):
         self._by_uri = {skill.uri: skill for skill in skills}
         self._files = dict(files)
         self._directories = directories
-        self._ttl_ms = ttl_ms
-        self._cache_scope: Literal["public", "private"] = cache_scope
+        self._cache = CacheableResult(ttl_ms=ttl_ms, cache_scope=cache_scope)
+        self._page_size = page_size
 
     @classmethod
     async def load(
@@ -125,6 +142,7 @@ class SkillCatalog(Skills):
         directory_read: bool = False,
         ttl_ms: int = 0,
         cache_scope: Literal["public", "private"] = "private",
+        page_size: int | None = None,
     ) -> SkillCatalog:
         """Scan `provider` and build a catalog of the skills it holds.
 
@@ -145,14 +163,20 @@ class SkillCatalog(Skills):
             ttl_ms: `ttlMs` cache hint (SEP-2549) set on `skills/list`, `skills/get` and
                 directory reads.
             cache_scope: `cacheScope` cache hint set on the same results.
+            page_size: The maximum number of entries in one `skills/list` or directory read
+                page. When `None`, every entry is returned in a single response. A skill entry
+                is never split across pages.
 
         Raises:
-            ValueError: If `strict` is set and any skill is invalid, or if the provider
-                lists a path that is empty, absolute, contains a `.` or `..` segment, or
-                appears twice.
+            ValueError: If `strict` is set and any skill is invalid, if the provider
+                lists a path that is empty, absolute, contains a `.` or `..` segment, appears
+                twice, or lies beneath another listed file, or if `ttl_ms` is negative or
+                `page_size` is less than 1.
             OSError: If the provider fails to list or read a file.
         """
-        paths = _check_paths(await provider.list_files())
+        if page_size is not None and page_size < 1:
+            raise ValueError("page_size must be at least 1")
+        paths = _check_paths(list(await provider.list_files()))
         visible = [path for path in paths if not any(segment.startswith(".") for segment in path.split("/"))]
         skill_paths = sorted(path for path in visible if path.split("/")[-1] == _SKILL_FILE)
 
@@ -203,6 +227,7 @@ class SkillCatalog(Skills):
             directories=_directory_index(files) if directory_read else None,
             ttl_ms=ttl_ms,
             cache_scope=cache_scope,
+            page_size=page_size,
         )
 
     @property
@@ -215,33 +240,66 @@ class SkillCatalog(Skills):
         return [ResourceBinding(resource=file) for file in sorted(self._files.values(), key=lambda f: f.uri)]
 
     async def _list_handler(self, ctx: ServerRequestContext[Any, Any], params: ListSkillsParams) -> ListSkillsResult:
-        _reject_cursor(params.cursor)
-        return ListSkillsResult(skills=list(self._catalog_skills), ttl_ms=self._ttl_ms, cache_scope=self._cache_scope)
+        page, next_cursor = _paginate(self._catalog_skills, params.cursor, self._page_size)
+        return ListSkillsResult(
+            skills=page,
+            next_cursor=next_cursor,
+            ttl_ms=self._cache.ttl_ms,
+            cache_scope=self._cache.cache_scope,
+        )
 
     async def _get_handler(self, ctx: ServerRequestContext[Any, Any], params: GetSkillParams) -> GetSkillResult:
         skill = self._by_uri.get(params.uri)
         if skill is None:
             raise MCPError(code=INVALID_PARAMS, message=f"unknown skill: {params.uri}")
-        return GetSkillResult(skill=skill, ttl_ms=self._ttl_ms, cache_scope=self._cache_scope)
+        return GetSkillResult(skill=skill, ttl_ms=self._cache.ttl_ms, cache_scope=self._cache.cache_scope)
 
     async def _read_directory_handler(
         self, ctx: ServerRequestContext[Any, Any], params: ReadDirectoryParams
     ) -> ReadDirectoryResult:
         assert self._directories is not None
-        _reject_cursor(params.cursor)
         children = self._directories.get(params.uri)
         if children is None:
             raise MCPError(code=INVALID_PARAMS, message=f"unknown directory: {params.uri}")
-        return ReadDirectoryResult(resources=list(children), ttl_ms=self._ttl_ms, cache_scope=self._cache_scope)
+        page, next_cursor = _paginate(children, params.cursor, self._page_size)
+        return ReadDirectoryResult(
+            resources=page,
+            next_cursor=next_cursor,
+            ttl_ms=self._cache.ttl_ms,
+            cache_scope=self._cache.cache_scope,
+        )
 
 
-def _reject_cursor(cursor: str | None) -> None:
-    # The catalog returns everything on one page, so it never issues a cursor.
+_T = TypeVar("_T")
+
+
+def _encode_cursor(offset: int) -> str:
+    return base64.urlsafe_b64encode(str(offset).encode("ascii")).decode("ascii")
+
+
+def _paginate(items: Sequence[_T], cursor: str | None, page_size: int | None) -> tuple[list[_T], str | None]:
+    """Return one page of `items` and the cursor for the next page, if any.
+
+    The catalog is immutable, so a cursor is just an offset into `items`. Only the offsets this
+    function issues are valid; anything else is Invalid params.
+    """
+    if page_size is None:
+        if cursor is not None:
+            raise MCPError(code=INVALID_PARAMS, message="this server does not paginate; unexpected cursor")
+        return list(items), None
+    start = 0
     if cursor is not None:
-        raise MCPError(code=INVALID_PARAMS, message="this server does not paginate; unexpected cursor")
+        try:
+            start = int(base64.urlsafe_b64decode(cursor.encode("ascii")))
+        except ValueError:
+            start = -1
+        if not (0 < start < len(items) and start % page_size == 0 and _encode_cursor(start) == cursor):
+            raise MCPError(code=INVALID_PARAMS, message="invalid cursor")
+    end = start + page_size
+    return list(items[start:end]), _encode_cursor(end) if end < len(items) else None
 
 
-def _check_paths(paths: Sequence[str]) -> list[str]:
+def _check_paths(paths: list[str]) -> list[str]:
     seen: set[str] = set()
     for path in paths:
         if any(segment in ("", ".", "..") for segment in path.split("/")):
@@ -249,7 +307,12 @@ def _check_paths(paths: Sequence[str]) -> list[str]:
         if path in seen:
             raise ValueError(f"provider listed {path!r} more than once")
         seen.add(path)
-    return list(paths)
+    for path in paths:
+        segments = path.split("/")
+        for depth in range(1, len(segments)):
+            if "/".join(segments[:depth]) in seen:
+                raise ValueError(f"provider listed {path!r} beneath {'/'.join(segments[:depth])!r}, which is a file")
+    return paths
 
 
 def _fingerprint(data: bytes) -> _Fingerprint:
@@ -306,16 +369,14 @@ def _parse_frontmatter(data: bytes, parse: Callable[[str], Mapping[str, Any]]) -
         parsed = parse("\n".join(lines[1:end]))
     except Exception as exc:  # the parser is caller-supplied, so any failure marks the skill invalid
         raise ValueError(f"frontmatter could not be parsed: {exc}") from exc
-    if not _is_str_mapping(parsed):
-        raise ValueError("frontmatter must be a mapping with string keys")
     try:
-        return to_jsonable_python(parsed)
-    except ValueError as exc:
-        raise ValueError(f"frontmatter is not JSON-serializable: {exc}") from exc
-
-
-def _is_str_mapping(value: object) -> bool:
-    return isinstance(value, Mapping) and all(isinstance(key, str) for key in cast(Mapping[object, object], value))
+        frontmatter = to_jsonable_python(_FRONTMATTER_ADAPTER.validate_python(parsed))
+        json.dumps(
+            frontmatter, allow_nan=False
+        )  # NaN and infinity have no JSON form, so they can't pass through verbatim
+        return frontmatter
+    except (ValidationError, ValueError) as exc:
+        raise ValueError("frontmatter must be a mapping with string keys and JSON-compatible values") from exc
 
 
 def _warn_over_limits(skill_uri: str, resources: Sequence[SkillResource]) -> None:
@@ -332,13 +393,17 @@ def _uri(path: str) -> str:
     return "skill://" + "/".join(quote(segment, safe="") for segment in path.split("/"))
 
 
+def _guess_mime_type(path: str) -> str:
+    # `mimetypes` consults the host's tables, which differ by platform and don't always know Markdown.
+    return (
+        _MIME_TYPE_OVERRIDES.get(PurePosixPath(path).suffix.lower())
+        or mimetypes.guess_type(path)[0]
+        or "application/octet-stream"
+    )
+
+
 def _guess_mime_types(paths: Sequence[str]) -> dict[str, str]:
-    return {
-        path: "text/markdown"
-        if path.split("/")[-1] == _SKILL_FILE
-        else mimetypes.guess_type(path)[0] or "application/octet-stream"
-        for path in paths
-    }
+    return {path: _guess_mime_type(path) for path in paths}
 
 
 def _file_resource(

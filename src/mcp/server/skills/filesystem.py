@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 _READ_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
 
 
-# Windows reports junctions as reparse points rather than as symlinks; `stat` only types this constant on Windows.
-_WINDOWS_REPARSE_POINT = 0x400
+# Windows junctions and symlinks are reparse points tagged IO_REPARSE_TAG_MOUNT_POINT / IO_REPARSE_TAG_SYMLINK,
+# constants that `stat` only types on Windows. Other reparse points (cloud placeholders, dedup) are ordinary files.
+_WINDOWS_LINK_REPARSE_TAGS = frozenset({0xA0000003, 0xA000000C})
 
 
 class FilesystemSkillProvider:
@@ -77,7 +78,7 @@ class FilesystemSkillProvider:
                 self._walk(Path(entry.path), segments, files)
             elif stat.S_ISREG(result.st_mode):
                 files.append("/".join(segments))
-            else:
+            else:  # pragma: lax no cover
                 logger.warning("Skipping %s: not a regular file", entry.path)
 
     def _read_file(self, segments: list[str]) -> bytes:
@@ -93,9 +94,9 @@ class FilesystemSkillProvider:
         fd = os.open(current, _READ_FLAGS)
         with os.fdopen(fd, "rb") as file:
             if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
-                raise OSError(f"{current} is not a regular file")
+                raise OSError(f"{current} is not a regular file")  # pragma: lax no cover
             return file.read()
 
 
 def _is_link(result: os.stat_result) -> bool:
-    return stat.S_ISLNK(result.st_mode) or bool(getattr(result, "st_file_attributes", 0) & _WINDOWS_REPARSE_POINT)
+    return stat.S_ISLNK(result.st_mode) or getattr(result, "st_reparse_tag", 0) in _WINDOWS_LINK_REPARSE_TAGS
