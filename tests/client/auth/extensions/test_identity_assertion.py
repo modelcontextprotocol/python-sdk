@@ -8,6 +8,7 @@ AS selection, and that the ID-JAG and client secret reach only the issuer's toke
 import base64
 import json
 import urllib.parse
+from unittest import mock
 
 import httpx2
 import pytest
@@ -322,6 +323,21 @@ async def test_stored_token_is_reused_without_reauthorizing() -> None:
     assert response.status_code == 200
     assert [str(r.url) for r in requests] == [f"{RS}/mcp"]
     assert requests[0].headers["Authorization"] == "Bearer cached"
+
+
+@pytest.mark.anyio
+async def test_stored_token_is_not_sent_at_its_expiry_instant() -> None:
+    """A stored token whose expiry equals the current time is already expired, so it is not attached."""
+    requests: list[httpx2.Request] = []
+    storage = InMemoryStorage(tokens=OAuthToken(access_token="cached", token_type="Bearer", expires_in=0))
+    auth = make_provider(storage)
+
+    transport = mock_transport(requests, rs_first_status=200)
+    with mock.patch("time.time", return_value=1_800_000_000.0):
+        async with httpx2.AsyncClient(transport=transport, auth=auth) as http:
+            await http.post(f"{RS}/mcp")
+
+    assert "Authorization" not in requests[0].headers
 
 
 @pytest.mark.anyio

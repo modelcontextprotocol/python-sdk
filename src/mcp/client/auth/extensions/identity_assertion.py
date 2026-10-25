@@ -167,7 +167,7 @@ class IdentityAssertionOAuthProvider(RedirectAwareAuth):
                 self._expiry = calculate_token_expiry(self._tokens.expires_in) if self._tokens else None
                 self._initialized = True
 
-            if self._tokens and (self._expiry is None or time.time() <= self._expiry):
+            if self._tokens and (self._expiry is None or time.time() < self._expiry):
                 request.headers["Authorization"] = f"Bearer {self._tokens.access_token}"
             response = yield request
 

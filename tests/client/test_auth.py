@@ -244,6 +244,11 @@ class TestOAuthContext:
         assert not context.is_token_valid()
         assert context.can_refresh_token()  # Can still refresh
 
+        # At the expiry instant itself the token is already expired (RFC 7519 §4.1.4)
+        with mock.patch("time.time", return_value=1_800_000_000.0):
+            context.token_expiry_time = 1_800_000_000.0
+            assert not context.is_token_valid()
+
         # Remove refresh token
         context.current_tokens.refresh_token = None
         assert not context.can_refresh_token()
