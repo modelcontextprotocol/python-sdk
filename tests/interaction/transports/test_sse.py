@@ -93,7 +93,7 @@ async def test_post_for_an_unknown_session_is_rejected() -> None:
 
 
 @requirement("transport:sse:head")
-async def test_head_on_the_sse_endpoint_is_answered_without_opening_a_stream() -> None:
+async def test_head_on_the_sse_endpoint_is_answered_with_headers_only() -> None:
     """`MCPServer.sse_app()` answers HEAD at once instead of streaming forever."""
     app = MCPServer("legacy").sse_app(
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
@@ -101,4 +101,13 @@ async def test_head_on_the_sse_endpoint_is_answered_without_opening_a_stream() -
     async with httpx2.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
         with anyio.fail_after(5):
             response = await http.head("/sse")
-    assert (response.status_code, response.headers["allow"]) == snapshot((405, "GET"))
+    assert (response.status_code, dict(response.headers)) == snapshot(
+        (
+            200,
+            {
+                "cache-control": "no-store",
+                "x-accel-buffering": "no",
+                "content-type": "text/event-stream; charset=utf-8",
+            },
+        )
+    )

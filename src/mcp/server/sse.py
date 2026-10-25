@@ -15,9 +15,11 @@ Example:
 
     # Define handler functions
     async def handle_sse(request):
-        # Starlette also routes HEAD here; the stream never ends, so a HEAD would never complete
+        # Starlette also routes HEAD here: answer with GET's headers, not its never-ending stream
         if request.method == "HEAD":
-            return Response(status_code=405, headers={"Allow": "GET"})
+            response = Response(media_type="text/event-stream", headers={"Cache-Control": "no-store"})
+            del response.headers["content-length"]
+            return response
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:

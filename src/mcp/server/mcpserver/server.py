@@ -1173,8 +1173,12 @@ class MCPServer(Generic[LifespanResultT]):
 
         async def sse_endpoint(request: Request) -> Response:
             if request.method == "HEAD":
-                # The SSE stream never ends, so a HEAD answered with it would never complete.
-                return Response(status_code=405, headers={"Allow": "GET"})
+                # GET's headers without its never-ending stream; a Content-Length would claim an empty one.
+                response = Response(
+                    media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
+                )
+                del response.headers["content-length"]
+                return response
             async with sse.connect_sse(  # pragma: no cover
                 request.scope,
                 request.receive,

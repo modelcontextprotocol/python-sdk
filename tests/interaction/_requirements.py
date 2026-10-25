@@ -2708,8 +2708,8 @@ REQUIREMENTS: dict[str, Requirement] = {
     "transport:sse:head": Requirement(
         source="issue:#3736",
         behavior=(
-            "A HEAD request to the SSE endpoint of `MCPServer.sse_app()` is answered 405 with `Allow: GET` "
-            "without opening a session or a stream, so the connection stays usable."
+            "A HEAD request to the SSE endpoint of `MCPServer.sse_app()` is answered at once with the "
+            "headers a GET would get and no body or Content-Length, without opening a session or a stream."
         ),
         transports=("sse",),
         note="Only observable over the legacy SSE transport.",
