@@ -327,7 +327,7 @@ async def test_stored_token_is_reused_without_reauthorizing() -> None:
 
 @pytest.mark.anyio
 async def test_stored_token_is_not_sent_at_its_expiry_instant() -> None:
-    """A stored token whose expiry equals the current time is already expired, so it is not attached."""
+    """SDK-defined: a token is expired at its `expires_in` deadline, like a JWT `exp` (RFC 7519 §4.1.4)."""
     requests: list[httpx2.Request] = []
     storage = InMemoryStorage(tokens=OAuthToken(access_token="cached", token_type="Bearer", expires_in=0))
     auth = make_provider(storage)
