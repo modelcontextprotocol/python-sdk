@@ -291,6 +291,79 @@ async def test_token_error_handling_refresh_token(
         assert data["error_description"] == "The requested scope is invalid"
 
 
+@pytest.mark.anyio
+async def test_token_unsupported_grant_type_returns_unsupported_grant_type(
+    client: httpx2.AsyncClient,
+    registered_client: dict[str, Any],
+):
+    """RFC 6749 §5.2: Server must return unsupported_grant_type when the grant type is not supported."""
+    client_id = registered_client["client_id"]
+    client_secret = registered_client["client_secret"]
+
+    response = await client.post(
+        "/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+    )
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"] == "unsupported_grant_type"
+    assert "client_credentials" in data["error_description"]
+
+
+@pytest.mark.anyio
+async def test_token_unauthorized_client_grant_type_returns_unauthorized_client(
+    client: httpx2.AsyncClient,
+    registered_client: dict[str, Any],
+    oauth_provider: MockOAuthProvider,
+):
+    """RFC 6749 §5.2: Server must return unauthorized_client when the client is not authorized for grant type."""
+    client_id = registered_client["client_id"]
+    client_secret = registered_client["client_secret"]
+
+    # Modify the registered client to only allow 'authorization_code'
+    stored_client = oauth_provider.clients[client_id]
+    oauth_provider.clients[client_id] = stored_client.model_copy(update={"grant_types": ["authorization_code"]})
+
+    response = await client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "dummy_refresh_token",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+    )
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"] == "unauthorized_client"
+
+
+@pytest.mark.anyio
+async def test_revoke_invalid_client_authentication_returns_401(
+    client: httpx2.AsyncClient,
+    registered_client: dict[str, Any],
+):
+    """RFC 7009 §2.2.1 & RFC 6749 §5.2: Revocation endpoint returns 401 invalid_client on auth failure."""
+    client_id = registered_client["client_id"]
+
+    # Wrong client_secret
+    response = await client.post(
+        "/revoke",
+        data={
+            "token": "some_token",
+            "client_id": client_id,
+            "client_secret": "wrong_secret",
+        },
+    )
+    assert response.status_code == 401
+    data = response.json()
+    assert data["error"] == "invalid_client"
+
+
 _FORM = "application/x-www-form-urlencoded"
 
 

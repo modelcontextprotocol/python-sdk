@@ -117,10 +117,31 @@ class TokenHandler:
                 },
             )
 
+        form_data = await request.form()
+        form_dict = dict(form_data)
+
+        # RFC 6749 §5.2: If the authorization grant type is not supported by the
+        # authorization server, return unsupported_grant_type.
+        supported_grant_types: set[str] = {"authorization_code", "refresh_token"}
+        if self.identity_assertion_enabled:
+            supported_grant_types.add("urn:ietf:params:oauth:grant-type:jwt-bearer")
+
+        grant_type = form_dict.get("grant_type")
+        if grant_type and grant_type not in supported_grant_types:
+            if grant_type == "urn:ietf:params:oauth:grant-type:jwt-bearer":
+                desc = "The JWT bearer grant is not supported by this authorization server"
+            else:
+                desc = f"Unsupported grant type: {grant_type}"
+            return self.response(
+                TokenErrorResponse(
+                    error="unsupported_grant_type",
+                    error_description=desc,
+                )
+            )
+
         try:
-            form_data = await request.form()
             # TODO(Marcelo): Can someone check if this `dict()` wrapper is necessary?
-            token_request = token_request_adapter.validate_python(dict(form_data))
+            token_request = token_request_adapter.validate_python(form_dict)
         except ValidationError as validation_error:
             return self.response(
                 TokenErrorResponse(
@@ -130,10 +151,12 @@ class TokenHandler:
             )
 
         if token_request.grant_type not in client_info.grant_types:
+            # RFC 6749 §5.2: unauthorized_client: The authenticated client is not
+            # authorized to use this authorization grant type.
             return self.response(
                 TokenErrorResponse(
-                    error="unsupported_grant_type",
-                    error_description=(f"Unsupported grant type (supported grant types are {client_info.grant_types})"),
+                    error="unauthorized_client",
+                    error_description=(f"Client is not authorized to use grant type '{token_request.grant_type}'"),
                 )
             )
 

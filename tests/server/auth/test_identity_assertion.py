@@ -309,7 +309,7 @@ async def test_client_without_the_grant_registered_is_rejected(
     )
 
     assert response.status_code == 400
-    assert response.json()["error"] == "unsupported_grant_type"
+    assert response.json()["error"] == "unauthorized_client"
     assert provider.last_params is None
 
 
