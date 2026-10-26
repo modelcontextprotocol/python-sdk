@@ -170,9 +170,10 @@ def decode_header_value(value: str | None) -> str | None:
     """
     if value is None:
         return None
-    m = _B64_SENTINEL.fullmatch(value)
+    trimmed = value.strip(' \t')
+    m = _B64_SENTINEL.fullmatch(trimmed)
     if m is None:
-        return value
+        return trimmed
     payload = m.group("payload")
     try:
         decoded = base64.b64decode(payload, validate=True)

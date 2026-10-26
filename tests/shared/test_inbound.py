@@ -311,6 +311,14 @@ def test_header_rung_rejects_missing_or_mismatched_name_header_for_name_bearing_
     assert_rejected(classify_inbound_request(body, headers=headers), HEADER_MISMATCH)
 
 
+def test_header_rung_accepts_whitespace_padded_name_header() -> None:
+    """Spec-mandated / RFC 9110: HTTP optional whitespace in Mcp-Name is stripped before comparison."""
+    body = envelope("tools/call", extra_params={"name": "echo"})
+    headers = matching_headers(body)
+    result = classify_inbound_request(body, headers=headers | {MCP_NAME_HEADER: "  echo \t"})
+    assert isinstance(result, InboundModernRoute)
+
+
 def test_header_rung_decodes_base64_sentinel_before_comparing_name() -> None:
     """Spec-mandated: servers MUST decode the `=?base64?...?=` sentinel before comparing `Mcp-Name`."""
     body = envelope("tools/call", extra_params={"name": "résumé"})
