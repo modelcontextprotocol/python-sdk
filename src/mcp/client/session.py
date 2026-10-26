@@ -78,6 +78,17 @@ def _clamp_inbound_ttl(raw: dict[str, Any]) -> None:
         raw["ttlMs"] = 0
 
 
+def _default_inbound_complete_result(raw: dict[str, Any], version: str) -> dict[str, Any]:
+    if (
+        version not in MODERN_PROTOCOL_VERSIONS
+        or "resultType" in raw
+        or "inputRequests" in raw
+        or "requestState" in raw
+    ):
+        return raw
+    return {"resultType": "complete", **raw}
+
+
 @cache
 def _wire_fields(target: type[BaseModel] | UnionType) -> frozenset[str]:
     """Top-level wire keys `target` declares (its members', for a union)."""
@@ -587,6 +598,7 @@ class ClientSession:
         _clamp_inbound_ttl(raw)
         # Literal fallback covers pre-handshake and stateless; matches runner.py.
         version = self._negotiated_version or "2025-11-25"
+        raw = _default_inbound_complete_result(raw, version)
         try:
             _methods.validate_server_result(method, version, raw)
         except KeyError:
