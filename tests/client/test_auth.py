@@ -253,6 +253,19 @@ class TestOAuthContext:
         context.client_info = None
         assert not context.can_refresh_token()
 
+    @pytest.mark.anyio
+    async def test_token_expiry_of_zero_is_expired(self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
+        """An expiry timestamp of 0 means expired, not 'no expiry'.
+
+        `token_expiry_time` is a float|None where None means the server declared no
+        expiry. Testing it for truthiness conflates 0.0 (the epoch, long expired) with
+        absence, so a token whose expiry resolves to 0 is treated as never expiring.
+        """
+        context = oauth_provider.context
+        context.current_tokens = valid_tokens
+        context.token_expiry_time = 0.0
+        assert not context.is_token_valid()
+
     def test_clear_tokens(self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
         """Test clear_tokens() removes token data."""
         context = oauth_provider.context

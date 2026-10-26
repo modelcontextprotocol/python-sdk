@@ -1,8 +1,10 @@
 """Tests for OAuth 2.0 Resource Indicators utilities."""
 
+import time
+
 from pydantic import HttpUrl
 
-from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
+from mcp.shared.auth_utils import calculate_token_expiry, check_resource_allowed, resource_url_from_server_url
 
 # Tests for resource_url_from_server_url function
 
@@ -121,3 +123,52 @@ def test_check_resource_allowed_empty_paths():
     assert check_resource_allowed("https://example.com", "https://example.com") is True
     assert check_resource_allowed("https://example.com/", "https://example.com") is True
     assert check_resource_allowed("https://example.com/api", "https://example.com") is True
+
+
+# Tests for calculate_token_expiry function
+
+
+def test_calculate_token_expiry_none_returns_none():
+    """A server that declares no expiry yields None, not a timestamp."""
+    assert calculate_token_expiry(None) is None
+
+
+def test_calculate_token_expiry_integer_seconds():
+    """The common case: expires_in arrives as an integer."""
+    before = time.time()
+    expiry = calculate_token_expiry(3600)
+    after = time.time()
+    assert expiry is not None
+    assert before + 3600 <= expiry <= after + 3600
+
+
+def test_calculate_token_expiry_numeric_string():
+    """Some servers emit expires_in as a JSON string."""
+    before = time.time()
+    expiry = calculate_token_expiry("3600")
+    after = time.time()
+    assert expiry is not None
+    assert before + 3600 <= expiry <= after + 3600
+
+
+def test_calculate_token_expiry_fractional_string():
+    """A fractional string must round, not raise.
+
+    The declared signature accepts str, and the docstring promises the string case is
+    handled defensively, but int("3599.5") raises ValueError. Servers that send a
+    fractional expires_in as a string fail token setup instead of expiring 0.5s later.
+    """
+    before = time.time()
+    expiry = calculate_token_expiry("3599.5")
+    after = time.time()
+    assert expiry is not None
+    assert before + 3599.5 <= expiry <= after + 3599.5
+
+
+def test_calculate_token_expiry_float():
+    """A float expires_in keeps its fraction instead of being truncated."""
+    before = time.time()
+    expiry = calculate_token_expiry(3599.5)
+    after = time.time()
+    assert expiry is not None
+    assert before + 3599.5 <= expiry <= after + 3599.5

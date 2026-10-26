@@ -65,16 +65,18 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
     return requested_path.startswith(configured_path)
 
 
-def calculate_token_expiry(expires_in: int | str | None) -> float | None:
+def calculate_token_expiry(expires_in: int | float | str | None) -> float | None:
     """Calculate token expiry timestamp from expires_in seconds.
 
     Args:
-        expires_in: Seconds until token expiration (may be string from some servers)
+        expires_in: Seconds until token expiration (may be a string or a float from some servers)
 
     Returns:
         Unix timestamp when token expires, or None if no expiry specified
     """
     if expires_in is None:
         return None  # pragma: no cover
-    # Defensive: handle servers that return expires_in as string
-    return time.time() + int(expires_in)
+    # Defensive: handle servers that return expires_in as a string, including ones that
+    # send a fractional value such as "3599.5". int() would raise ValueError on those and
+    # silently truncate the float case, expiring the token up to a second early.
+    return time.time() + float(expires_in)
