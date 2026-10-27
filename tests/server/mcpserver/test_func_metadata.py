@@ -309,6 +309,17 @@ def test_structured_output_dict_str_types():
     assert isinstance(result, CallToolResult)
     assert result.structured_content == {"name": "John"}
 
+    # Test bare typing.Dict (unparameterized) - should match bare dict behavior without wrapping
+    def func_bare_typing_dict() -> typing.Dict:  # noqa: UP006
+        return {"msg": "hello", "code": 200}
+
+    meta_bare = func_metadata(func_bare_typing_dict)
+    assert meta_bare.output_schema == IsPartialDict(type="object")
+    assert not meta_bare.wrap_output
+    result_bare = meta_bare.convert_result(func_bare_typing_dict())
+    assert isinstance(result_bare, CallToolResult)
+    assert result_bare.structured_content == {"msg": "hello", "code": 200}
+
     # Test dict[int, str] - should be wrapped since key is not str
     def func_dict_int_key() -> dict[int, str]:  # pragma: no cover
         return {1: "a", 2: "b"}
@@ -316,6 +327,31 @@ def test_structured_output_dict_str_types():
     meta = func_metadata(func_dict_int_key)
     assert meta.output_schema is not None
     assert "result" in meta.output_schema["properties"]
+
+
+def test_bare_typing_sequence_opts_out_of_structured_output():
+    """Test that bare typing.List and typing.Tuple opt out of structured output like bare list/tuple."""
+    def func_bare_list() -> list:
+        return ["a", "b"]
+
+    def func_bare_typing_list() -> typing.List:  # noqa: UP006
+        return ["a", "b"]
+
+    def func_bare_tuple() -> tuple:
+        return ("a", "b")
+
+    def func_bare_typing_tuple() -> typing.Tuple:  # noqa: UP006
+        return ("a", "b")
+
+    meta_list = func_metadata(func_bare_list)
+    meta_typing_list = func_metadata(func_bare_typing_list)
+    meta_tuple = func_metadata(func_bare_tuple)
+    meta_typing_tuple = func_metadata(func_bare_typing_tuple)
+
+    assert meta_list.output_schema is None
+    assert meta_typing_list.output_schema is None
+    assert meta_tuple.output_schema is None
+    assert meta_typing_tuple.output_schema is None
 
 
 @pytest.mark.anyio

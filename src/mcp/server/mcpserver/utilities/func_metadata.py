@@ -2,6 +2,7 @@ import functools
 import inspect
 import json
 import sys
+import typing
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from typing import Annotated, Any, NotRequired, Union, cast, get_args, get_origin
@@ -446,7 +447,9 @@ def func_metadata(
     else:
         original_annotation = effective_annotation
 
-    if structured_output is None and (return_type_expr in (list, tuple) or _returns_content(return_type_expr)):
+    if structured_output is None and (
+        return_type_expr in (list, tuple, typing.List, typing.Tuple) or _returns_content(return_type_expr)
+    ):
         # Content blocks and the Image/Audio helpers are what the model reads, not data for the
         # application: a derived schema would advertise the block's own model as output_schema (and,
         # unless the tool builds its own CallToolResult, echo every block into structured_content).
@@ -520,6 +523,9 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
                 # TODO: should we use the original annotation? We are losing any potential `Annotated`
                 # metadata for Pydantic here:
                 model = type_expr
+            elif len(args) == 0:
+                # Bare typing.Dict is equivalent to bare dict -> top-level JSON object
+                model = dict[str, Any]
             else:
                 # dict with non-str keys needs wrapping
                 model = _create_wrapped_model(func_name, original_annotation)
