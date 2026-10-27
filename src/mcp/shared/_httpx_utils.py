@@ -59,7 +59,7 @@ def create_mcp_http_client(
     kwargs: dict[str, Any] = {"timeout": timeout}
     if headers is not None:
         kwargs["headers"] = headers
-    if auth is not None:  # pragma: no cover
+    if auth is not None:
         kwargs["auth"] = auth
     return httpx2.AsyncClient(**kwargs)
 
