@@ -83,12 +83,10 @@ async def test_auto_mode_carries_apps_extension_under_server_capabilities() -> N
         assert client.server_capabilities.extensions == snapshot({"io.modelcontextprotocol/ui": {}})
 
 
-async def test_legacy_handshake_drops_apps_extension_from_capabilities() -> None:
-    """Pinned gap: the 2025 `ServerCapabilities` wire schema has no `extensions` field,
-    so a `mode='legacy'` handshake cannot carry the Apps capability -- only `mode='auto'`
-    (server/discover) does. This pins the divergence rather than fixing it."""
+async def test_legacy_handshake_carries_apps_extension_in_capabilities() -> None:
+    """SDK compatibility: a legacy initialize handshake advertises MCP Apps with empty settings."""
     async with Client(_clock_server(), mode="legacy") as client:
-        assert client.server_capabilities.extensions is None
+        assert client.server_capabilities.extensions == {EXTENSION_ID: {}}
 
 
 async def test_apps_tool_returns_rich_output_when_client_negotiated_apps() -> None:

@@ -218,6 +218,10 @@ class ClientCapabilities(WireModel):
     """
     Present if the client supports task-augmented requests.
     """
+    extensions: dict[str, dict[str, Any]] | None = None
+    """
+    MCP extensions that the client supports, including on legacy connections.
+    """
 
 
 class Argument(WireModel):
@@ -1131,6 +1135,10 @@ class ServerCapabilities(WireModel):
     tools: Tools1 | None = None
     """
     Present if the server offers any tools to call.
+    """
+    extensions: dict[str, dict[str, Any]] | None = None
+    """
+    MCP extensions that the server supports, including on legacy connections.
     """
 
 

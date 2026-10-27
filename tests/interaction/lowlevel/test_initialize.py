@@ -147,6 +147,7 @@ async def test_initialize_capabilities_reflect_registered_handlers(connect: Conn
             resources=ResourcesCapability(subscribe=True, list_changed=False),
             tools=ToolsCapability(list_changed=False),
             completions=CompletionsCapability(),
+            extensions={},
         )
     )
 
@@ -157,7 +158,7 @@ async def test_initialize_minimal_server_advertises_no_capabilities(connect: Con
     async with connect(Server("bare")) as client:
         capabilities = client.server_capabilities
 
-    assert capabilities == snapshot(ServerCapabilities())
+    assert capabilities == snapshot(ServerCapabilities(extensions={}))
 
 
 @requirement("lifecycle:initialize:client-info")

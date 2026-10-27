@@ -56,16 +56,16 @@ async def test_modern_connection_carries_the_advertised_extensions_map() -> None
         assert client.server_capabilities.extensions == snapshot({"com.example/x": {"k": 1}})
 
 
-async def test_legacy_handshake_drops_the_extensions_map() -> None:
-    """Pinned gap: the handshake-era `initialize` result is serialized against the
-    2025 wire schema, which has no `extensions` field, so a legacy handshake cannot
-    carry it; the client sees `None` even though the server advertised one."""
-    server = MCPServer("host", extensions=[_Extension()])
+async def test_legacy_handshake_carries_the_extensions_map() -> None:
+    """SDK compatibility: a legacy initialize handshake preserves the server's extension settings."""
+    extension = _Extension()
+    server = MCPServer("host", extensions=[extension])
     async with Client(server, mode="legacy") as client:
-        assert client.server_capabilities.extensions is None
+        assert client.server_capabilities.extensions == {extension.identifier: extension.settings()}
 
 
-async def test_server_accepts_capability_for_client_advertised_extension() -> None:
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_server_accepts_capability_for_client_advertised_extension(mode: str) -> None:
     """SDK-defined: a client advertising `extensions={id: ...}` makes the
     server-side `check_client_capability` return True when queried for that id.
     Observed inside a tool handler."""
@@ -83,7 +83,7 @@ async def test_server_accepts_capability_for_client_advertised_extension() -> No
         return types.ListToolsResult(tools=[types.Tool(name="probe", input_schema={"type": "object"})])
 
     server = Server("checker", on_call_tool=call_tool, on_list_tools=list_tools)
-    async with Client(server, extensions=[advertise(_EXTENSION_ID, {"mimeTypes": ["text/html"]})]) as client:
+    async with Client(server, mode=mode, extensions=[advertise(_EXTENSION_ID, {"mimeTypes": ["text/html"]})]) as client:
         await client.call_tool("probe", {})
 
     assert supported == [True]

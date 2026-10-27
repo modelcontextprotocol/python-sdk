@@ -3,8 +3,8 @@
 Runs `datamodel-code-generator` over each `schema/PINNED.json` entry and
 writes the result to `src/mcp-types/mcp_types/_v<version>/__init__.py` (the
 underscore marks these as internal validators, not public API) with only
-the fixes the raw output needs: a small JSON pre-patch for the known
-`number`-as-`integer` schema.json defect, a header, full URLs for the spec's
+the fixes the raw output needs: JSON pre-patches for schema defects and legacy
+extension advertisements, a header, full URLs for the spec's
 site-absolute doc links, plain type aliases, and per-version epilogue aliases. Run with
 `uv run --frozen --group codegen python scripts/gen_surface_types.py [--check]`.
 """
@@ -239,6 +239,17 @@ def build(entry: dict[str, str]) -> str:
     version = entry["protocol_version"]
     schema = json.loads((SCHEMA_DIR / f"{version}.json").read_text(encoding="utf-8"))
     patch_schema(schema, SCHEMA_PATCHES.get(version, []))
+    if version == "2025-11-25":
+        # Extensions predate their formal 2026 field; legacy peers negotiate them
+        # through initialize (modelcontextprotocol/modelcontextprotocol#3364).
+        for role in ("Client", "Server"):
+            properties = schema["$defs"][f"{role}Capabilities"]["properties"]
+            assert "extensions" not in properties
+            properties["extensions"] = {
+                "type": "object",
+                "additionalProperties": {"type": "object", "additionalProperties": True},
+                "description": f"MCP extensions that the {role.lower()} supports, including on legacy connections.",
+            }
     make_server_info_opaque(schema)
     if "JSONValue" in schema["$defs"]:
         # A single recursive alias avoids mutually recursive alias evaluation in type checkers.

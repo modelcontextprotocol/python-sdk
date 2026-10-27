@@ -11,7 +11,7 @@ import mcp_types._v2026_07_28 as v2026
 import pydantic
 import pytest
 from mcp_types import methods
-from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, KNOWN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
 
 # Transcribed from each schema's ClientRequest/ServerRequest/ClientNotification/
@@ -468,6 +468,74 @@ def test_discovery_capabilities_preserve_nested_json_values() -> None:
     assert isinstance(parsed, types.DiscoverResult)
     assert parsed.capabilities.extensions == extensions
     assert methods.serialize_server_result("server/discover", "2026-07-28", raw) == raw
+
+
+@pytest.mark.parametrize("version", HANDSHAKE_PROTOCOL_VERSIONS)
+@pytest.mark.parametrize(
+    "extensions",
+    [
+        {},
+        {"io.modelcontextprotocol/ui": {}},
+        {"com.example/settings": {"nested": [None, True, 1, 1.5, "text", {"child": [False]}]}},
+    ],
+)
+def test_initialize_round_trip_preserves_server_extensions(version: str, extensions: dict[str, dict[str, Any]]) -> None:
+    """SDK compatibility: legacy initialize responses carry extension advertisements, including opaque settings."""
+    raw = {
+        "protocolVersion": version,
+        "capabilities": {"tools": {}, "extensions": extensions},
+        "serverInfo": {"name": "server", "version": "1"},
+    }
+    serialized = methods.serialize_server_result("initialize", version, raw)
+    assert serialized == raw
+    parsed = methods.parse_server_result("initialize", version, serialized)
+    assert isinstance(parsed, types.InitializeResult)
+    assert parsed.capabilities.extensions == extensions
+
+
+@pytest.mark.parametrize("version", HANDSHAKE_PROTOCOL_VERSIONS)
+@pytest.mark.parametrize(
+    "extensions",
+    [
+        {},
+        {"io.modelcontextprotocol/ui": {}},
+        {"com.example/settings": {"nested": [None, True, 1, 1.5, "text", {"child": [False]}]}},
+    ],
+)
+def test_initialize_round_trip_preserves_client_extensions(version: str, extensions: dict[str, dict[str, Any]]) -> None:
+    """SDK compatibility: the legacy request wire model preserves the same extension settings as the public parser."""
+    raw = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": version,
+            "capabilities": {"extensions": extensions},
+            "clientInfo": {"name": "client", "version": "1"},
+        },
+    }
+    surface = methods.CLIENT_REQUESTS[("initialize", version)]
+    serialized = surface.model_validate(raw).model_dump(by_alias=True, mode="json", exclude_none=True)
+    assert serialized == raw
+    parsed = methods.parse_client_request("initialize", version, serialized["params"])
+    assert isinstance(parsed, types.InitializeRequest)
+    assert parsed.params.capabilities.extensions == extensions
+
+
+@pytest.mark.parametrize("version", HANDSHAKE_PROTOCOL_VERSIONS)
+@pytest.mark.parametrize("capabilities", [{}, {"extensions": None}])
+def test_initialize_omits_unset_server_extensions(version: str, capabilities: dict[str, Any]) -> None:
+    """SDK-defined: absent or null extension advertisements remain omitted on the legacy wire."""
+    raw = {
+        "protocolVersion": version,
+        "capabilities": capabilities,
+        "serverInfo": {"name": "server", "version": "1"},
+    }
+    serialized = methods.serialize_server_result("initialize", version, raw)
+    assert serialized == {**raw, "capabilities": {}}
+    parsed = methods.parse_server_result("initialize", version, serialized)
+    assert isinstance(parsed, types.InitializeResult)
+    assert parsed.capabilities.extensions is None
 
 
 def test_elicit_request_surface_accepts_loose_property_schemas():

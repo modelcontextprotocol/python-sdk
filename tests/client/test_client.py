@@ -117,6 +117,7 @@ async def test_client_is_initialized(app: MCPServer):
                 prompts=PromptsCapability(list_changed=False),
                 resources=ResourcesCapability(subscribe=False, list_changed=False),
                 tools=ToolsCapability(list_changed=False),
+                extensions={},
             )
         )
         assert client.server_info is not None

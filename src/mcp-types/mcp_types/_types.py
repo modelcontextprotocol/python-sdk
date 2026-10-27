@@ -405,7 +405,7 @@ class ClientCapabilities(MCPModel):
     roots: RootsCapability | None = None
     """Present if the client supports listing roots."""
     extensions: dict[str, dict[str, Any]] | None = None
-    """MCP extensions the client supports (2026-07-28). Keys are extension
+    """MCP extensions the client supports, including on legacy connections. Keys are extension
     identifiers; values are per-extension settings (empty object = no settings)."""
     tasks: ClientTasksCapability | None = None
     """Present if the client supports task-augmented requests (2025-11-25 only)."""
@@ -505,7 +505,7 @@ class ServerCapabilities(MCPModel):
     """Present if the server offers autocompletion suggestions for prompts and resources."""
 
     extensions: dict[str, dict[str, Any]] | None = None
-    """MCP extensions the server supports (2026-07-28). Keys are extension
+    """MCP extensions the server supports, including on legacy connections. Keys are extension
     identifiers; values are per-extension settings (empty object = no settings)."""
 
     tasks: ServerTasksCapability | None = None
