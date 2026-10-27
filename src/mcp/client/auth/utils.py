@@ -1,6 +1,6 @@
 import re
 from typing import Any, cast
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 from httpx2 import Request, Response
 from mcp_types import LATEST_PROTOCOL_VERSION
@@ -320,19 +320,28 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
 def is_valid_client_metadata_url(url: str | None) -> bool:
     """Validate that a URL is suitable for use as a client_id (CIMD).
 
-    The URL must be HTTPS with a non-root pathname.
+    Draft-ietf-oauth-client-id-metadata-document section 3 requires the URL to be HTTPS, to have a
+    non-root pathname, and to contain no userinfo, no `.`/`..` path segments and no fragment.
 
     Args:
         url: The URL to validate
 
     Returns:
-        True if the URL is a valid HTTPS URL with a non-root pathname
+        True if the URL satisfies the client metadata document URL rules
     """
     if not url:
         return False
     try:
         parsed = urlparse(url)
-        return parsed.scheme == "https" and parsed.path not in ("", "/")
+        if parsed.scheme != "https" or parsed.path in ("", "/"):
+            return False
+        if parsed.username or parsed.password:
+            return False
+        if parsed.fragment:
+            return False
+        # Compare dot segments after percent-decoding: RFC 3986 treats %2E as a dot for the purposes
+        # of path segment normalisation, so "%2E%2E" is a ".." segment.
+        return not any(unquote(segment) in (".", "..") for segment in parsed.path.split("/"))
     except Exception:
         return False
 

@@ -2363,6 +2363,19 @@ class TestCIMD:
             # Invalid URLs - root path
             ("https://example.com", False),
             ("https://example.com/", False),
+            # Invalid URLs - userinfo
+            ("https://user@example.com/client", False),
+            ("https://user:secret@example.com/client", False),
+            # Invalid URLs - `.` and `..` path segments
+            ("https://example.com/./client", False),
+            ("https://example.com/path/../client", False),
+            ("https://example.com/%2E%2E/client", False),
+            ("https://example.com/path/%2e/client", False),
+            # Invalid URLs - fragment
+            ("https://example.com/client#section", False),
+            # Valid URLs - dot-free segments, query strings and ports are allowed
+            ("https://example.com/path.with.dots/client", True),
+            ("https://example.com/client?version=2", True),
             # Invalid URLs - None or empty
             (None, False),
             ("", False),
