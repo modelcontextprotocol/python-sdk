@@ -18,6 +18,8 @@ from mcp_types import EmptyResult
 from mcp.client.client import Client
 from mcp.client.sse import sse_client
 from mcp.server import Server
+from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from tests.interaction._connect import BASE_URL, build_sse_app
 from tests.interaction._requirements import requirement
 from tests.interaction.transports._bridge import StreamingASGITransport
@@ -88,3 +90,35 @@ async def test_post_for_an_unknown_session_is_rejected() -> None:
             "/messages/", params={"session_id": uuid4().hex}, json={"jsonrpc": "2.0", "method": "ping", "id": 1}
         )
     assert (response.status_code, response.text) == snapshot((404, "Could not find session"))
+
+
+@requirement("transport:sse:head")
+async def test_head_on_the_sse_endpoint_is_answered_with_headers_only() -> None:
+    """`MCPServer.sse_app()` answers HEAD at once with GET's headers and no body instead of streaming forever."""
+    app = MCPServer("legacy").sse_app(
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    )
+    async with httpx2.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
+        with anyio.fail_after(5):
+            response = await http.head("/sse")
+    assert (response.status_code, dict(response.headers), response.content) == snapshot(
+        (
+            200,
+            {
+                "cache-control": "no-store",
+                "x-accel-buffering": "no",
+                "content-type": "text/event-stream; charset=utf-8",
+            },
+            b"",
+        )
+    )
+
+
+@requirement("transport:sse:head")
+async def test_head_on_the_sse_endpoint_is_subject_to_dns_rebinding_protection() -> None:
+    """A HEAD from a Host the transport security settings reject gets the same refusal a GET would."""
+    app = MCPServer("legacy").sse_app(host="127.0.0.1")
+    async with httpx2.AsyncClient(transport=StreamingASGITransport(app), base_url="http://evil.example") as http:
+        with anyio.fail_after(5):
+            response = await http.head("/sse")
+    assert response.status_code == snapshot(421)
