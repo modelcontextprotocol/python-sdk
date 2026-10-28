@@ -115,9 +115,21 @@ class RequireAuthMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         auth_user = scope.get("user")
         if not isinstance(auth_user, AuthenticatedUser):
-            await self._send_auth_error(
-                send, status_code=401, error="invalid_token", description="Authentication required"
+            # Check if there was an Authorization header (indicating invalid token)
+            # or no header at all (indicating missing credentials)
+            auth_header = scope.get("headers", [])
+            has_auth_header = any(
+                key.lower() == "authorization" for key, _ in auth_header
             )
+
+            if has_auth_header:
+                # Invalid/expired token - send error
+                await self._send_auth_error(
+                    send, status_code=401, error="invalid_token", description="Authentication required"
+                )
+            else:
+                # No credentials provided - send discovery-style challenge per RFC 6750 §3.1
+                await self._send_auth_discovery_challenge(send)
             return
 
         auth_credentials = scope.get("auth")
@@ -131,6 +143,43 @@ class RequireAuthMiddleware:
                 return
 
         await self.app(scope, receive, send)
+
+    async def _send_auth_discovery_challenge(self, send: Send) -> None:
+        """Send a discovery-time 401 challenge without error code (RFC 6750 §3.1).
+
+        Per spec: when no authentication information was presented, the server
+        SHOULD include resource_metadata and scope parameters, but NOT an error code.
+        """
+        www_auth_parts = []
+        if self.resource_metadata_url:
+            www_auth_parts.append(f'resource_metadata="{self.resource_metadata_url}"')
+        if self.required_scopes:
+            # Join scopes with space per RFC 6750
+            www_auth_parts.append(f'scope="{" ".join(self.required_scopes)}"')
+
+        www_authenticate = f"Bearer {', '.join(www_auth_parts)}" if www_auth_parts else "Bearer"
+
+        body = {}
+        body_bytes = json.dumps(body).encode()
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body_bytes)).encode()),
+                    (b"www-authenticate", www_authenticate.encode()),
+                ],
+            }
+        )
+
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body_bytes,
+            }
+        )
 
     async def _send_auth_error(self, send: Send, status_code: int, error: str, description: str) -> None:
         """Send an authentication error response with WWW-Authenticate header."""
