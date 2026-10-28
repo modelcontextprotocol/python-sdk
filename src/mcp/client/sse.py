@@ -14,6 +14,7 @@ import mcp.types as types
 from mcp.shared._httpx_utils import (
     McpHttpClientFactory,
     create_mcp_http_client,
+    redirect_note,
     request_within_origin,
     sse_within_origin,
 )
@@ -29,6 +30,16 @@ def remove_request_params(url: str) -> str:
 def _extract_session_id_from_endpoint(endpoint_url: str) -> str | None:
     query_params = parse_qs(urlparse(endpoint_url).query)
     return query_params.get("sessionId", [None])[0] or query_params.get("session_id", [None])[0]
+
+
+def _status_error_data(status_code: int, *, has_session: bool) -> types.ErrorData:
+    """The error a request gets when its message POST is answered with a non-2xx `status_code`.
+
+    A 404 while the endpoint URL carries a session id means the server no longer knows the session.
+    """
+    if status_code == 404 and has_session:
+        return types.ErrorData(code=types.INVALID_REQUEST, message="Session terminated")
+    return types.ErrorData(code=types.INTERNAL_ERROR, message="Server returned an error response")
 
 
 @asynccontextmanager
@@ -47,6 +58,10 @@ async def sse_client(
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
+    A message POST answered with a non-2xx status, or failing without a response, resolves
+    its request with a JSON-RPC error (an `McpError` for a `ClientSession` caller), and later
+    messages are still sent; a failed notification is only logged.
+
     Args:
         url: The SSE endpoint URL.
         headers: Optional headers to include in requests.
@@ -56,9 +71,10 @@ async def sse_client(
             returns, MCP requests follow a redirect only when it stays on the endpoint's origin
             (same scheme, host and port, or http to https on the same host with default ports) and
             keeps the request method (any status for the SSE GET, 307/308 for a message POST); any
-            other redirect is not followed, so connecting fails with `httpx.HTTPStatusError` for
-            the redirect response. The client's `follow_redirects` setting is not consulted; the
-            SDK's OAuth providers apply the same rule to the requests they make.
+            other redirect is not followed: connecting fails with `httpx.HTTPStatusError` for the
+            redirect response, and a message POST fails as for any non-2xx status. The client's
+            `follow_redirects` setting is not consulted; the SDK's OAuth providers apply the same
+            rule to the requests they make.
         auth: Optional HTTPX authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
@@ -138,23 +154,53 @@ async def sse_client(
                         finally:
                             await read_stream_writer.aclose()
 
+                    async def resolve_request(request_id: types.RequestId, error: types.ErrorData) -> None:
+                        reply = types.JSONRPCError(jsonrpc="2.0", id=request_id, error=error)
+                        try:
+                            await read_stream_writer.send(SessionMessage(types.JSONRPCMessage(reply)))
+                        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                            # The read stream ended first, and the session fails its waiters itself then.
+                            logger.debug(f"Read stream closed before request {request_id!r} could be resolved")
+
                     async def post_writer(endpoint_url: str):
+                        has_session = _extract_session_id_from_endpoint(endpoint_url) is not None
                         try:
                             async with write_stream_reader:
                                 async for session_message in write_stream_reader:
                                     logger.debug(f"Sending client message: {session_message}")
-                                    response = await request_within_origin(
-                                        client,
-                                        "POST",
-                                        endpoint_url,
-                                        json=session_message.message.model_dump(
-                                            by_alias=True,
-                                            mode="json",
-                                            exclude_none=True,
-                                        ),
-                                    )
-                                    response.raise_for_status()
-                                    logger.debug(f"Client message sent successfully: {response.status_code}")
+                                    message = session_message.message.root
+                                    try:
+                                        response = await request_within_origin(
+                                            client,
+                                            "POST",
+                                            endpoint_url,
+                                            json=session_message.message.model_dump(
+                                                by_alias=True,
+                                                mode="json",
+                                                exclude_none=True,
+                                            ),
+                                        )
+                                    except Exception as exc:
+                                        # Beyond httpx's own errors, auth flows and event hooks can raise anything.
+                                        logger.exception("Error POSTing message")
+                                        error = types.ErrorData(
+                                            code=types.CONNECTION_CLOSED, message=f"Failed to send message: {exc}"
+                                        )
+                                    else:
+                                        if response.is_success:
+                                            logger.debug(f"Client message sent successfully: {response.status_code}")
+                                            continue
+                                        logger.error(
+                                            f"Message POST returned HTTP status {response.status_code}"
+                                            f"{redirect_note(response)}"
+                                        )
+                                        error = _status_error_data(response.status_code, has_session=has_session)
+                                    # A notification has no waiter, so its failure is only logged. A request's
+                                    # waiter gets the error from a task of its own: ClientSession answers server
+                                    # requests inline in its receive loop, which may be waiting for this loop to
+                                    # send such a reply.
+                                    if isinstance(message, types.JSONRPCRequest):
+                                        tg.start_soon(resolve_request, message.id, error)
                         except Exception:  # pragma: no cover
                             logger.exception("Error in post_writer")  # pragma: no cover
                         finally:

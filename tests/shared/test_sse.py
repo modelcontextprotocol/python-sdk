@@ -2,7 +2,7 @@ import json
 import multiprocessing
 import socket
 import time
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Callable, Coroutine, Generator
 from typing import Any
 from unittest.mock import Mock
 
@@ -24,6 +24,8 @@ from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._httpx_utils import McpHttpClientFactory
+from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.types import (
@@ -267,6 +269,127 @@ async def test_sse_client_exception_handling(
     session = initialized_sse_client_session
     with pytest.raises(McpError, match="OOPS! no resource with that URI was found"):
         await session.read_resource(uri=AnyUrl("xxx://will-not-work"))
+
+
+class _FailingPostTransport(httpx.AsyncBaseTransport):
+    """Passes requests on to the test server, except the message POSTs of one JSON-RPC method, which
+    fail with `failure` (a status to answer with, or an exception to raise) the way a rate limiter,
+    proxy or network in front of the server would, without reaching it."""
+
+    def __init__(self, method: str, failure: int | Exception) -> None:
+        self._inner = httpx.AsyncHTTPTransport()
+        self._method = method
+        self._failure = failure
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and json.loads(request.content).get("method") == self._method:
+            if isinstance(self._failure, Exception):
+                raise self._failure
+            # A redirect names where to go, so the transport has a redirect to decide on.
+            headers = {"location": "/elsewhere"} if 300 <= self._failure < 400 else None
+            return httpx.Response(self._failure, headers=headers)
+        return await self._inner.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
+
+
+def _failing_post_client_factory(method: str, failure: int | Exception) -> McpHttpClientFactory:
+    def factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=_FailingPostTransport(method, failure), headers=headers, timeout=timeout, auth=auth
+        )
+
+    return factory
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [302, 401, 429, 500])
+async def test_sse_client_request_post_http_error_reaches_caller_and_session_survives(
+    server: None, server_url: str, status_code: int
+) -> None:
+    """SDK-defined: a non-2xx answer to a request's message POST reaches the waiting caller promptly as a
+    JSON-RPC error for that request, and the session stays usable. It used to be swallowed inside the
+    transport, leaving the caller waiting forever and every later message unsent (#2110). An
+    unfollowed redirect counts: the message never reached the server."""
+    factory = _failing_post_client_factory("resources/read", status_code)
+    with anyio.fail_after(5):
+        async with (
+            sse_client(server_url + "/sse", httpx_client_factory=factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
+
+            with pytest.raises(McpError) as exc_info:
+                await session.read_resource(uri=AnyUrl("foobar://should-work"))
+            assert exc_info.value.error.code == types.INTERNAL_ERROR
+            assert exc_info.value.error.message == "Server returned an error response"
+
+            # The session survived the failed POST: the next request round-trips.
+            assert isinstance(await session.send_ping(), EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_request_post_404_reports_session_terminated(server: None, server_url: str) -> None:
+    """SDK-defined: a 404 answer to a request's message POST, while the endpoint URL carries a session id,
+    means the server no longer knows the session: the caller gets "Session terminated"
+    (INVALID_REQUEST) and can reconnect."""
+    factory = _failing_post_client_factory("resources/read", 404)
+    with anyio.fail_after(5):
+        async with (
+            sse_client(server_url + "/sse", httpx_client_factory=factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
+
+            with pytest.raises(McpError) as exc_info:
+                await session.read_resource(uri=AnyUrl("foobar://should-work"))
+            assert exc_info.value.error.code == types.INVALID_REQUEST
+            assert exc_info.value.error.message == "Session terminated"
+
+
+@pytest.mark.anyio
+async def test_sse_client_request_post_network_error_reaches_caller_and_session_survives(
+    server: None, server_url: str
+) -> None:
+    """SDK-defined: a request's message POST that fails without a response reaches the waiting caller
+    promptly as a CONNECTION_CLOSED error for that request, and the session stays usable (#2110)."""
+    factory = _failing_post_client_factory("resources/read", httpx.ConnectError("connection refused"))
+    with anyio.fail_after(5):
+        async with (
+            sse_client(server_url + "/sse", httpx_client_factory=factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
+
+            with pytest.raises(McpError) as exc_info:
+                await session.read_resource(uri=AnyUrl("foobar://should-work"))
+            assert exc_info.value.error.code == types.CONNECTION_CLOSED
+            assert exc_info.value.error.message == "Failed to send message: connection refused"
+
+            # The session survived the failed POST: the next request round-trips.
+            assert isinstance(await session.send_ping(), EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_notification_post_failure_keeps_session_usable(server: None, server_url: str) -> None:
+    """SDK-defined: a failed message POST of a notification has no waiter to resolve, so it is only
+    logged, and the session stays usable (#2110: it used to leave every later message unsent)."""
+    factory = _failing_post_client_factory("notifications/roots/list_changed", 500)
+    with anyio.fail_after(5):
+        async with (
+            sse_client(server_url + "/sse", httpx_client_factory=factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
+
+            await session.send_roots_list_changed()
+
+            assert isinstance(await session.send_ping(), EmptyResult)
 
 
 @pytest.mark.anyio
@@ -640,3 +763,128 @@ async def test_sse_client_does_not_follow_redirect_to_another_origin_on_connect(
 
     assert exc_info.group_contains(httpx.HTTPStatusError, match="307 Temporary Redirect")
     assert received == ["http://test/sse"]
+
+
+def _mock_client_factory(
+    serve: Callable[[httpx.Request], Coroutine[None, None, httpx.Response]],
+) -> McpHttpClientFactory:
+    def factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(serve))
+
+    return factory
+
+
+@pytest.mark.anyio
+async def test_sse_client_post_404_without_session_endpoint_keeps_generic_error() -> None:
+    """SDK-defined: a 404 answer to a request's message POST when the endpoint URL carries no session id
+    keeps the generic error: with no session to expire, "Session terminated" would be wrong. The
+    endpoint is scripted because `SseServerTransport` always issues a session id."""
+
+    async def event_stream() -> AsyncGenerator[bytes, None]:
+        yield b"event: endpoint\ndata: /messages/\n\n"
+        await anyio.sleep_forever()
+
+    async def serve(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=event_stream())
+        return httpx.Response(404)
+
+    with anyio.fail_after(5):
+        async with (
+            sse_client("http://test/sse", httpx_client_factory=_mock_client_factory(serve)) as streams,
+            ClientSession(*streams) as session,
+        ):
+            with pytest.raises(McpError) as exc_info:
+                await session.send_ping()
+            assert exc_info.value.error.code == types.INTERNAL_ERROR
+            assert exc_info.value.error.message == "Server returned an error response"
+
+
+@pytest.mark.anyio
+async def test_sse_client_failed_request_post_does_not_hold_up_reply_to_server_request() -> None:
+    """SDK-defined: the error for a request's failed message POST is delivered without holding up the
+    messages after it. ClientSession answers a server request inline in its receive loop, so its reply
+    can be waiting on the transport exactly when that error needs the receive loop: delivering it from
+    the loop that sends messages would leave the two waiting on each other forever."""
+    list_tools_posted = anyio.Event()
+    roots_listed = anyio.Event()
+    reply_posted = anyio.Event()
+
+    async def event_stream() -> AsyncGenerator[bytes, None]:
+        yield b"event: endpoint\ndata: /messages/?session_id=abc123\n\n"
+        await list_tools_posted.wait()
+        # A server request arrives while the client's tools/list POST is in flight.
+        server_request = types.JSONRPCRequest(jsonrpc="2.0", id="server-1", method="roots/list")
+        yield f"event: message\ndata: {server_request.model_dump_json()}\n\n".encode()
+        await anyio.sleep_forever()
+
+    async def serve(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=event_stream())
+        message = json.loads(request.content)
+        if message.get("method") == "tools/list":
+            list_tools_posted.set()
+            # Fail once the client is answering the server request: its reply then waits behind this POST.
+            await roots_listed.wait()
+            return httpx.Response(429)
+        assert message == {"jsonrpc": "2.0", "id": "server-1", "result": {"roots": []}}
+        reply_posted.set()
+        return httpx.Response(202)
+
+    async def list_roots(context: RequestContext[ClientSession, Any]) -> types.ListRootsResult:
+        roots_listed.set()
+        return types.ListRootsResult(roots=[])
+
+    with anyio.fail_after(5):
+        async with (
+            sse_client("http://test/sse", httpx_client_factory=_mock_client_factory(serve)) as streams,
+            ClientSession(*streams, list_roots_callback=list_roots) as session,
+        ):
+            with pytest.raises(McpError) as exc_info:
+                await session.list_tools()
+            assert exc_info.value.error.message == "Server returned an error response"
+
+            await reply_posted.wait()
+
+
+@pytest.mark.anyio
+async def test_sse_client_post_error_after_reader_closed_is_contained() -> None:
+    """SDK-defined: a failed request POST whose error can no longer be delivered, because the server's
+    SSE stream already ended and closed the read stream, is contained: later messages are still sent
+    and the transport closes cleanly. Raw streams, because a ClientSession stops sending once its read
+    stream closes."""
+    stream_done = anyio.Event()
+    release_post = anyio.Event()
+    second_post = anyio.Event()
+
+    async def event_stream() -> AsyncGenerator[bytes, None]:
+        yield b"event: endpoint\ndata: /messages/?session_id=abc123\n\n"
+        await stream_done.wait()
+
+    async def serve(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=event_stream())
+        if json.loads(request.content).get("method") == "ping":
+            await release_post.wait()
+            return httpx.Response(500)
+        second_post.set()
+        return httpx.Response(202)
+
+    ping = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    initialized = types.JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+    with anyio.fail_after(5):
+        async with sse_client("http://test/sse", httpx_client_factory=_mock_client_factory(serve)) as (
+            read_stream,
+            write_stream,
+        ):
+            await write_stream.send(SessionMessage(types.JSONRPCMessage(ping)))
+            stream_done.set()
+            assert [message async for message in read_stream] == []
+
+            release_post.set()
+            await write_stream.send(SessionMessage(types.JSONRPCMessage(initialized)))
+            await second_post.wait()
