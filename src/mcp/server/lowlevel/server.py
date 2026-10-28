@@ -837,7 +837,7 @@ class Server(Generic[LifespanResultT]):
                 create_protected_resource_routes(
                     resource_url=auth.resource_server_url,
                     authorization_servers=[auth.issuer_url],
-                    scopes_supported=auth.required_scopes,
+                    scopes_supported=auth.scopes_supported or auth.required_scopes,
                 )
             )
 

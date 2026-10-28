@@ -32,6 +32,12 @@ class AuthSettings(BaseModel):
     client_registration_options: ClientRegistrationOptions | None = None
     revocation_options: RevocationOptions | None = None
     required_scopes: list[str] | None = None
+    scopes_supported: list[str] | None = Field(
+        default=None,
+        description="Scopes advertised in the Protected Resource Metadata. Defaults to "
+        "`required_scopes`; set it to also advertise scopes that individual handlers check "
+        "without requiring them on every request.",
+    )
     identity_assertion_enabled: bool = Field(
         default=False,
         description="Advertise and accept the SEP-990 Identity Assertion Authorization Grant "

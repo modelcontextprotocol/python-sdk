@@ -1275,7 +1275,7 @@ class MCPServer(Generic[LifespanResultT]):
                 create_protected_resource_routes(
                     resource_url=self.settings.auth.resource_server_url,
                     authorization_servers=[self.settings.auth.issuer_url],
-                    scopes_supported=self.settings.auth.required_scopes,
+                    scopes_supported=self.settings.auth.scopes_supported or self.settings.auth.required_scopes,
                 )
             )
 

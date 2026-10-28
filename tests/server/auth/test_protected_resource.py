@@ -11,6 +11,65 @@ from starlette.applications import Starlette
 from mcp.server.auth.routes import build_resource_metadata_url, create_protected_resource_routes
 
 
+class _RejectingTokenVerifier:
+    async def verify_token(self, token: str):
+        return None
+
+
+@pytest.mark.anyio
+async def test_scopes_supported_advertised_separately_from_required_scopes():
+    """A server can advertise scopes it does not challenge for on every request (#3778)."""
+    from mcp.server.auth.settings import AuthSettings
+    from mcp.server.mcpserver import MCPServer
+
+    mcp = MCPServer(
+        "test",
+        auth=AuthSettings(
+            issuer_url=AnyHttpUrl("https://auth.example.com"),
+            resource_server_url=AnyHttpUrl("http://127.0.0.1:8000/mcp"),
+            validate_token_resource=True,
+            required_scopes=["returns:read"],
+            scopes_supported=["returns:read", "returns:write"],
+        ),
+        token_verifier=_RejectingTokenVerifier(),
+    )
+
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=mcp.streamable_http_app()),
+        base_url="http://127.0.0.1:8000",
+    ) as client:
+        response = await client.get("/.well-known/oauth-protected-resource/mcp")
+
+    assert response.status_code == 200
+    assert response.json()["scopes_supported"] == ["returns:read", "returns:write"]
+
+
+@pytest.mark.anyio
+async def test_scopes_supported_defaults_to_required_scopes():
+    from mcp.server.auth.settings import AuthSettings
+    from mcp.server.mcpserver import MCPServer
+
+    mcp = MCPServer(
+        "test",
+        auth=AuthSettings(
+            issuer_url=AnyHttpUrl("https://auth.example.com"),
+            resource_server_url=AnyHttpUrl("http://127.0.0.1:8000/mcp"),
+            validate_token_resource=True,
+            required_scopes=["returns:read"],
+        ),
+        token_verifier=_RejectingTokenVerifier(),
+    )
+
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=mcp.streamable_http_app()),
+        base_url="http://127.0.0.1:8000",
+    ) as client:
+        response = await client.get("/.well-known/oauth-protected-resource/mcp")
+
+    assert response.status_code == 200
+    assert response.json()["scopes_supported"] == ["returns:read"]
+
+
 @pytest.fixture
 def test_app():
     """Fixture to create protected resource routes for testing."""
