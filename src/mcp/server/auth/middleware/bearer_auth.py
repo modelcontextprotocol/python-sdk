@@ -115,9 +115,20 @@ class RequireAuthMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         auth_user = scope.get("user")
         if not isinstance(auth_user, AuthenticatedUser):
-            await self._send_auth_error(
-                send, status_code=401, error="invalid_token", description="Authentication required"
-            )
+            # Check if the request had an Authorization header at all
+            headers = scope.get("headers", []) or []
+            had_auth = any(h == b"authorization" for h, _ in headers)
+
+            if had_auth:
+                # Invalid token - send error="invalid_token"
+                await self._send_auth_error(
+                    send, status_code=401, error="invalid_token", description="Authentication required"
+                )
+            else:
+                # No auth header - send challenge without error code per RFC 6750
+                await self._send_auth_challenge(
+                    send, status_code=401
+                )
             return
 
         auth_credentials = scope.get("auth")
@@ -161,5 +172,40 @@ class RequireAuthMiddleware:
             {
                 "type": "http.response.body",
                 "body": body_bytes,
+            }
+        )
+
+    async def _send_auth_challenge(self, send: Send, status_code: int) -> None:
+        """Send an authentication challenge without error code (per RFC 6750 §3.1).
+
+        When no credentials are presented, the server SHOULD NOT include an error
+        code. Instead, it should return the resource metadata and required scopes
+        so the client can perform its own scope selection.
+        """
+        www_auth_parts = []
+        if self.resource_metadata_url:
+            www_auth_parts.append(f'resource_metadata="{self.resource_metadata_url}"')
+        if self.required_scopes:
+            www_auth_parts.append(f'scope="{" ".join(self.required_scopes)}"')
+
+        www_authenticate = f"Bearer {', '.join(www_auth_parts)}" if www_auth_parts else "Bearer"
+
+        body = b""
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status_code,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", b"0"),
+                    (b"www-authenticate", www_authenticate.encode()),
+                ],
+            }
+        )
+
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body,
             }
         )
