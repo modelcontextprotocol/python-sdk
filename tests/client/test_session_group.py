@@ -6,6 +6,7 @@ import mcp_types as types
 import pytest
 
 import mcp
+from mcp.client import Client
 from mcp.client.session_group import (
     ClientSessionGroup,
     ClientSessionParameters,
@@ -13,6 +14,7 @@ from mcp.client.session_group import (
     StreamableHttpParameters,
 )
 from mcp.client.stdio import StdioServerParameters
+from mcp.server.mcpserver import MCPServer
 from mcp.shared.exceptions import MCPError
 
 
@@ -405,3 +407,93 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+async def test_connect_with_session_accepts_server_with_no_components():
+    """A server advertising no prompts, resources or tools still joins the group.
+
+    Regression test for #3384: aggregation used to delete an exit stack that
+    `connect_with_session` never registered, raising a bare `KeyError`.
+    """
+    server = MCPServer("no-components")
+    server_info = types.Implementation(name="no-components", version="1.0")
+
+    async with Client(server) as client:
+        async with ClientSessionGroup() as group:
+            await group.connect_with_session(server_info, client.session)
+
+            assert client.session in group._sessions
+            assert group.tools == {}
+            assert group.resources == {}
+            assert group.prompts == {}
+
+
+@pytest.mark.anyio
+async def test_connect_with_session_accepts_server_exposing_only_resource_templates():
+    """A server whose entire surface is a resource template still joins the group.
+
+    Regression test for #3384. The group never calls `list_resource_templates`,
+    so a templates-only server looked componentless to aggregation even though
+    it advertises a real surface — `list_resources` is empty while
+    `list_resource_templates` is not.
+    """
+    server = MCPServer("templates-only")
+
+    @server.resource("doc://{doc_id}")
+    def get_doc(doc_id: str) -> str:
+        return f"contents of {doc_id}"
+
+    server_info = types.Implementation(name="templates-only", version="1.0")
+
+    async with Client(server) as client:
+        listed = await client.list_resource_templates()
+        assert [t.uri_template for t in listed.resource_templates] == ["doc://{doc_id}"]
+        assert (await client.list_resources()).resources == []
+
+        async with ClientSessionGroup() as group:
+            await group.connect_with_session(server_info, client.session)
+
+            assert client.session in group._sessions
+
+
+@pytest.mark.anyio
+async def test_disconnect_from_server_closes_transport_of_componentless_server():
+    """Disconnecting a componentless server closes the transport its connection opened.
+
+    Regression test for #3384: aggregation dropped the session's exit stack
+    without closing it, so `disconnect_from_server` had nothing left to tear
+    down and the transport stayed open until the whole group exited.
+    """
+    server_info = mock.Mock(spec=types.Implementation)
+    server_info.name = "no-components"
+    session = mock.AsyncMock(spec=mcp.ClientSession)
+    session.list_tools.return_value = mock.AsyncMock(tools=[])
+    session.list_resources.return_value = mock.AsyncMock(resources=[])
+    session.list_prompts.return_value = mock.AsyncMock(prompts=[])
+
+    closed = False
+
+    async def record_close() -> None:
+        nonlocal closed
+        closed = True
+
+    group = ClientSessionGroup()
+
+    async def establish_session(*args: object, **kwargs: object):
+        # Mirrors the real `_establish_session`: the session owns a stack
+        # holding its transport, registered before components are aggregated.
+        session_stack = contextlib.AsyncExitStack()
+        session_stack.push_async_callback(record_close)
+        group._session_exit_stacks[session] = session_stack
+        return server_info, session
+
+    async with group:
+        with mock.patch.object(group, "_establish_session", establish_session):
+            await group.connect_to_server(StdioServerParameters(command="test"))
+
+        assert not closed
+
+        await group.disconnect_from_server(session)
+
+        assert closed
