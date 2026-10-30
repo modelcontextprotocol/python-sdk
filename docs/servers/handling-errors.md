@@ -60,6 +60,11 @@ Now swap `ToolError` for `MCPError`.
 * The **host** application gets the error instead, the same way it would if the tool didn't exist at all.
 * `code`, `message`, and `data` arrive intact. `INVALID_PARAMS` is `-32602`; `mcp.types` exports it and the other JSON-RPC error codes (`INVALID_REQUEST`, `INTERNAL_ERROR`, ...) as constants so you never type a magic number.
 
+A request for an unknown tool name also raises `MCPError` with code `-32602`. Direct
+`MCPServer.call_tool()` calls raise `ToolNotFoundError`, a subclass of `ToolError`, for a
+missing name. If an existing tool calls a missing tool, that failure remains an execution
+error with `is_error=True`.
+
 !!! check
     Same lookup, same miss, but now the call *raises* on the client side instead of returning:
 

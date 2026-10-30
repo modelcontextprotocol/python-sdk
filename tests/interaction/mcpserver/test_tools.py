@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
+    INVALID_PARAMS,
     URL_ELICITATION_REQUIRED,
     CallToolResult,
     ElicitRequestURLParams,
@@ -120,24 +121,21 @@ async def test_call_tool_tool_error_becomes_error_result(connect: Connect, unsta
 
 
 @requirement("mcpserver:tool:unknown-name")
-async def test_call_tool_unknown_name_returns_error_result(connect: Connect, unstamped: Unstamp) -> None:
-    """Calling a tool name that was never registered is reported as an is_error result.
-
-    The spec classifies unknown tools as a protocol error; see the divergence note on the
-    requirement.
-    """
+async def test_call_tool_unknown_name_raises_invalid_params(connect: Connect) -> None:
+    """The spec classifies an unknown tool name as a JSON-RPC invalid params error."""
     mcp = MCPServer("errors")
 
     @mcp.tool()
     def add() -> None:
         """A registered tool; the test calls a different name."""
+        raise NotImplementedError
 
     async with connect(mcp) as client:
-        result = await client.call_tool("nope", {})
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("nope", {})
 
-    assert unstamped(result) == snapshot(
-        CallToolResult(content=[TextContent(text="Unknown tool: nope")], is_error=True)
-    )
+    assert exc_info.value.code == INVALID_PARAMS
+    assert exc_info.value.error == snapshot(ErrorData(code=-32602, message="Unknown tool: nope"))
 
 
 @requirement("mcpserver:tool:output-schema:model")

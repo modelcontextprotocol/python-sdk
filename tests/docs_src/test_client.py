@@ -6,7 +6,7 @@ by URL, so each test drives the same calls in-process against `tutorial001.mcp` 
 
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import Prompt, PromptArgument, PromptReference, TextContent, TextResourceContents, Tool
+from mcp_types import INVALID_PARAMS, Prompt, PromptArgument, PromptReference, TextContent, TextResourceContents, Tool
 
 from docs_src.client import tutorial001, tutorial007
 from mcp import Client, MCPDeprecationWarning, MCPError
@@ -93,15 +93,13 @@ async def test_a_raising_tool_is_a_result_not_an_exception() -> None:
         assert result.structured_content is None
 
 
-async def test_an_unknown_tool_name_is_a_result_not_an_exception() -> None:
-    """The `!!! warning`: a tool the server doesn't have comes back as is_error=True, not as MCPError."""
+async def test_an_unknown_tool_name_raises_invalid_params() -> None:
+    """The client receives a protocol error for a tool the server does not have."""
     async with Client(tutorial001.mcp) as client:
-        result = await client.call_tool("does_not_exist", {})
-        assert result.is_error
-        (block,) = result.content
-        assert isinstance(block, TextContent)
-        assert block.text == "Unknown tool: does_not_exist"
-        assert result.structured_content is None
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("does_not_exist", {})
+        assert exc_info.value.code == INVALID_PARAMS
+        assert exc_info.value.message == snapshot("Unknown tool: does_not_exist")
 
 
 async def test_resources_and_templates_are_two_separate_lists() -> None:
