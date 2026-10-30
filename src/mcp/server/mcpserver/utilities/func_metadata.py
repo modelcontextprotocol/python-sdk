@@ -34,6 +34,7 @@ from typing_inspection.introspection import (
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
+from mcp.shared._callable_inspection import split_positional_args
 from mcp.shared.exceptions import MCPDeprecationWarning
 
 logger = get_logger(__name__)
@@ -171,9 +172,10 @@ class FuncMetadata(BaseModel):
         worker thread.
         """
         kwargs = arguments | (arguments_to_pass_directly or {})
+        args, kwargs = split_positional_args(fn, kwargs)
         if fn_is_async:
-            return await fn(**kwargs)
-        return await anyio.to_thread.run_sync(functools.partial(fn, **kwargs))
+            return await fn(*args, **kwargs)
+        return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
 
     @deprecated(
         "FuncMetadata.call_fn_with_arg_validation() is deprecated and will be removed in 3.0; "

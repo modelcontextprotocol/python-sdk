@@ -15,7 +15,7 @@ from mcp.server.mcpserver.exceptions import ResourceError, UnexpectedResourceErr
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
-from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared._callable_inspection import is_async_callable, split_positional_args
 from mcp.shared.exceptions import MCPError
 from mcp.shared.path_security import contains_path_traversal, is_absolute_path
 from mcp.shared.uri_template import UriTemplate
@@ -223,10 +223,11 @@ class ResourceTemplate(BaseModel):
             params = inject_context(self.fn, params, context, self.context_kwarg)
 
             fn = self.fn
+            args, kwargs = split_positional_args(fn, params)
             if is_async_callable(fn):
-                result = await fn(**params)
+                result = await fn(*args, **kwargs)
             else:
-                result = await anyio.to_thread.run_sync(functools.partial(self.fn, **params))
+                result = await anyio.to_thread.run_sync(functools.partial(self.fn, *args, **kwargs))
 
             if isinstance(result, InputRequiredResult):
                 return result

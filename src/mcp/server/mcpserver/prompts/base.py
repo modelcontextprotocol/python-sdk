@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, TypeAdapter, validate_call
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.server.mcpserver.utilities.types import Audio, Image
-from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared._callable_inspection import is_async_callable, split_positional_args
 from mcp.shared.exceptions import MCPError
 
 if TYPE_CHECKING:
@@ -183,10 +183,11 @@ class Prompt(BaseModel):
             call_args = inject_context(self.fn, arguments or {}, context, self.context_kwarg)
 
             fn = self.fn
+            args, kwargs = split_positional_args(fn, call_args)
             if is_async_callable(fn):
-                result = await fn(**call_args)
+                result = await fn(*args, **kwargs)
             else:
-                result = await anyio.to_thread.run_sync(functools.partial(self.fn, **call_args))
+                result = await anyio.to_thread.run_sync(functools.partial(self.fn, *args, **kwargs))
 
             if isinstance(result, InputRequiredResult):
                 return result
