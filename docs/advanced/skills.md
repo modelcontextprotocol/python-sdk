@@ -132,7 +132,8 @@ removes the need to write handlers or to register each file as a resource.
 
 `SkillCatalog.load()` is a coroutine, so the server is constructed inside a running event loop.
 `FilesystemSkillProvider` reads skills from a local directory. `parse_frontmatter` supplies the
-YAML parser; the SDK does not depend on one.
+YAML parser. The SDK does not install one, so this example uses [PyYAML](https://pypi.org/project/PyYAML/),
+which you add to your own project (`uv add pyyaml`).
 
 ### How skills are discovered
 
@@ -211,7 +212,10 @@ File content is returned unchanged. A file whose bytes are valid UTF-8 is return
 including any byte order mark and line endings; any other file is returned as a base64 blob. In
 both cases the content matches the `digest` and `size` in the skill's manifest. Each read is
 verified against the values recorded at load time, and a file that has changed is reported as an
-internal error (`-32603`).
+internal error (`-32603`) until you restart the server or create a new catalog.
+
+`load()` reads and hashes every file of every valid skill once, so a large asset directory makes
+startup slower and temporarily uses memory for the largest file.
 
 ### Providers
 

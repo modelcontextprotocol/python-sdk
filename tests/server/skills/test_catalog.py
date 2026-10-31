@@ -657,6 +657,32 @@ async def test_a_negative_ttl_is_rejected_when_the_catalog_loads() -> None:
         await SkillCatalog.load(provider, parse_frontmatter=_parse, ttl_ms=-1)
 
 
+async def test_invalid_options_are_rejected_before_the_provider_is_touched() -> None:
+    """SDK-defined: option errors surface before any provider call; a call would raise `NotImplementedError`."""
+
+    class _UntouchableProvider:
+        async def list_files(self) -> Sequence[str]:  # pragma: no cover
+            raise NotImplementedError
+
+        async def read_file(self, path: str) -> bytes:  # pragma: no cover
+            raise NotImplementedError
+
+    with pytest.raises(ValueError):
+        await SkillCatalog.load(_UntouchableProvider(), parse_frontmatter=_parse, ttl_ms=-1)
+
+
+async def test_load_returns_an_instance_of_the_subclass_it_is_called_on() -> None:
+    """SDK-defined: `load()` is a classmethod constructor, so a subclass gets its own type back."""
+
+    class _CustomCatalog(SkillCatalog):
+        pass
+
+    provider = _MemoryProvider({"git-workflow/SKILL.md": _skill_md("git-workflow")})
+    catalog = await _CustomCatalog.load(provider, parse_frontmatter=_parse)
+
+    assert isinstance(catalog, _CustomCatalog)
+
+
 async def test_the_handler_aliases_stay_importable_from_the_package() -> None:
     """Compatibility: `mcp.server.skills` was a module before it became a package; its public names survive."""
     assert (GetSkillHandler, ListSkillsHandler, ReadDirectoryHandler) == (

@@ -26,10 +26,13 @@ _WINDOWS_LINK_REPARSE_TAGS = frozenset({0xA0000003, 0xA000000C})
 class FilesystemSkillProvider:
     """A `SkillProvider` that reads skill files from a local directory.
 
-    Only regular files are served. Symlinks (and Windows junctions) are never
-    followed, so a skill directory can't expose files that live outside it; they
-    are skipped with a warning when listing and refused when read. The blocking
-    file system calls run in a worker thread.
+    Only regular files are served. Symlinks (and Windows junctions) found while
+    listing or reading are skipped with a warning or refused, so a skill directory
+    doesn't expose files that live outside it. The root is trusted: this is a
+    best-effort check, not a defence against someone who can modify the directory
+    while the server runs. `SkillCatalog` additionally refuses any file whose bytes
+    no longer match the digest taken when it was loaded. The blocking file system
+    calls run in a worker thread.
     """
 
     def __init__(self, root: str | os.PathLike[str]) -> None:
@@ -78,7 +81,7 @@ class FilesystemSkillProvider:
                 self._walk(Path(entry.path), segments, files)
             elif stat.S_ISREG(result.st_mode):
                 files.append("/".join(segments))
-            else:  # pragma: lax no cover
+            else:  # pragma: lax no cover  # FIFO/device: no test on Windows
                 logger.warning("Skipping %s: not a regular file", entry.path)
 
     def _read_file(self, segments: list[str]) -> bytes:
@@ -94,7 +97,7 @@ class FilesystemSkillProvider:
         fd = os.open(current, _READ_FLAGS)
         with os.fdopen(fd, "rb") as file:
             if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
-                raise OSError(f"{current} is not a regular file")  # pragma: lax no cover
+                raise OSError(f"{current} is not a regular file")  # pragma: lax no cover  # only if swapped after lstat
             return file.read()
 
 

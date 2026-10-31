@@ -10,7 +10,7 @@ import mimetypes
 import re
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import PurePosixPath
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, Self, TypeVar
 from urllib.parse import quote
 
 import anyio.to_thread
@@ -143,7 +143,7 @@ class SkillCatalog(Skills):
         ttl_ms: int = 0,
         cache_scope: Literal["public", "private"] = "private",
         page_size: int | None = None,
-    ) -> SkillCatalog:
+    ) -> Self:
         """Scan `provider` and build a catalog of the skills it holds.
 
         A skill is a directory containing a `SKILL.md`; the skill's files are everything
@@ -176,6 +176,8 @@ class SkillCatalog(Skills):
         """
         if page_size is not None and page_size < 1:
             raise ValueError("page_size must be at least 1")
+        if ttl_ms < 0:
+            raise ValueError("ttl_ms must not be negative")
         paths = _check_paths(list(await provider.list_files()))
         visible = [path for path in paths if not any(segment.startswith(".") for segment in path.split("/"))]
         skill_paths = sorted(path for path in visible if path.split("/")[-1] == _SKILL_FILE)
