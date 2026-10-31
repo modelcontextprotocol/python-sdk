@@ -1,7 +1,7 @@
 """Tests for OAuth 2.0 shared code."""
 
 import pytest
-from pydantic import AnyUrl, ValidationError
+from pydantic import AnyHttpUrl, AnyUrl, ValidationError, create_model
 
 from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
 
@@ -216,6 +216,51 @@ def test_client_with_no_registered_redirect_uris_cannot_resolve_a_redirect(
     info = OAuthClientInformationFull.model_validate({"client_id": "abc123", "redirect_uris": redirect_uris})
     with pytest.raises(InvalidRedirectUriError):
         info.validate_redirect_uri(redirect_uri)
+
+
+@pytest.mark.parametrize("model", [OAuthClientMetadata, OAuthClientInformationFull])
+@pytest.mark.parametrize("container", [list, tuple])
+def test_redirect_uri_subtypes_are_stored_as_any_url(
+    model: type[OAuthClientMetadata] | type[OAuthClientInformationFull],
+    container: type[list[AnyHttpUrl]] | type[tuple[AnyHttpUrl, ...]],
+) -> None:
+    """SDK-defined registration models compare a URL subclass with the incoming base URL."""
+    url = "https://example.com/callback"
+    data: dict[str, object] = {"redirect_uris": container([AnyHttpUrl(url)])}
+    if model is OAuthClientInformationFull:
+        data["client_id"] = "abc123"
+    info = model.model_validate(data, strict=container is list)
+
+    assert info.redirect_uris == [AnyUrl(url)]
+    assert info.model_dump(mode="json")["redirect_uris"] == [url]
+    if isinstance(info, OAuthClientInformationFull):
+        assert info.validate_redirect_uri(AnyUrl(url)) == AnyUrl(url)
+        with pytest.raises(InvalidRedirectUriError):
+            info.validate_redirect_uri(AnyUrl("https://example.com/other"))
+
+
+@pytest.mark.parametrize("model", [OAuthClientMetadata, OAuthClientInformationFull])
+def test_redirect_uri_normalization_preserves_strict_list_validation(
+    model: type[OAuthClientMetadata] | type[OAuthClientInformationFull],
+) -> None:
+    """SDK-defined strict parsing still rejects non-list redirect URI containers."""
+    data: dict[str, object] = {"redirect_uris": (AnyHttpUrl("https://example.com/callback"),)}
+    if model is OAuthClientInformationFull:
+        data["client_id"] = "abc123"
+
+    with pytest.raises(ValidationError):
+        model.model_validate(data, strict=True)
+
+
+def test_redeclared_redirect_uri_field_keeps_its_own_validation() -> None:
+    """SDK-defined URL normalization does not override a subclass's replacement field."""
+
+    CustomClientInformation = create_model(
+        "CustomClientInformation", __base__=OAuthClientInformationFull, redirect_uris=(list[str] | None, None)
+    )
+    info = CustomClientInformation.model_validate({"client_id": "abc123", "redirect_uris": ["custom redirect"]})
+
+    assert info.redirect_uris == ["custom redirect"]
 
 
 def test_request_metadata_restricts_application_type_to_the_values_the_sdk_sends():
