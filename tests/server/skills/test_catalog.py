@@ -42,6 +42,7 @@ from mcp.shared.skills import (
     ReadDirectoryParams,
     ReadDirectoryRequest,
     ReadDirectoryResult,
+    Skill,
 )
 
 pytestmark = pytest.mark.anyio
@@ -86,6 +87,12 @@ def _skill_md(name: str, description: str = "Does the thing", extra: str = "") -
 
 def _digest(data: bytes) -> str:
     return f"sha256:{hashlib.sha256(data).hexdigest()}"
+
+
+async def _listed(catalog: SkillCatalog) -> list[Skill]:
+    server = MCPServer("skills", extensions=[catalog])
+    async with Client(server, extensions=[ClientSkills()]) as client:
+        return list(await client.extension(ClientSkills).list_skills())
 
 
 async def _server(files: Mapping[str, bytes], **options: Any) -> MCPServer:
@@ -283,7 +290,7 @@ async def test_a_provider_may_return_any_iterable_of_paths() -> None:
     catalog = await SkillCatalog.load(
         GeneratorProvider({"git-workflow/SKILL.md": _skill_md("git-workflow")}), parse_frontmatter=_parse
     )
-    assert [skill.uri for skill in catalog.skills] == ["skill://git-workflow/SKILL.md"]
+    assert [skill.uri for skill in await _listed(catalog)] == ["skill://git-workflow/SKILL.md"]
 
 
 async def test_strict_load_raises_one_error_naming_every_invalid_skill() -> None:
@@ -345,7 +352,7 @@ async def test_frontmatter_passes_through_verbatim_and_dates_become_iso_strings(
     catalog = await SkillCatalog.load(
         _MemoryProvider({"git-workflow/SKILL.md": _skill_md("git-workflow")}), parse_frontmatter=parse_with_date
     )
-    assert catalog.skills[0].frontmatter == {
+    assert (await _listed(catalog))[0].frontmatter == {
         "name": "git-workflow",
         "description": "d",
         "released": "2026-07-28",
@@ -450,7 +457,7 @@ async def test_a_skill_over_the_recommended_limits_is_still_served_with_a_warnin
     with caplog.at_level(logging.WARNING, logger=CATALOG_LOGGER):
         catalog = await SkillCatalog.load(_MemoryProvider(files), parse_frontmatter=_parse)
 
-    assert [skill.uri for skill in catalog.skills] == ["skill://big/SKILL.md"]
+    assert [skill.uri for skill in await _listed(catalog)] == ["skill://big/SKILL.md"]
     assert len([record for record in caplog.records if "skill://big/SKILL.md" in record.getMessage()]) == 2
 
 

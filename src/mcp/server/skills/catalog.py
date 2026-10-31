@@ -109,13 +109,13 @@ class SkillCatalog(Skills):
         self,
         *,
         skills: Sequence[Skill],
-        files: Mapping[str, _SkillFileResource],
+        files: Mapping[str, Resource],
         directories: Mapping[str, Sequence[ResourceEntry]] | None,
         ttl_ms: int,
         cache_scope: Literal["public", "private"],
         page_size: int | None,
     ) -> None:
-        """Assemble a catalog from already-validated parts; use `SkillCatalog.load()` instead.
+        """Assemble a catalog from already-validated parts. Use `SkillCatalog.load()`, which builds them.
 
         Raises:
             ValidationError: If `ttl_ms` is negative.
@@ -231,11 +231,6 @@ class SkillCatalog(Skills):
             cache_scope=cache_scope,
             page_size=page_size,
         )
-
-    @property
-    def skills(self) -> Sequence[Skill]:
-        """The valid skills, sorted by URI."""
-        return self._catalog_skills
 
     def resources(self) -> Sequence[ResourceBinding]:
         """One binding per served file, sorted by URI."""
