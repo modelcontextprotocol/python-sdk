@@ -17,10 +17,13 @@ skim that page first.
     `Skills` gives you the **protocol** primitives: request/response handling, capability
     advertisement, and SEP-2640 conformance validation.
 
-    It does **not** discover, read, or hash skills from a filesystem. You supply handlers that
-    answer from wherever your catalog actually lives — a database, a generated index, an in-memory
-    list, or a directory you walk yourself — and you serve each skill's files as ordinary resources
-    through `MCPServer.add_resource` or an `@mcp.resource(...)` template handler.
+    On its own it doesn't discover, read, or hash anything. You supply handlers that answer from
+    wherever your catalog lives — a database, a generated index, an in-memory list — and you serve
+    each skill's files as ordinary resources through `MCPServer.add_resource` or an
+    `@mcp.resource(...)` template handler.
+
+    If your skills live in a directory, skip the handlers and use `SkillCatalog`. See
+    [Serving skills from a directory](#serving-skills-from-a-directory).
 
 ## Serving a skill
 
@@ -116,6 +119,201 @@ capabilities. Omitting it advertises neither the setting nor the method — a cl
 `read_directory` raises before it sends anything if the connected server hasn't advertised the
 setting.
 
+## Serving skills from a directory
+
+Most of the time your skills are just a folder on disk. For that, you don't need to write handlers
+or register each file: `SkillCatalog` reads the folder and answers everything for you.
+
+Say you have this layout:
+
+```text
+skills/                          <-- the path you give FilesystemSkillProvider
+└── git-workflow/                <-- one skill: a folder named after the skill
+    ├── SKILL.md                 <-- required: YAML frontmatter, then instructions
+    └── references/
+        └── conventions.md       <-- any other files the skill needs
+```
+
+The `SKILL.md` starts with the skill's `name` and `description`, and `name` must match the
+folder name:
+
+```markdown
+---
+name: git-workflow
+description: Follow this team's Git conventions for branching and commits
+---
+
+Branch from `main` using `type/short-description`. ...
+```
+
+Load it and pass it to your server:
+
+```python title="server.py" hl_lines="11-15"
+--8<-- "docs_src/skills/tutorial002.py"
+```
+
+That's the whole server. `skills/list`, `skills/get`, and `resources/directory/read` are answered
+from the folder, and every file in it is served as a `skill://` resource.
+
+* `FilesystemSkillProvider(root)` tells the catalog where the files are.
+* `parse_frontmatter` turns the YAML between the `---` lines of a `SKILL.md` into a dict. The SDK
+  doesn't ship a YAML parser, so bring your own. This example uses
+  [PyYAML](https://pypi.org/project/PyYAML/) (`uv add pyyaml`).
+* `directory_read=True` also serves `resources/directory/read` (more on that
+  [below](#directory-reads-from-a-catalog)).
+
+`SkillCatalog.load()` is a coroutine, so build the server inside a running event loop, as
+`main()` does above.
+
+### How skills are found
+
+The path you give `FilesystemSkillProvider` is the **root**: a folder that holds one folder per
+skill. A fuller example:
+
+```text
+skills/                          <-- FilesystemSkillProvider(Path("skills"))
+├── git-workflow/                <-- a skill, served as skill://git-workflow/SKILL.md
+│   ├── SKILL.md
+│   ├── references/
+│   │   └── conventions.md
+│   └── scripts/
+│       └── check-branch.sh
+├── pdf-processing/              <-- another skill
+│   ├── SKILL.md
+│   └── assets/
+│       └── template.pdf
+├── .git/                        <-- ignored: names starting with `.` are skipped
+├── README.md                    <-- not served: it is outside any skill folder
+└── draft/                       <-- not a skill: it has no SKILL.md
+    └── notes.txt
+```
+
+A skill is a directory that contains a `SKILL.md`. Its files are everything beneath that
+directory, including the files of any skill nested inside it, which is also listed as a skill in
+its own right.
+
+Each file's URI is `skill://` followed by its path, with every segment percent-encoded. Files and
+directories whose names start with `.` are ignored entirely, and files outside any skill directory
+are not served.
+
+!!! warning
+    Point the provider at the folder that **contains** your skill folders, not at a skill folder
+    itself. A skill's URI is built from its path under the root, and its last segment must match
+    the skill's `name`. With `FilesystemSkillProvider(Path("skills/git-workflow"))`, the
+    `SKILL.md` sits directly in the root, so it has no directory name and the skill is skipped
+    (an error with `strict=True`). Use `FilesystemSkillProvider(Path("skills"))` instead.
+
+!!! note
+    The catalog reads and hashes every file **once**, when `load()` runs, and serves that snapshot.
+    That's how the `digest` and `size` in each skill's manifest are guaranteed to match what
+    `resources/read` returns.
+
+    It also means the catalog is fixed for the lifetime of the server. If a file changes
+    afterwards, reading it fails with an internal error (`-32603`) until you restart the server or
+    create a new catalog. And because `load()` reads every file, a large asset directory makes
+    startup slower.
+
+### Directory reads from a catalog
+
+Pass `directory_read=True` and every directory that contains a served file can be read, including
+directories above a skill such as `skill://acme`. A directory lists its direct children;
+subdirectories come back with the MIME type `inode/directory`. Empty directories are not served.
+
+### Caching hints
+
+`ttl_ms` and `cache_scope` set the `ttlMs` and `cacheScope` values on every result:
+
+```python
+async def build_catalog(root: Path) -> SkillCatalog:
+    return await SkillCatalog.load(
+        FilesystemSkillProvider(root),
+        parse_frontmatter=yaml.safe_load,
+        ttl_ms=60_000,
+        cache_scope="public",
+    )
+```
+
+They follow the rules in [Protocol version and caching](#protocol-version-and-caching). A negative
+`ttl_ms` raises `ValueError`.
+
+### Pagination
+
+By default every entry comes back in one response. If your catalog is big, set `page_size`:
+
+```python
+async def build_catalog(root: Path) -> SkillCatalog:
+    return await SkillCatalog.load(
+        FilesystemSkillProvider(root),
+        parse_frontmatter=yaml.safe_load,
+        directory_read=True,
+        page_size=50,
+    )
+```
+
+Each response then holds at most 50 entries and carries a `nextCursor` while more remain.
+`SkillsClient.list_skills()` and `read_directory()` follow it for you. A skill entry is never split
+across pages.
+
+The cursor is opaque. One the catalog didn't issue is rejected with Invalid params (`-32602`), and
+so is any cursor when `page_size` isn't set. A `page_size` below 1 raises `ValueError`.
+
+### Invalid skills
+
+A skill is invalid when its `SKILL.md` has no frontmatter block, has an unterminated block, can't
+be parsed, or fails the SEP-2640 requirements for `name` and `description`. A `SKILL.md` placed
+directly in the root is also invalid, because the skill has no directory name.
+
+By default (`strict=False`) an invalid skill is left out and a warning is logged, so one bad skill
+doesn't take the server down. Pass `strict=True` to make `load()` raise a single `ValueError` that
+lists every invalid skill, which is handy in CI.
+
+The frontmatter is returned in `skills/list` and `skills/get` as written, including keys the SDK
+doesn't interpret. Values are converted to JSON, so YAML dates become ISO 8601 strings. A value with
+no JSON form, such as NaN, makes the skill invalid.
+
+A skill whose manifest exceeds the 512 files or 16 MiB recommended by SEP-2640 is still served,
+and a warning is logged.
+
+### File content
+
+`SKILL.md` and other Markdown files are served as `text/markdown`, and YAML files as
+`application/yaml`. The MIME type of any other file is determined with `mimetypes`, with
+`application/octet-stream` as the fallback.
+
+File content is returned unchanged. A file whose bytes are valid UTF-8 is returned as text,
+including any byte order mark and line endings; any other file is returned as a base64 blob. In
+both cases the content matches the `digest` and `size` in the skill's manifest. Each read is
+verified against the values recorded at load time, and a file that has changed is reported as an
+internal error (`-32603`) until you restart the server or create a new catalog.
+
+`load()` reads and hashes every file of every valid skill once, so a large asset directory makes
+startup slower and temporarily uses memory for the largest file.
+
+### Providers
+
+A `SkillProvider` supplies the files to the catalog. It is a `typing.Protocol`, so an
+implementation does not need to subclass it.
+
+```python
+class SkillProvider(Protocol):
+    async def list_files(self) -> Sequence[str]: ...
+    async def read_file(self, path: str) -> bytes: ...
+```
+
+`list_files()` returns the path of every file, recursively and without directories. `read_file()`
+returns the raw bytes of one file. Paths use `/` as the separator and are relative to the root of
+the provider. A provider can therefore be backed by any storage, such as an archive, a database,
+or object storage.
+
+`load()` raises `ValueError` if the provider lists a path that is empty, absolute, contains a `.`
+or `..` segment, is listed more than once, or lies beneath another listed file. This applies
+regardless of `strict`, because it indicates an error in the provider rather than in a skill.
+
+`FilesystemSkillProvider(root)` is the provider for a local directory. It serves regular files
+only. Symbolic links and Windows junctions are never followed: they are omitted, with a warning,
+when listing, and refused when read. A skill directory therefore cannot expose files outside
+itself. Blocking file system calls run in a worker thread.
+
 ## Protocol version and caching
 
 In protocol version `2026-07-28` and later, `skills/list`, `skills/get`, and
@@ -128,9 +326,15 @@ You don't have to branch on protocol version yourself.
 
 ## What this SDK doesn't do
 
-`Skills` is a protocol adapter, not a skills provider. It has no opinion on where a skill's bytes
-live, how they're indexed, or when a catalog is refreshed — that's for a higher-level library, or
-your own handler, to decide.
+`Skills` is a protocol adapter, not a skills store. It has no opinion on where a skill's bytes
+live or when a catalog is refreshed.
 
-If you're looking for "scan this directory and serve whatever's in it," you're looking for a
-provider built on top of `Skills`, not `Skills` itself.
+`SkillCatalog` covers the common case of a directory (or any other file source behind a
+`SkillProvider`), with a few limits:
+
+* It doesn't include a YAML parser. `parse_frontmatter` supplies one.
+* The catalog isn't reloaded. To publish changes, create a new catalog.
+* Empty directories aren't served by directory reads.
+
+For anything else, such as a database or a catalog that changes while the server runs, write your
+own handlers for `Skills`.
