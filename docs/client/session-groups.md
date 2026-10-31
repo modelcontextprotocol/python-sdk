@@ -66,6 +66,17 @@ Run it again. `print(sorted(group.tools))` now shows both:
 
 If you already hold a connected `ClientSession` (`Client.session` is one), hand it to `await group.connect_with_session(server_info, session)` instead of opening a new transport. It aggregates the same way. The group never closes a session it didn't open. `server_info` names the server for component prefixes; on a 2026-era connection `client.server_info` can be `None` (identity is optional), so pass your own `Implementation(name=..., version=...)` in that case.
 
+## Paginated catalogs
+
+Connecting a server follows every continuation cursor in its tools, resources, and
+prompts listings. Naming hooks and collision checks apply to the complete catalog,
+and tools discovered on later pages route to the same owning session.
+
+A failure on a continuation page, a repeated cursor, or a name collision aborts
+registration without adding any of that server's components to the group. Existing
+servers remain registered. A first-page listing error still leaves that component
+kind unavailable while allowing the other kinds to be discovered.
+
 ## The classic handshake
 
 `ClientSessionGroup` is built on `ClientSession`, not on `Client`. Each `connect_to_server` runs the classic `initialize` handshake. It never sends the `server/discover` probe described in **[Protocol versions](../protocol-versions.md)**. Every MCP server understands that handshake, so this costs you compatibility with nothing; it only means a group takes the older, slower path to a server that could do better.

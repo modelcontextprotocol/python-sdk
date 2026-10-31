@@ -8,10 +8,10 @@ This abstraction can handle naming collisions using a custom user-provided hook.
 
 import contextlib
 import logging
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Literal, Self, TypeAlias, overload
+from typing import Any, Literal, Self, TypeAlias, TypeVar, overload
 
 import anyio
 import httpx2
@@ -26,6 +26,31 @@ from mcp.client.streamable_http import DEFAULT_MAX_SSE_EVENT_SIZE, streamable_ht
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.dispatcher import ProgressFnT
 from mcp.shared.exceptions import MCPError
+
+_ListingResult = TypeVar("_ListingResult", bound=types.PaginatedResult)
+
+
+async def _list_pages(list_page: Callable[..., Awaitable[_ListingResult]], kind: str) -> AsyncIterator[_ListingResult]:
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    while True:
+        try:
+            if cursor is None:
+                page = await list_page()
+            else:
+                page = await list_page(params=types.PaginatedRequestParams(cursor=cursor))
+        except MCPError as err:
+            if cursor is not None:
+                raise
+            logging.warning(f"Could not fetch {kind}: {err}")
+            return
+        yield page
+        cursor = page.next_cursor
+        if cursor is None:
+            return
+        if cursor in seen_cursors:
+            raise MCPError(code=types.INVALID_PARAMS, message=f"Repeated {kind} pagination cursor")
+        seen_cursors.add(cursor)
 
 
 class SseServerParameters(BaseModel):
@@ -175,7 +200,7 @@ class ClientSessionGroup:
     @property
     def sessions(self) -> list[mcp.ClientSession]:
         """Returns the list of sessions being managed."""
-        return list(self._sessions.keys())  # pragma: no cover
+        return list(self._sessions.keys())
 
     @property
     def prompts(self) -> dict[str, types.Prompt]:
@@ -386,36 +411,24 @@ class ClientSessionGroup:
         tools_temp: dict[str, types.Tool] = {}
         tool_to_session_temp: dict[str, mcp.ClientSession] = {}
 
-        # Query the server for its prompts and aggregate to list.
-        try:
-            prompts = (await session.list_prompts()).prompts
-            for prompt in prompts:
+        async for prompt_page in _list_pages(session.list_prompts, "prompts"):
+            for prompt in prompt_page.prompts:
                 name = self._component_name(prompt.name, server_info)
                 prompts_temp[name] = prompt
                 component_names.prompts.add(name)
-        except MCPError as err:  # pragma: no cover
-            logging.warning(f"Could not fetch prompts: {err}")
 
-        # Query the server for its resources and aggregate to list.
-        try:
-            resources = (await session.list_resources()).resources
-            for resource in resources:
+        async for resource_page in _list_pages(session.list_resources, "resources"):
+            for resource in resource_page.resources:
                 name = self._component_name(resource.name, server_info)
                 resources_temp[name] = resource
                 component_names.resources.add(name)
-        except MCPError as err:  # pragma: no cover
-            logging.warning(f"Could not fetch resources: {err}")
 
-        # Query the server for its tools and aggregate to list.
-        try:
-            tools = (await session.list_tools()).tools
-            for tool in tools:
+        async for tool_page in _list_pages(session.list_tools, "tools"):
+            for tool in tool_page.tools:
                 name = self._component_name(tool.name, server_info)
                 tools_temp[name] = tool
                 tool_to_session_temp[name] = session
                 component_names.tools.add(name)
-        except MCPError as err:  # pragma: no cover
-            logging.warning(f"Could not fetch tools: {err}")
 
         # Clean up exit stack for session if we couldn't retrieve anything
         # from the server.

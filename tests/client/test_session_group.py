@@ -1,11 +1,13 @@
 import contextlib
 from unittest import mock
 
+import anyio
 import httpx2
 import mcp_types as types
 import pytest
 
 import mcp
+from mcp import Client
 from mcp.client.session_group import (
     ClientSessionGroup,
     ClientSessionParameters,
@@ -13,6 +15,7 @@ from mcp.client.session_group import (
     StreamableHttpParameters,
 )
 from mcp.client.stdio import StdioServerParameters
+from mcp.server import Server, ServerRequestContext
 from mcp.shared.exceptions import MCPError
 
 
@@ -116,9 +119,9 @@ async def test_client_session_group_connect_to_server(mock_exit_stack: contextli
     mock_resource1.name = "resource_b"
     mock_prompt1 = mock.Mock(spec=types.Prompt)
     mock_prompt1.name = "prompt_c"
-    mock_session.list_tools.return_value = mock.AsyncMock(tools=[mock_tool1])
-    mock_session.list_resources.return_value = mock.AsyncMock(resources=[mock_resource1])
-    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[mock_prompt1])
+    mock_session.list_tools.return_value = mock.AsyncMock(tools=[mock_tool1], next_cursor=None)
+    mock_session.list_resources.return_value = mock.AsyncMock(resources=[mock_resource1], next_cursor=None)
+    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[mock_prompt1], next_cursor=None)
 
     # --- Test Execution ---
     group = ClientSessionGroup(exit_stack=mock_exit_stack)
@@ -151,9 +154,9 @@ async def test_client_session_group_connect_to_server_with_name_hook(mock_exit_s
     mock_session = mock.AsyncMock(spec=mcp.ClientSession)
     mock_tool = mock.Mock(spec=types.Tool)
     mock_tool.name = "base_tool"
-    mock_session.list_tools.return_value = mock.AsyncMock(tools=[mock_tool])
-    mock_session.list_resources.return_value = mock.AsyncMock(resources=[])
-    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[])
+    mock_session.list_tools.return_value = mock.AsyncMock(tools=[mock_tool], next_cursor=None)
+    mock_session.list_resources.return_value = mock.AsyncMock(resources=[], next_cursor=None)
+    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[], next_cursor=None)
 
     # --- Test Setup ---
     def name_hook(name: str, server_info: types.Implementation) -> str:
@@ -262,10 +265,10 @@ async def test_client_session_group_connect_to_server_duplicate_tool_raises_erro
     # Configure the new session to return a tool with the *same name*
     duplicate_tool = mock.Mock(spec=types.Tool)
     duplicate_tool.name = existing_tool_name
-    mock_session_new.list_tools.return_value = mock.AsyncMock(tools=[duplicate_tool])
+    mock_session_new.list_tools.return_value = mock.AsyncMock(tools=[duplicate_tool], next_cursor=None)
     # Keep other lists empty for simplicity
-    mock_session_new.list_resources.return_value = mock.AsyncMock(resources=[])
-    mock_session_new.list_prompts.return_value = mock.AsyncMock(prompts=[])
+    mock_session_new.list_resources.return_value = mock.AsyncMock(resources=[], next_cursor=None)
+    mock_session_new.list_prompts.return_value = mock.AsyncMock(prompts=[], next_cursor=None)
 
     # --- Test Execution and Assertion ---
     with pytest.raises(MCPError) as excinfo:
@@ -405,3 +408,183 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("prefixed", [False, True])
+async def test_group_discovers_all_pages_routes_later_tools_and_removes_them(prefixed: bool) -> None:
+    """SDK-defined: aggregation drains each catalog and keeps later-page ownership for routing and removal."""
+    cursors: dict[str, list[str | None]] = {kind: [] for kind in ("tools", "resources", "prompts")}
+
+    async def tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> types.ListToolsResult:
+        cursor = params.cursor if params else None
+        cursors["tools"].append(cursor)
+        return types.ListToolsResult(
+            tools=[types.Tool(name="first" if cursor is None else "second", input_schema={"type": "object"})],
+            next_cursor="tools-2" if cursor is None else None,
+        )
+
+    async def resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListResourcesResult:
+        cursor = params.cursor if params else None
+        cursors["resources"].append(cursor)
+        name = "first" if cursor is None else "second"
+        return types.ListResourcesResult(
+            resources=[types.Resource(name=name, uri=f"memory://{name}")],
+            next_cursor="resources-2" if cursor is None else None,
+        )
+
+    async def prompts(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        cursor = params.cursor if params else None
+        cursors["prompts"].append(cursor)
+        return types.ListPromptsResult(
+            prompts=[types.Prompt(name="first" if cursor is None else "second")],
+            next_cursor="prompts-2" if cursor is None else None,
+        )
+
+    async def call(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+        assert params.name == "second"
+        return types.CallToolResult(content=[types.TextContent(text=params.name)])
+
+    server = Server(
+        "catalog", on_list_tools=tools, on_list_resources=resources, on_list_prompts=prompts, on_call_tool=call
+    )
+
+    def hook(name: str, info: types.Implementation) -> str:
+        return f"{info.name}.{name}"
+
+    group = ClientSessionGroup(component_name_hook=hook if prefixed else None)
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            session = client.session
+            await group.connect_with_session(types.Implementation(name="catalog", version="1"), session)
+            expected = {"catalog.first", "catalog.second"} if prefixed else {"first", "second"}
+            assert set(group.tools) == expected
+            assert set(group.resources) == expected
+            assert set(group.prompts) == expected
+            result = await group.call_tool("catalog.second" if prefixed else "second")
+            assert result.content == [types.TextContent(text="second")]
+            await group.disconnect_from_server(session)
+            assert group.tools == {}
+            assert group.resources == {}
+            assert group.prompts == {}
+            assert group.sessions == []
+    assert cursors == {kind: [None, f"{kind}-2"] for kind in cursors}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", ["tools", "resources", "prompts"])
+@pytest.mark.parametrize("repeated_cursor", [False, True])
+async def test_failed_later_catalog_page_leaves_the_group_unchanged(kind: str, repeated_cursor: bool) -> None:
+    """SDK-defined: later-page errors and cursor cycles cannot publish a partial server catalog."""
+    calls: dict[str, list[str | None]] = {key: [] for key in ("tools", "resources", "prompts")}
+
+    def cursor_for(key: str, params: types.PaginatedRequestParams | None) -> str | None:
+        cursor = params.cursor if params else None
+        calls[key].append(cursor)
+        if key != kind:
+            return None
+        if cursor is not None and not repeated_cursor:
+            raise MCPError(code=types.INTERNAL_ERROR, message="page failed")
+        return "repeat"
+
+    async def tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[types.Tool(name="candidate", input_schema={"type": "object"})],
+            next_cursor=cursor_for("tools", params),
+        )
+
+    async def resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListResourcesResult:
+        return types.ListResourcesResult(
+            resources=[types.Resource(name="candidate", uri="memory://candidate")],
+            next_cursor=cursor_for("resources", params),
+        )
+
+    async def prompts(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        return types.ListPromptsResult(
+            prompts=[types.Prompt(name="candidate")], next_cursor=cursor_for("prompts", params)
+        )
+
+    async def existing_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="existing", input_schema={"type": "object"})])
+
+    existing = Server("existing", on_list_tools=existing_tools)
+    candidate = Server("candidate", on_list_tools=tools, on_list_resources=resources, on_list_prompts=prompts)
+    group = ClientSessionGroup()
+    with anyio.fail_after(5):
+        async with Client(existing) as first, Client(candidate) as second:
+            await group.connect_with_session(types.Implementation(name="existing", version="1"), first.session)
+            before = (dict(group.tools), dict(group.resources), dict(group.prompts), list(group.sessions))
+            with pytest.raises(MCPError) as error:
+                await group.connect_with_session(types.Implementation(name="candidate", version="1"), second.session)
+            assert error.value.code == (types.INVALID_PARAMS if repeated_cursor else types.INTERNAL_ERROR)
+            assert (group.tools, group.resources, group.prompts, group.sessions) == before
+    assert calls[kind] == [None, "repeat"]
+
+
+@pytest.mark.anyio
+async def test_tool_collision_on_a_later_page_does_not_register_the_candidate_server() -> None:
+    """SDK-defined: cross-server collisions are checked against the complete paginated catalog."""
+
+    async def existing_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="existing", input_schema={"type": "object"})])
+
+    async def candidate_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        later = params is not None and params.cursor is not None
+        return types.ListToolsResult(
+            tools=[types.Tool(name="existing" if later else "new", input_schema={"type": "object"})],
+            next_cursor=None if later else "second",
+        )
+
+    group = ClientSessionGroup()
+    with anyio.fail_after(5):
+        async with (
+            Client(Server("existing", on_list_tools=existing_tools)) as first,
+            Client(Server("candidate", on_list_tools=candidate_tools)) as second,
+        ):
+            await group.connect_with_session(types.Implementation(name="existing", version="1"), first.session)
+            with pytest.raises(MCPError) as error:
+                await group.connect_with_session(types.Implementation(name="candidate", version="1"), second.session)
+            assert error.value.code == types.INVALID_PARAMS
+            assert set(group.tools) == {"existing"}
+            assert group.sessions == [first.session]
+
+
+@pytest.mark.anyio
+async def test_group_follows_an_empty_cursor_and_empty_pages_until_cursor_is_absent() -> None:
+    """SDK-defined: opaque cursors, not page contents or cursor truthiness, decide when listing ends."""
+    cursors: list[str | None] = []
+
+    async def tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> types.ListToolsResult:
+        cursor = params.cursor if params else None
+        cursors.append(cursor)
+        if cursor is None:
+            return types.ListToolsResult(tools=[], next_cursor="")
+        if cursor == "":
+            return types.ListToolsResult(
+                tools=[types.Tool(name="found", input_schema={"type": "object"})], next_cursor="last"
+            )
+        assert cursor == "last"
+        return types.ListToolsResult(tools=[])
+
+    group = ClientSessionGroup()
+    with anyio.fail_after(5):
+        async with Client(Server("empty-pages", on_list_tools=tools)) as client:
+            await group.connect_with_session(types.Implementation(name="empty-pages", version="1"), client.session)
+            assert set(group.tools) == {"found"}
+            await group.disconnect_from_server(client.session)
+            assert group.tools == {}
+    assert cursors == [None, "", "last"]
