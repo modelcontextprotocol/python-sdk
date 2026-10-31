@@ -17,13 +17,12 @@ skim that page first.
     `Skills` gives you the **protocol** primitives: request/response handling, capability
     advertisement, and SEP-2640 conformance validation.
 
-    It does **not** discover, read, or hash skills from a filesystem. You supply handlers that
-    answer from wherever your catalog actually lives — a database, a generated index, an in-memory
-    list, or a directory you walk yourself — and you serve each skill's files as ordinary resources
-    through `MCPServer.add_resource` or an `@mcp.resource(...)` template handler.
+    On its own it doesn't discover, read, or hash anything. You supply handlers that answer from
+    wherever your catalog lives — a database, a generated index, an in-memory list — and you serve
+    each skill's files as ordinary resources through `MCPServer.add_resource` or an
+    `@mcp.resource(...)` template handler.
 
-    `SkillCatalog` is a provider built on top of `Skills` that implements these handlers for a
-    source of skill files, such as a local directory. See
+    If your skills live in a directory, skip the handlers and use `SkillCatalog`. See
     [Serving skills from a directory](#serving-skills-from-a-directory).
 
 ## Serving a skill
@@ -122,82 +121,115 @@ setting.
 
 ## Serving skills from a directory
 
-`SkillCatalog` is a `Skills` extension that discovers skills in a `SkillProvider` and answers
-`skills/list`, `skills/get`, and optionally `resources/directory/read` from what it finds. It
-removes the need to write handlers or to register each file as a resource.
+Most of the time your skills are just a folder on disk. For that, you don't need to write handlers
+or register each file: `SkillCatalog` reads the folder and answers everything for you.
+
+Say you have this layout:
+
+```text
+skills/
+└── git-workflow/
+    ├── SKILL.md
+    └── references/
+        └── conventions.md
+```
+
+Load it and pass it to your server:
 
 ```python title="server.py" hl_lines="11-15"
 --8<-- "docs_src/skills/tutorial002.py"
 ```
 
-`SkillCatalog.load()` is a coroutine, so the server is constructed inside a running event loop.
-`FilesystemSkillProvider` reads skills from a local directory. `parse_frontmatter` supplies the
-YAML parser. The SDK does not install one, so this example uses [PyYAML](https://pypi.org/project/PyYAML/),
-which you add to your own project (`uv add pyyaml`).
+That's the whole server. `skills/list`, `skills/get`, and `resources/directory/read` are answered
+from the folder, and every file in it is served as a `skill://` resource.
 
-### How skills are discovered
+* `FilesystemSkillProvider(root)` tells the catalog where the files are.
+* `parse_frontmatter` turns the YAML between the `---` lines of a `SKILL.md` into a dict. The SDK
+  doesn't ship a YAML parser, so bring your own. This example uses
+  [PyYAML](https://pypi.org/project/PyYAML/) (`uv add pyyaml`).
+* `directory_read=True` also serves `resources/directory/read` (more on that
+  [below](#directory-reads-from-a-catalog)).
 
-A skill is a directory that contains a `SKILL.md` file. The skill's files are all files beneath
-that directory, including the files of any skill nested inside it. A nested skill is also listed
-as a skill in its own right.
+`SkillCatalog.load()` is a coroutine, so build the server inside a running event loop, as
+`main()` does above.
 
-Each file is served as a `skill://` resource. Its URI is `skill://` followed by its path, with
-each path segment percent-encoded. A file has the same URI regardless of which skill lists it.
+### How skills are found
 
-Files and directories whose names begin with `.` are excluded. They are never read, listed, or
-served. Files outside any skill directory are not served.
+A skill is a directory that contains a `SKILL.md`. Its files are everything beneath that
+directory, including the files of any skill nested inside it, which is also listed as a skill in
+its own right.
 
-The catalog reads and hashes every file once, when `load()` runs, and serves that snapshot. The
-`resources` manifest of each skill therefore describes the files exactly as they were read.
-The catalog is fixed for the lifetime of the server; to publish changes, create a new catalog.
+Each file's URI is `skill://` followed by its path, with every segment percent-encoded. Files and
+directories whose names start with `.` are ignored entirely, and files outside any skill directory
+are not served.
 
-### Options
+!!! note
+    The catalog reads and hashes every file **once**, when `load()` runs, and serves that snapshot.
+    That's how the `digest` and `size` in each skill's manifest are guaranteed to match what
+    `resources/read` returns.
 
-`SkillCatalog.load(provider, *, parse_frontmatter, ...)` accepts the following arguments.
+    It also means the catalog is fixed for the lifetime of the server. If a file changes
+    afterwards, reading it fails with an internal error (`-32603`) until you restart the server or
+    create a new catalog. And because `load()` reads every file, a large asset directory makes
+    startup slower.
 
-| Argument | Default | Description |
-|---|---|---|
-| `provider` | required | The `SkillProvider` that lists and reads the files. |
-| `parse_frontmatter` | required | Receives the text between the `---` lines of a `SKILL.md` and returns a mapping with `str` keys, for example `yaml.safe_load`. |
-| `strict` | `False` | Controls the handling of invalid skills. See [Invalid skills](#invalid-skills). |
-| `directory_read` | `False` | Serves `resources/directory/read` and advertises the `directoryRead` setting. |
-| `ttl_ms` | `0` | The `ttlMs` value set on `skills/list`, `skills/get` and directory read results. |
-| `cache_scope` | `"private"` | The `cacheScope` value set on the same results. |
-| `page_size` | `None` | The maximum number of entries in one `skills/list` or directory read response. See [Pagination](#pagination). |
+### Directory reads from a catalog
 
-`ttl_ms` and `cache_scope` follow the rules described in
-[Protocol version and caching](#protocol-version-and-caching). A negative `ttl_ms` raises
-`ValueError`.
+Pass `directory_read=True` and every directory that contains a served file can be read, including
+directories above a skill such as `skill://acme`. A directory lists its direct children;
+subdirectories come back with the MIME type `inode/directory`. Empty directories are not served.
 
-The frontmatter mapping is returned in `skills/list` and `skills/get` without modification,
-including keys the SDK does not interpret. Values are converted to JSON; for example, YAML dates
-are returned as ISO 8601 strings. A value with no JSON representation, such as NaN, makes the
-skill invalid.
+### Caching hints
 
-With `directory_read=True`, every directory that contains a served file can be read, including
-directories above the skill root such as `skill://acme`. A directory lists its direct children;
-subdirectories are returned with the MIME type `inode/directory`. Empty directories are not served.
+`ttl_ms` and `cache_scope` set the `ttlMs` and `cacheScope` values on every result:
+
+```python
+async def build_catalog(root: Path) -> SkillCatalog:
+    return await SkillCatalog.load(
+        FilesystemSkillProvider(root),
+        parse_frontmatter=yaml.safe_load,
+        ttl_ms=60_000,
+        cache_scope="public",
+    )
+```
+
+They follow the rules in [Protocol version and caching](#protocol-version-and-caching). A negative
+`ttl_ms` raises `ValueError`.
 
 ### Pagination
 
-By default, `skills/list` and `resources/directory/read` return every entry in a single response.
-When `page_size` is set, each response contains at most that many entries, and a response that is
-followed by another page carries a `nextCursor`. The client passes it back as `cursor`, as for any
-other paginated list in the protocol. `SkillsClient.list_skills()` and `read_directory()` do this
-automatically.
+By default every entry comes back in one response. If your catalog is big, set `page_size`:
 
-A skill entry is never split across pages. The cursor is opaque to clients. A cursor that the
-catalog did not issue is rejected with Invalid params (`-32602`), and so is any cursor when
-`page_size` is not set. A `page_size` below 1 raises `ValueError`.
+```python
+async def build_catalog(root: Path) -> SkillCatalog:
+    return await SkillCatalog.load(
+        FilesystemSkillProvider(root),
+        parse_frontmatter=yaml.safe_load,
+        directory_read=True,
+        page_size=50,
+    )
+```
+
+Each response then holds at most 50 entries and carries a `nextCursor` while more remain.
+`SkillsClient.list_skills()` and `read_directory()` follow it for you. A skill entry is never split
+across pages.
+
+The cursor is opaque. One the catalog didn't issue is rejected with Invalid params (`-32602`), and
+so is any cursor when `page_size` isn't set. A `page_size` below 1 raises `ValueError`.
 
 ### Invalid skills
 
-A skill is invalid when its `SKILL.md` has no frontmatter block, has an unterminated block, cannot
+A skill is invalid when its `SKILL.md` has no frontmatter block, has an unterminated block, can't
 be parsed, or fails the SEP-2640 requirements for `name` and `description`. A `SKILL.md` placed
-directly in the provider root is also invalid, because the skill has no directory name.
+directly in the root is also invalid, because the skill has no directory name.
 
-* With `strict=False`, an invalid skill is omitted and a warning is logged.
-* With `strict=True`, `load()` raises a single `ValueError` that lists every invalid skill.
+By default (`strict=False`) an invalid skill is left out and a warning is logged, so one bad skill
+doesn't take the server down. Pass `strict=True` to make `load()` raise a single `ValueError` that
+lists every invalid skill, which is handy in CI.
+
+The frontmatter is returned in `skills/list` and `skills/get` as written, including keys the SDK
+doesn't interpret. Values are converted to JSON, so YAML dates become ISO 8601 strings. A value with
+no JSON form, such as NaN, makes the skill invalid.
 
 A skill whose manifest exceeds the 512 files or 16 MiB recommended by SEP-2640 is still served,
 and a warning is logged.
@@ -254,18 +286,15 @@ You don't have to branch on protocol version yourself.
 
 ## What this SDK doesn't do
 
-`Skills` is a protocol adapter, not a skills provider. It has no opinion on where a skill's bytes
-live, how they're indexed, or when a catalog is refreshed — that's for a higher-level library, or
-your own handler, to decide.
+`Skills` is a protocol adapter, not a skills store. It has no opinion on where a skill's bytes
+live or when a catalog is refreshed.
 
-If you're looking for "scan this directory and serve whatever's in it," you're looking for a
-provider built on top of `Skills`, not `Skills` itself.
+`SkillCatalog` covers the common case of a directory (or any other file source behind a
+`SkillProvider`), with a few limits:
 
-[`SkillCatalog`](#serving-skills-from-a-directory) is such a provider. It has the following
-limitations:
+* It doesn't include a YAML parser. `parse_frontmatter` supplies one.
+* The catalog isn't reloaded. To publish changes, create a new catalog.
+* Empty directories aren't served by directory reads.
 
-* It does not include a YAML parser. The `parse_frontmatter` argument supplies one.
-* The catalog is not reloaded. To publish changes, create a new catalog.
-* Empty directories are not served by directory reads.
-* Pagination is opt-in through `page_size`. Without it, `skills/list` and directory reads return
-  all entries in a single response.
+For anything else, such as a database or a catalog that changes while the server runs, write your
+own handlers for `Skills`.

@@ -8,12 +8,12 @@ from mcp.server.skills import FilesystemSkillProvider, SkillCatalog
 
 
 async def build_server(root: Path) -> MCPServer:
-    ext_skills = await SkillCatalog.load(
+    skills_catalog = await SkillCatalog.load(
         FilesystemSkillProvider(root),
         parse_frontmatter=yaml.safe_load,
         directory_read=True,
     )
-    return MCPServer("MCP-over-skills", extensions=[ext_skills])
+    return MCPServer("MCP-over-skills", extensions=[skills_catalog])
 
 
 async def main() -> None:
