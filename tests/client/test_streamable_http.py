@@ -1279,3 +1279,62 @@ Redirect to http://backend.lan:8000/mcp/ not followed: it would downgrade this H
 The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,
 often combined with a trailing-slash difference. Try https://backend.lan:8000/mcp/ instead, or fix the proxy settings.\
 """)
+
+
+@pytest.mark.anyio
+async def test_productive_reconnections_deliver_the_response_beyond_python_stack_depth() -> None:
+    """SDK-defined: productive resumptions must not accumulate Python stack frames.
+
+    Raw HTTP fixtures model a peer closing every response after one checkpoint;
+    the final response must arrive without changing the interpreter recursion limit.
+    """
+    connections = 1500
+    seen_cursors: list[str | None] = []
+    tokens: list[str] = []
+
+    async def on_token(token: str) -> None:
+        tokens.append(token)
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen_cursors.append(request.headers.get("last-event-id"))
+        index = len(seen_cursors)
+        payload: dict[str, Any] = (
+            {"jsonrpc": "2.0", "id": "long-call", "result": {}}
+            if index == connections
+            else {
+                "jsonrpc": "2.0",
+                "method": "notifications/message",
+                "params": {"level": "info", "data": index},
+            }
+        )
+        return httpx2.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=f"id: checkpoint-{index}\nretry: 0\ndata: {json.dumps(payload)}\n\n".encode(),
+        )
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    JSONRPCRequest(jsonrpc="2.0", id="long-call", method="tools/list"),
+                    metadata=ClientMessageMetadata(on_resumption_token_update=on_token),
+                )
+            )
+            for index in range(1, connections):
+                notification = await read.receive()
+                assert isinstance(notification, SessionMessage)
+                assert notification.message == JSONRPCNotification(
+                    jsonrpc="2.0",
+                    method="notifications/message",
+                    params={"level": "info", "data": index},
+                )
+            response = await read.receive()
+            assert isinstance(response, SessionMessage)
+            assert response.message == JSONRPCResponse(jsonrpc="2.0", id="long-call", result={})
+
+    assert seen_cursors == [None, *(f"checkpoint-{index}" for index in range(1, connections))]
+    assert tokens == [f"checkpoint-{index}" for index in range(1, connections + 1)]
