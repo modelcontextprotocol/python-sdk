@@ -30,10 +30,9 @@ This is the part to internalise. Here is the input schema `tools/list` reports f
 {
   "type": "object",
   "properties": {
-    "query": {"title": "Query", "type": "string"}
+    "query": {"type": "string"}
   },
-  "required": ["query"],
-  "title": "search_booksArguments"
+  "required": ["query"]
 }
 ```
 

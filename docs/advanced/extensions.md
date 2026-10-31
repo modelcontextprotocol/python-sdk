@@ -25,10 +25,10 @@ Done. The server now advertises `io.modelcontextprotocol/ui` under
     Extensions are fixed at construction. There is no `add_extension` to call later:
     a server's capability map should not change while clients are connected to it.
 
-The capability map rides `server/discover`, which is a **2026-07-28** path. A legacy
-`initialize` handshake has nowhere to put it, so a legacy client simply doesn't see
-the extension. Design for that: an extension *augments* a server, it must not be the
-only way the server is usable.
+The capability map rides `server/discover` on **2026-07-28** connections and the
+`initialize` result on legacy ones. A client that doesn't know an extension ignores
+it. Design for that: an extension *augments* a server, it must not be the only way
+the server is usable.
 
 ## Writing your own
 
