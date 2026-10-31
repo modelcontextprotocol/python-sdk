@@ -127,11 +127,23 @@ or register each file: `SkillCatalog` reads the folder and answers everything fo
 Say you have this layout:
 
 ```text
-skills/
-└── git-workflow/
-    ├── SKILL.md
+skills/                          <-- the path you give FilesystemSkillProvider
+└── git-workflow/                <-- one skill: a folder named after the skill
+    ├── SKILL.md                 <-- required: YAML frontmatter, then instructions
     └── references/
-        └── conventions.md
+        └── conventions.md       <-- any other files the skill needs
+```
+
+The `SKILL.md` starts with the skill's `name` and `description`, and `name` must match the
+folder name:
+
+```markdown
+---
+name: git-workflow
+description: Follow this team's Git conventions for branching and commits
+---
+
+Branch from `main` using `type/short-description`. ...
 ```
 
 Load it and pass it to your server:
@@ -155,6 +167,27 @@ from the folder, and every file in it is served as a `skill://` resource.
 
 ### How skills are found
 
+The path you give `FilesystemSkillProvider` is the **root**: a folder that holds one folder per
+skill. A fuller example:
+
+```text
+skills/                          <-- FilesystemSkillProvider(Path("skills"))
+├── git-workflow/                <-- a skill, served as skill://git-workflow/SKILL.md
+│   ├── SKILL.md
+│   ├── references/
+│   │   └── conventions.md
+│   └── scripts/
+│       └── check-branch.sh
+├── pdf-processing/              <-- another skill
+│   ├── SKILL.md
+│   └── assets/
+│       └── template.pdf
+├── .git/                        <-- ignored: names starting with `.` are skipped
+├── README.md                    <-- not served: it is outside any skill folder
+└── draft/                       <-- not a skill: it has no SKILL.md
+    └── notes.txt
+```
+
 A skill is a directory that contains a `SKILL.md`. Its files are everything beneath that
 directory, including the files of any skill nested inside it, which is also listed as a skill in
 its own right.
@@ -162,6 +195,13 @@ its own right.
 Each file's URI is `skill://` followed by its path, with every segment percent-encoded. Files and
 directories whose names start with `.` are ignored entirely, and files outside any skill directory
 are not served.
+
+!!! warning
+    Point the provider at the folder that **contains** your skill folders, not at a skill folder
+    itself. A skill's URI is built from its path under the root, and its last segment must match
+    the skill's `name`. With `FilesystemSkillProvider(Path("skills/git-workflow"))`, the
+    `SKILL.md` sits directly in the root, so it has no directory name and the skill is skipped
+    (an error with `strict=True`). Use `FilesystemSkillProvider(Path("skills"))` instead.
 
 !!! note
     The catalog reads and hashes every file **once**, when `load()` runs, and serves that snapshot.
