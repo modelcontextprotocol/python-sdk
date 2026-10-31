@@ -27,6 +27,7 @@ from mcp.server.skills import (
     ListSkillsHandler,
     ReadDirectoryHandler,
     SkillCatalog,
+    SkillProvider,
 )
 from mcp.shared.exceptions import MCPError
 from mcp.shared.skills import (
@@ -650,25 +651,14 @@ async def test_a_page_size_below_one_is_rejected_when_the_catalog_loads(page_siz
         await SkillCatalog.load(provider, parse_frontmatter=_parse, page_size=page_size)
 
 
-async def test_a_negative_ttl_is_rejected_when_the_catalog_loads() -> None:
-    """SEP-2549: `ttlMs` is a non-negative integer, so a bad option fails at load rather than on every request."""
-    provider = _MemoryProvider({"git-workflow/SKILL.md": _skill_md("git-workflow")})
+async def test_a_negative_ttl_is_rejected_before_the_provider_is_used() -> None:
+    """SEP-2549: `ttlMs` is non-negative, and a bad option fails at load before the provider is scanned.
+
+    The provider has no methods, so reaching it would raise `AttributeError` instead of `ValueError`.
+    """
+    provider = cast(SkillProvider, object())
     with pytest.raises(ValueError):
         await SkillCatalog.load(provider, parse_frontmatter=_parse, ttl_ms=-1)
-
-
-async def test_invalid_options_are_rejected_before_the_provider_is_touched() -> None:
-    """SDK-defined: option errors surface before any provider call; a call would raise `NotImplementedError`."""
-
-    class _UntouchableProvider:
-        async def list_files(self) -> Sequence[str]:  # pragma: no cover
-            raise NotImplementedError
-
-        async def read_file(self, path: str) -> bytes:  # pragma: no cover
-            raise NotImplementedError
-
-    with pytest.raises(ValueError):
-        await SkillCatalog.load(_UntouchableProvider(), parse_frontmatter=_parse, ttl_ms=-1)
 
 
 async def test_load_returns_an_instance_of_the_subclass_it_is_called_on() -> None:
