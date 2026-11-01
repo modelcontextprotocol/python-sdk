@@ -7,12 +7,15 @@ import io
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.utilities.types import Image
+from mcp.types import ToolAnnotations
 
 # Create server
 mcp = MCPServer("Screenshot Demo")
 
 
-@mcp.tool()
+# Both hints differ from the spec defaults, so they tell a client something:
+# the tool only reads the local display and never reaches an external system.
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False))
 def take_screenshot() -> Image:
     """Take a screenshot of the user's screen and return it as an image. Use
     this tool anytime the user wants you to look at something they're doing.

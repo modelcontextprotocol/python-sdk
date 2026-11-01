@@ -41,6 +41,10 @@ mcp = MCPServer("Text me")
 surge_settings = SurgeSettings()  # type: ignore
 
 
+# No ToolAnnotations on purpose. This tool sends a real SMS, and the spec defaults
+# (read_only_hint=False, destructive_hint=True, open_world_hint=True) already make a
+# client treat it with the most caution. Declaring destructive_hint=False would be
+# accurate but would only relax that, so leave the defaults in place.
 @mcp.tool(name="textme", description="Send a text message to me")
 def text_me(text_content: str) -> str:
     """Send a text message to a phone number via https://surgemsg.com/"""

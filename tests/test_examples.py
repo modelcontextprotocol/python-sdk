@@ -142,3 +142,15 @@ def test_docs_examples(example: CodeExample, eval_example: EvalExample):
         eval_example.format_ruff(example)
     else:
         eval_example.lint_ruff(example)
+
+
+@pytest.mark.anyio
+async def test_screenshot_declares_tool_annotations():
+    """The screenshot example shows annotations that differ from the spec defaults."""
+    from examples.mcpserver.screenshot import mcp
+
+    async with Client(mcp) as client:
+        (tool,) = (await client.list_tools()).tools
+        assert tool.annotations is not None
+        assert tool.annotations.read_only_hint is True
+        assert tool.annotations.open_world_hint is False
