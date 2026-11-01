@@ -1,5 +1,6 @@
 """Cross-platform stdio lifecycle tests using real subprocesses."""
 
+import io
 import os
 import subprocess
 import sys
@@ -7,6 +8,7 @@ import threading
 from contextlib import AsyncExitStack
 from pathlib import Path
 from textwrap import dedent
+from typing import TextIO
 
 import anyio
 import anyio.abc
@@ -165,6 +167,143 @@ async def test_server_stderr_output_reaches_the_errlog_file(
             content = errlog.read()
 
     assert marker in content
+    assert spawned_processes[0].returncode == 0
+
+
+@pytest.mark.anyio
+async def test_a_file_errlog_is_handed_to_the_server_as_its_own_stderr(
+    tmp_path: Path,
+    spawned_processes: list[anyio.abc.Process | FallbackProcess],
+) -> None:
+    """A file `errlog` becomes the server's stderr itself, not a pipe the client copies from.
+
+    The server reports the identity of its fd 2, which must be the file's.
+    """
+    async with AsyncExitStack() as stack:
+        sock, port = await open_liveness_listener()
+        stack.push_async_callback(sock.aclose)
+
+        server = (
+            f"import os, socket, sys\n"
+            f"st = os.fstat(2)\n"
+            f"sys.stderr.write(f'{{st.st_dev}} {{st.st_ino}}\\n')\n"
+            f"sys.stderr.flush()\n"
+            f"s = socket.create_connection(('127.0.0.1', {port}))\n"
+            f"s.sendall(b'alive')\n"
+            f"sys.stdin.read()\n"
+        )
+        params = StdioServerParameters(command=sys.executable, args=["-c", server])
+
+        with (tmp_path / "errlog.txt").open("w+", encoding="utf-8") as errlog:
+            # Allow one cold interpreter start on loaded CI.
+            with anyio.fail_after(10.0):
+                async with stdio_client(params, errlog=errlog):
+                    stream = await accept_alive(sock)
+                    stack.push_async_callback(stream.aclose)
+
+            errlog_stat = os.fstat(errlog.fileno())
+            errlog.seek(0)
+            content = errlog.read()
+
+    assert content == f"{errlog_stat.st_dev} {errlog_stat.st_ino}\n"
+    assert spawned_processes[0].returncode == 0
+
+
+@pytest.mark.anyio
+async def test_server_stderr_written_while_exiting_reaches_an_in_memory_errlog(
+    spawned_processes: list[anyio.abc.Process | FallbackProcess],
+) -> None:
+    """Server stderr reaches an `errlog` with no file descriptor, including what it writes while exiting.
+
+    The last line is written after stdin closes, so it is still in the pipe when
+    shutdown sees the process gone. SDK-defined: a fileless stream used to raise
+    `UnsupportedOperation` from the spawn instead (#156).
+    """
+    async with AsyncExitStack() as stack:
+        sock, port = await open_liveness_listener()
+        stack.push_async_callback(sock.aclose)
+
+        server = (
+            f"import socket, sys\n"
+            f"sys.stderr.write('starting up\\n')\n"
+            f"sys.stderr.flush()\n"
+            f"s = socket.create_connection(('127.0.0.1', {port}))\n"
+            f"s.sendall(b'alive')\n"
+            f"sys.stdin.read()\n"
+            f"sys.stderr.write('shutting down\\n')\n"
+            f"sys.stderr.flush()\n"
+        )
+        params = StdioServerParameters(command=sys.executable, args=["-c", server])
+        errlog = io.StringIO()
+
+        # Allow one cold interpreter start on loaded CI.
+        with anyio.fail_after(10.0):
+            async with stdio_client(params, errlog=errlog):
+                stream = await accept_alive(sock)
+                stack.push_async_callback(stream.aclose)
+
+        lines = errlog.getvalue().splitlines()
+
+    assert lines == ["starting up", "shutting down"]
+    assert spawned_processes[0].returncode == 0
+
+
+class _NotebookStderr(io.StringIO):
+    """Stands in for Jupyter's `sys.stderr`.
+
+    The notebook shows what goes through `write()`, while `fileno()` leads past it
+    to the terminal the notebook server runs in.
+    """
+
+    def __init__(self, terminal: TextIO) -> None:
+        super().__init__()
+        self._terminal = terminal
+
+    def fileno(self) -> int:
+        return self._terminal.fileno()
+
+
+@pytest.mark.anyio
+async def test_server_stderr_reaches_a_notebook_stream_rather_than_the_descriptor_it_reports(
+    tmp_path: Path,
+    spawned_processes: list[anyio.abc.Process | FallbackProcess],
+) -> None:
+    """A text stream's own `fileno()` is not handed to the server; its output goes through `write()`.
+
+    Jupyter's `sys.stderr` reports the terminal behind the notebook, so inheriting that
+    descriptor hid server stderr from the notebook (#156).
+    """
+    marker = "stdio-lifecycle notebook marker 5151"
+
+    async with AsyncExitStack() as stack:
+        sock, port = await open_liveness_listener()
+        stack.push_async_callback(sock.aclose)
+
+        server = (
+            f"import socket, sys\n"
+            f"sys.stderr.write({marker!r} + '\\n')\n"
+            f"sys.stderr.flush()\n"
+            f"s = socket.create_connection(('127.0.0.1', {port}))\n"
+            f"s.sendall(b'alive')\n"
+            f"sys.stdin.read()\n"
+        )
+        params = StdioServerParameters(command=sys.executable, args=["-c", server])
+
+        with (tmp_path / "terminal.txt").open("w+", encoding="utf-8") as terminal:
+            notebook = _NotebookStderr(terminal)
+            # Like Jupyter's, the descriptor works; it just isn't where the notebook reads.
+            assert notebook.fileno() == terminal.fileno()
+            # Allow one cold interpreter start on loaded CI.
+            with anyio.fail_after(10.0):
+                async with stdio_client(params, errlog=notebook):
+                    stream = await accept_alive(sock)
+                    stack.push_async_callback(stream.aclose)
+
+            terminal.seek(0)
+            terminal_output = terminal.read()
+
+    assert notebook.getvalue().splitlines() == [marker]
+    assert terminal_output == ""
     assert spawned_processes[0].returncode == 0
 
 

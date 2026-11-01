@@ -114,7 +114,7 @@ Describe the process with `StdioServerParameters` and hand it to `Client`:
 
 Entering the block spawns the process. Leaving it shuts the subprocess down: close stdin, wait, kill if it lingers. You never clean it up yourself.
 
-The child's stderr goes to yours. To send it somewhere else, build the transport yourself with `stdio_client` (from `mcp`) and pass that instead: `Client(stdio_client(server, errlog=log_file))`.
+The child's stderr goes to yours; in a Jupyter notebook, that is the cell's output. To send it somewhere else, build the transport yourself with `stdio_client` (from `mcp`) and pass that instead: `Client(stdio_client(server, errlog=log_file))`. A file is handed to the child as its stderr. Any other text stream, such as an `io.StringIO`, gets the child's output through its `write()` while the client is connected.
 
 !!! warning
     The child does **not** inherit your environment. It gets a minimal allow-list (`HOME`, `LOGNAME`,

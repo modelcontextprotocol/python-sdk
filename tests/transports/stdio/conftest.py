@@ -37,7 +37,7 @@ def spawned_processes(
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
+        errlog: TextIO | int = sys.stderr,
         cwd: Path | str | None = None,
     ) -> anyio.abc.Process | FallbackProcess:
         process = await _create_platform_compatible_process(command, args, env, errlog, cwd)
