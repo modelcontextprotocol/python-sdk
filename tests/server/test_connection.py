@@ -402,6 +402,8 @@ def test_client_params_assignment_keeps_capabilities_in_lockstep():
         (ClientCapabilities(experimental={"a": {}}), ClientCapabilities(experimental={"b": {}}), False),
         (ClientCapabilities(experimental={"a": {"x": 1}}), ClientCapabilities(experimental={"a": {"x": 2}}), False),
         (ClientCapabilities(experimental={"a": {}}), ClientCapabilities(experimental={"a": {}}), True),
+        (ClientCapabilities(), ClientCapabilities.model_validate({"events": {}}), False),
+        (ClientCapabilities.model_validate({"events": {}}), ClientCapabilities.model_validate({"events": {}}), True),
     ],
 )
 def test_check_capability_per_field_branches(have: ClientCapabilities, want: ClientCapabilities, expected: bool):
