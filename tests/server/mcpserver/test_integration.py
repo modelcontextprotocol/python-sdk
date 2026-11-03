@@ -10,6 +10,7 @@ single-feature example servers over an in-memory transport.
 # pyright: reportUnknownArgumentType=false
 
 import json
+from pathlib import Path
 
 import pytest
 from inline_snapshot import snapshot
@@ -19,6 +20,7 @@ from mcp_types import (
     ElicitRequestParams,
     ElicitResult,
     GetPromptResult,
+    ImageContent,
     LoggingMessageNotification,
     LoggingMessageNotificationParams,
     NotificationParams,
@@ -40,6 +42,7 @@ from examples.snippets.servers import (
     basic_tool,
     completion,
     elicitation,
+    images,
     mcpserver_quickstart,
     notifications,
     sampling,
@@ -342,3 +345,27 @@ async def test_structured_output() -> None:
         assert "sunny" in result_text  # condition
         assert "45" in result_text  # humidity
         assert "5.2" in result_text  # wind_speed
+
+
+async def test_images_thumbnail(tmp_path: Path) -> None:
+    """Test image thumbnail creation with valid PNG encoding."""
+    import base64
+    import io
+
+    from PIL import Image as PILImage
+
+    img_file = tmp_path / "test.png"
+    PILImage.new("RGB", (200, 200), (255, 0, 0)).save(img_file, format="PNG")
+
+    async with Client(images.mcp) as client:
+        result = await client.call_tool("create_thumbnail", {"image_path": str(img_file)})
+        assert len(result.content) == 1
+        content = result.content[0]
+        assert isinstance(content, ImageContent)
+        assert content.mime_type == "image/png"
+
+        # Verify decoded bytes form a valid PIL image
+        decoded = base64.b64decode(content.data)
+        with PILImage.open(io.BytesIO(decoded)) as decoded_img:
+            assert decoded_img.format == "PNG"
+            assert decoded_img.size == (100, 100)

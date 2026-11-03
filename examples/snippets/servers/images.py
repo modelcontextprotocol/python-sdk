@@ -1,5 +1,7 @@
 """Example showing image handling with MCPServer."""
 
+import io
+
 from PIL import Image as PILImage
 
 from mcp.server.mcpserver import Image, MCPServer
@@ -12,4 +14,6 @@ def create_thumbnail(image_path: str) -> Image:
     """Create a thumbnail from an image"""
     img = PILImage.open(image_path)
     img.thumbnail((100, 100))
-    return Image(data=img.tobytes(), format="png")
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    return Image(data=buffer.getvalue(), format="png")
