@@ -2041,7 +2041,7 @@ class ServerCapabilities(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="ignore",
+        extra="allow",
     )
     completions: JSONObject | None = None
     """
@@ -2287,7 +2287,7 @@ class ClientCapabilities(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="ignore",
+        extra="allow",
     )
     elicitation: Elicitation | None = None
     """

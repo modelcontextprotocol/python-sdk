@@ -1008,6 +1008,30 @@ def test_serialize_server_result_drops_top_level_server_info_on_discover_but_kee
     assert sieved["_meta"] == {types.SERVER_INFO_META_KEY: stamp}
 
 
+def test_discover_round_trips_unknown_server_capabilities():
+    capabilities = types.ServerCapabilities.model_validate({"tools": {}, "events": {"listChanged": False}})
+    result = types.DiscoverResult(supported_versions=["2026-07-28"], capabilities=capabilities)
+    dumped = result.model_dump(by_alias=True, mode="json", exclude_none=True)
+    sieved = methods.serialize_server_result("server/discover", "2026-07-28", dumped)
+    assert sieved["capabilities"] == {"tools": {}, "events": {"listChanged": False}}
+    parsed = methods.parse_server_result("server/discover", "2026-07-28", sieved)
+    assert isinstance(parsed, types.DiscoverResult)
+    assert parsed.capabilities.model_dump(by_alias=True, exclude_none=True) == sieved["capabilities"]
+
+
+@pytest.mark.parametrize("version", PRE_2026)
+def test_initialize_round_trips_unknown_capabilities_at_pre_2026_versions(version: str):
+    capabilities: dict[str, Any] = {"tools": {}, "events": {}}
+    result = {"protocolVersion": version, "capabilities": capabilities, "serverInfo": {"name": "S", "version": "1"}}
+    sieved = methods.serialize_server_result("initialize", version, result)
+    assert sieved["capabilities"] == capabilities
+    client_info = {"name": "C", "version": "1"}
+    params = {"protocolVersion": version, "capabilities": {"events": {"enabled": True}}, "clientInfo": client_info}
+    request = methods.parse_client_request("initialize", version, params)
+    assert isinstance(request, types.InitializeRequest)
+    assert request.params.capabilities.model_dump(exclude_none=True) == {"events": {"enabled": True}}
+
+
 def test_serialize_server_result_drops_an_unknown_nested_tool_field():
     tool = {"name": "echo", "inputSchema": {"type": "object"}, "unknownField": 1}
     sieved = methods.serialize_server_result("tools/list", "2025-11-25", {"tools": [tool], "resultType": "complete"})
