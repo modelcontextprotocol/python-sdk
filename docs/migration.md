@@ -365,7 +365,7 @@ params = CallToolRequestParams(
 
 If you relied on extra fields round-tripping through MCP types, move that data into `_meta`.
 
-The exceptions are `ClientCapabilities` and `ServerCapabilities`: the spec defines them as an open set, so unknown top-level keys are kept in `model_extra` and sent on the wire.
+`ClientCapabilities` and `ServerCapabilities` are exceptions: the spec defines them as an open set, so unknown top-level keys are kept in `model_extra` and sent on the wire.
 
 ### Resource URI type changed from `AnyUrl` to `str`
 
