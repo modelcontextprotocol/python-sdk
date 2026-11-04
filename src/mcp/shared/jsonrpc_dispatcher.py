@@ -603,9 +603,12 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         )
         scope = anyio.CancelScope()
         # TODO(maxisbey): duplicate ids blind-overwrite (v1/TS parity); revisit
-        # rejecting with INVALID_REQUEST. Key coerced so a stringified
-        # `notifications/cancelled` id still correlates.
-        self._in_flight[coerce_request_id(req.id)] = _InFlight(scope=scope, dctx=dctx)
+        # rejecting with INVALID_REQUEST. Keyed by the verbatim id: distinct
+        # wire representations ("7" vs 7) are distinct requests, and coercion
+        # here would let a notifications/cancelled for one cancel the other.
+        # Cancellation correlation still finds peer-echoed ids via the
+        # coerced fallback in _dispatch_notification.
+        self._in_flight[req.id] = _InFlight(scope=scope, dctx=dctx)
         if req.method in self._inline_methods:
             # Spawn so `sender_ctx` applies, but park the read loop until the
             # handler returns - that's the inline ordering guarantee.
@@ -639,10 +642,21 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         """
         if msg.method == "notifications/cancelled":
             rid = cancelled_request_id_from_params(msg.params)
-            if rid is not None and (in_flight := self._in_flight.get(coerce_request_id(rid))) is not None:
-                in_flight.dctx.cancel_requested.set()
-                if self._peer_cancel_mode == "interrupt":
-                    in_flight.scope.cancel()
+            if rid is not None:
+                # Exact id first: "7" and 7 are distinct concurrent requests.
+                # Fall back to coerced/stringified forms so a peer that echoes
+                # a different type than the original request still cancels it.
+                entry = self._in_flight.get(rid)
+                if entry is None:
+                    coerced = coerce_request_id(rid)
+                    candidates = [coerced, str(coerced)] if coerced != rid else [str(rid)]
+                    for candidate in candidates:
+                        if candidate != rid and (entry := self._in_flight.get(candidate)) is not None:
+                            break
+                if entry is not None:
+                    entry.dctx.cancel_requested.set()
+                    if self._peer_cancel_mode == "interrupt":
+                        entry.scope.cancel()
         elif msg.method == "notifications/progress":
             match msg.params:
                 case {"progressToken": str() | int() as token, "progress": int() | float() as progress} if (
@@ -742,10 +756,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     # Close the back-channel and drop from `_in_flight`; no checkpoint
                     # since handler return, so a peer cancel can't interleave.
                     # Identity guard: don't evict a duplicate id's newer entry.
+                    # Keyed by the verbatim id, matching the store above.
                     dctx.close()
-                    key = coerce_request_id(req.id)
-                    if (entry := self._in_flight.get(key)) is not None and entry.dctx is dctx:
-                        del self._in_flight[key]
+                    if (entry := self._in_flight.get(req.id)) is not None and entry.dctx is dctx:
+                        del self._in_flight[req.id]
                 if not dctx.cancel_requested.is_set():
                     # A write interrupted by cancellation may still have delivered
                     # (a memory-stream send can hand its item to the receiver and

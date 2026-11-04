@@ -186,6 +186,79 @@ _CONTROL_ONLY: list[JSONRPCMessage] = [JSONRPCResponse(jsonrpc="2.0", id=2, resu
 
 
 @pytest.mark.anyio
+async def test_peer_cancel_does_not_cross_request_id_types():
+    """Concurrent requests "7" and 7 are distinct: a cancel for one must not
+    cancel the other. _in_flight used to key both by coerce_request_id, which
+    folds "7" and 7 into one slot, so the second request blind-overwrote the
+    first and a cancel for either cancelled whichever was stored."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](10)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage](10)
+
+    str_id = "9007199254740991"
+    int_id = 9007199254740991
+    answered_ids: set[object] = set()
+
+    try:
+        server = JSONRPCDispatcher(c2s_recv, s2c_send)
+
+        gate_released = anyio.Event()
+        both_started = anyio.Event()
+        started = 0
+
+        async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+            nonlocal started
+            started += 1
+            if started == 2:
+                both_started.set()
+            await gate_released.wait()
+            tag = params["arguments"]["tag"] if params and "arguments" in params else ""
+            return {"tag": tag}
+
+        async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+            pass
+
+        async def on_unanswered() -> None:
+            pass
+
+        async def drive() -> None:
+            for rid in (str_id, int_id):
+                msg = JSONRPCRequest(
+                    jsonrpc="2.0", id=rid, method="tools/call",
+                    params={"name": "gate", "arguments": {"tag": str(rid)}},
+                )
+                await c2s_send.send(SessionMessage(message=msg, metadata=ServerMessageMetadata(on_request_unanswered=on_unanswered)))
+            await both_started.wait()
+            # Cancel only the string-id request.
+            cancel = JSONRPCNotification(jsonrpc="2.0", method="notifications/cancelled", params={"requestId": str_id})
+            await c2s_send.send(SessionMessage(message=cancel))
+            # Release the gate so the int-id request can finish.
+            gate_released.set()
+
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            tg.start_soon(drive)
+            with anyio.fail_after(5):
+                while True:
+                    msg = await s2c_recv.receive()
+                    m = msg.message
+                    if isinstance(m, JSONRPCResponse):
+                        answered_ids.add(m.id)
+                        if int_id in answered_ids:
+                            break
+            tg.cancel_scope.cancel()
+    finally:
+        c2s_send.close()
+        c2s_recv.close()
+        s2c_send.close()
+        s2c_recv.close()
+
+    # The string-id request was cancelled: it must have no response.
+    assert str_id not in answered_ids
+    # The int-id request must have completed and answered.
+    assert int_id in answered_ids
+
+
+@pytest.mark.anyio
 async def test_peer_cancel_interrupt_mode_interrupts_handler_and_writes_no_response():
     """Spec MUST NOT: a cancelled request is never answered - not even with an error - and settles unanswered."""
     handler_exited = anyio.Event()
