@@ -422,7 +422,16 @@ def test_decode_header_value_passes_none_and_plain_through() -> None:
     assert decode_header_value("plain") == "plain"
 
 
-@pytest.mark.parametrize("bad", ["=?base64?not base64!?=", "=?base64?gA==?="])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "=?base64?not base64!?=",
+        "=?base64?gA==?=",
+        # Raw header bytes that are not ASCII at all: b64decode rejects these with
+        # ValueError rather than binascii.Error, and they used to escape as a 500.
+        "=?base64?\xe9?=",
+    ],
+)
 def test_decode_header_value_returns_none_for_malformed_sentinel(bad: str) -> None:
     """SDK-defined: a sentinel with bad base64 or bad UTF-8 decodes to `None`, so it can never match a body value."""
     assert decode_header_value(bad) is None

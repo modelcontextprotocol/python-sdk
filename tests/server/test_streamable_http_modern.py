@@ -444,6 +444,24 @@ async def test_handle_modern_request_rejects_mismatched_name_header_with_400_and
     assert response.json()["error"]["code"] == HEADER_MISMATCH
 
 
+async def test_handle_modern_request_rejects_non_ascii_base64_name_header_with_400() -> None:
+    """A `=?base64?...?=` payload holding raw high bytes is malformed, not a server fault: it must come
+    back as HEADER_MISMATCH, the same as any other undecodable sentinel, instead of escaping the
+    handler as a 500."""
+    body = _list_tools_body()
+    body["method"] = "tools/call"
+    body["params"]["name"] = "real"
+    body["params"]["arguments"] = {}
+    async with _asgi_client(Server("test")) as http:
+        response = await http.post(
+            "/mcp",
+            json=body,
+            headers=[(MCP_METHOD_HEADER, "tools/call"), (MCP_NAME_HEADER.encode(), b"=?base64?\xe9?=")],
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == HEADER_MISMATCH
+
+
 # --- SSE response mode ---------------------------------------------------------
 
 

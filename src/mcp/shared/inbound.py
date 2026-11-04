@@ -176,7 +176,10 @@ def decode_header_value(value: str | None) -> str | None:
     payload = m.group("payload")
     try:
         decoded = base64.b64decode(payload, validate=True)
-    except binascii.Error:
+    except (binascii.Error, ValueError):
+        # b64decode raises binascii.Error for bad alphabet/padding but a plain
+        # ValueError for non-ASCII text ("string argument should contain only
+        # ASCII characters"), so a raw header with high bytes must be caught too.
         return None
     # Reject non-canonical base64 (e.g. non-zero trailing bits), which
     # `validate=True` tolerates; the encoder only ever emits canonical form.
