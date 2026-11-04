@@ -71,6 +71,48 @@ def test_disable_warn_on_duplicate_resources(temp_file: Path, caplog: pytest.Log
     assert "Resource already exists" not in caplog.text
 
 
+def test_add_duplicate_template():
+    """Test adding the same template twice keeps the first one."""
+
+    def first(item_id: str) -> str:
+        return f"first:{item_id}"
+
+    def second(item_id: str) -> str:
+        return f"second:{item_id}"
+
+    manager = ResourceManager()
+    first_template = manager.add_template(first, uri_template="items://{item_id}")
+    second_template = manager.add_template(second, uri_template="items://{item_id}")
+
+    assert first_template is second_template
+    assert first_template.fn("a") == "first:a"
+    assert manager.list_templates() == [first_template]
+
+
+def test_warn_on_duplicate_templates(caplog: pytest.LogCaptureFixture):
+    """Test warning on duplicate templates."""
+
+    def handler(item_id: str) -> str:
+        return item_id
+
+    manager = ResourceManager()
+    manager.add_template(handler, uri_template="items://{item_id}")
+    manager.add_template(handler, uri_template="items://{item_id}")
+    assert "Resource template already exists" in caplog.text
+
+
+def test_disable_warn_on_duplicate_templates(caplog: pytest.LogCaptureFixture):
+    """Test disabling warning on duplicate templates."""
+
+    def handler(item_id: str) -> str:
+        return item_id
+
+    manager = ResourceManager(warn_on_duplicate_resources=False)
+    manager.add_template(handler, uri_template="items://{item_id}")
+    manager.add_template(handler, uri_template="items://{item_id}")
+    assert "Resource template already exists" not in caplog.text
+
+
 @pytest.mark.anyio
 async def test_get_resource(temp_file: Path):
     """Test getting a resource by URI."""

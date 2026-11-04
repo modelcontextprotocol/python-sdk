@@ -70,7 +70,11 @@ class ResourceManager:
         meta: dict[str, Any] | None = None,
         security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
     ) -> ResourceTemplate:
-        """Add a template from a function."""
+        """Add a template from a function.
+
+        If a template with the same URI template already exists, the existing
+        template is kept and returned, mirroring `add_resource`.
+        """
         template = ResourceTemplate.from_function(
             fn,
             uri_template=uri_template,
@@ -83,6 +87,11 @@ class ResourceManager:
             meta=meta,
             security=security,
         )
+        existing = self._templates.get(template.uri_template)
+        if existing:
+            if self.warn_on_duplicate_resources:
+                logger.warning(f"Resource template already exists: {template.uri_template}")
+            return existing
         self._templates[template.uri_template] = template
         return template
 
