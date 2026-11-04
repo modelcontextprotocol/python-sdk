@@ -973,6 +973,41 @@ def test_structured_output_ordinary_class():
     }
 
 
+def test_structured_output_ordinary_class_keeps_annotated_field_constraints():
+    """Annotated field constraints on an ordinary class must survive into the output model.
+
+    Regression test for #3712: ``get_type_hints`` was called without ``include_extras=True``,
+    so ``Annotated[int, Field(gt=0)]`` collapsed to a bare ``int`` - the constraint vanished
+    from the schema and output conversion accepted out-of-bound values.
+    """
+
+    class Result:
+        value: Annotated[int, Field(gt=0)]
+
+        def __init__(self, value: int) -> None:
+            self.value = value
+
+    def produce() -> Result:  # pragma: no cover - never called
+        return Result(0)
+
+    meta = func_metadata(produce)
+
+    # The constraint must appear in the generated schema.
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"value": {"type": "integer", "exclusiveMinimum": 0}},
+        "required": ["value"],
+        "title": "Result",
+    }
+
+    # A valid value round-trips.
+    assert meta.convert_result(Result(1)).structured_content == {"value": 1}
+
+    # An out-of-bound value is rejected rather than silently accepted.
+    with pytest.raises(ValidationError):
+        meta.convert_result(Result(0))
+
+
 def test_unstructured_output_unannotated_class():
     # Test with class that has no annotations
     class UnannotatedClass:

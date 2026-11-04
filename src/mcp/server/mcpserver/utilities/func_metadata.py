@@ -552,7 +552,9 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
 
         # Case 5: Other class types (dataclasses, regular classes with annotations)
         else:
-            type_hints = get_type_hints(type_annotation)
+            # include_extras keeps `Annotated[...]` metadata (e.g. Field(gt=0)) so field
+            # constraints survive into the synthesized model instead of being silently dropped.
+            type_hints = get_type_hints(type_annotation, include_extras=True)
             if type_hints:
                 # Classes with type hints can be converted to Pydantic models
                 model = _create_model_from_class(type_annotation, type_hints)
