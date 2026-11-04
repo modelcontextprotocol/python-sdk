@@ -32,9 +32,8 @@ async def test_scalar_return_is_wrapped() -> None:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema == snapshot(
             {
-                "properties": {"result": {"title": "Result", "type": "integer"}},
+                "properties": {"result": {"type": "integer"}},
                 "required": ["result"],
-                "title": "get_temperatureOutput",
                 "type": "object",
             }
         )
@@ -51,9 +50,9 @@ async def test_basemodel_is_the_schema() -> None:
         assert tool.output_schema == snapshot(
             {
                 "properties": {
-                    "temperature": {"description": "Degrees Celsius.", "title": "Temperature", "type": "number"},
-                    "humidity": {"description": "Relative humidity, 0 to 1.", "title": "Humidity", "type": "number"},
-                    "conditions": {"title": "Conditions", "type": "string"},
+                    "temperature": {"description": "Degrees Celsius.", "type": "number"},
+                    "humidity": {"description": "Relative humidity, 0 to 1.", "type": "number"},
+                    "conditions": {"type": "string"},
                 },
                 "required": ["temperature", "humidity", "conditions"],
                 "title": "WeatherData",
@@ -73,9 +72,9 @@ async def test_typeddict_produces_the_same_schema() -> None:
         assert tool.output_schema == snapshot(
             {
                 "properties": {
-                    "temperature": {"title": "Temperature", "type": "number"},
-                    "humidity": {"title": "Humidity", "type": "number"},
-                    "conditions": {"title": "Conditions", "type": "string"},
+                    "temperature": {"type": "number"},
+                    "humidity": {"type": "number"},
+                    "conditions": {"type": "string"},
                 },
                 "required": ["temperature", "humidity", "conditions"],
                 "title": "WeatherData",
@@ -93,9 +92,9 @@ async def test_dataclass_produces_the_same_schema() -> None:
         assert tool.output_schema == snapshot(
             {
                 "properties": {
-                    "temperature": {"title": "Temperature", "type": "number"},
-                    "humidity": {"title": "Humidity", "type": "number"},
-                    "conditions": {"title": "Conditions", "type": "string"},
+                    "temperature": {"type": "number"},
+                    "humidity": {"type": "number"},
+                    "conditions": {"type": "string"},
                 },
                 "required": ["temperature", "humidity", "conditions"],
                 "title": "WeatherData",
@@ -115,20 +114,17 @@ async def test_list_return_is_wrapped() -> None:
                 "$defs": {
                     "WeatherData": {
                         "properties": {
-                            "temperature": {"title": "Temperature", "type": "number"},
-                            "humidity": {"title": "Humidity", "type": "number"},
-                            "conditions": {"title": "Conditions", "type": "string"},
+                            "temperature": {"type": "number"},
+                            "humidity": {"type": "number"},
+                            "conditions": {"type": "string"},
                         },
                         "required": ["temperature", "humidity", "conditions"],
                         "title": "WeatherData",
                         "type": "object",
                     }
                 },
-                "properties": {
-                    "result": {"items": {"$ref": "#/$defs/WeatherData"}, "title": "Result", "type": "array"}
-                },
+                "properties": {"result": {"items": {"$ref": "#/$defs/WeatherData"}, "type": "array"}},
                 "required": ["result"],
-                "title": "get_forecastOutput",
                 "type": "object",
             }
         )
@@ -146,9 +142,7 @@ async def test_dict_str_return_is_not_wrapped() -> None:
     """tutorial006: `dict[str, float]` is already a JSON object, so there is no `result` wrapper."""
     async with Client(tutorial006.mcp) as client:
         (tool,) = (await client.list_tools()).tools
-        assert tool.output_schema == snapshot(
-            {"additionalProperties": {"type": "number"}, "title": "get_temperaturesDictOutput", "type": "object"}
-        )
+        assert tool.output_schema == snapshot({"additionalProperties": {"type": "number"}, "type": "object"})
         result = await client.call_tool("get_temperatures", {"cities": ["London", "Reykjavik"]})
         assert result.structured_content == {"London": 16.2, "Reykjavik": 4.4}
 

@@ -56,13 +56,12 @@ async def test_modern_connection_carries_the_advertised_extensions_map() -> None
         assert client.server_capabilities.extensions == snapshot({"com.example/x": {"k": 1}})
 
 
-async def test_legacy_handshake_drops_the_extensions_map() -> None:
-    """Pinned gap: the handshake-era `initialize` result is serialized against the
-    2025 wire schema, which has no `extensions` field, so a legacy handshake cannot
-    carry it; the client sees `None` even though the server advertised one."""
+async def test_legacy_handshake_carries_the_advertised_extensions_map() -> None:
+    """SDK-defined: over a legacy (`initialize`) connection the client also reads
+    the server's advertised extension map from `server_capabilities`."""
     server = MCPServer("host", extensions=[_Extension()])
     async with Client(server, mode="legacy") as client:
-        assert client.server_capabilities.extensions is None
+        assert client.server_capabilities.extensions == snapshot({"com.example/x": {"k": 1}})
 
 
 async def test_server_accepts_capability_for_client_advertised_extension() -> None:

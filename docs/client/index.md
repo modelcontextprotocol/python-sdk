@@ -72,11 +72,10 @@ and `tool.input_schema` is the JSON Schema the server derived from the function'
 {
   "type": "object",
   "properties": {
-    "query": {"title": "Query", "type": "string"},
-    "limit": {"default": 10, "title": "Limit", "type": "integer"}
+    "query": {"type": "string"},
+    "limit": {"default": 10, "type": "integer"}
   },
-  "required": ["query"],
-  "title": "search_booksArguments"
+  "required": ["query"]
 }
 ```
 

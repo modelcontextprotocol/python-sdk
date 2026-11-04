@@ -24,15 +24,14 @@ From those type hints the SDK generates a JSON Schema and sends it to the client
 {
   "type": "object",
   "properties": {
-    "query": {"title": "Query", "type": "string"},
-    "limit": {"title": "Limit", "type": "integer"}
+    "query": {"type": "string"},
+    "limit": {"type": "integer"}
   },
-  "required": ["query", "limit"],
-  "title": "search_booksArguments"
+  "required": ["query", "limit"]
 }
 ```
 
-Both arguments are in `required` because neither has a default. You'll fix that in a moment. (The `title` keys are Pydantic artifacts; the properties, their types, and `required` are the contract.)
+Both arguments are in `required` because neither has a default. You'll fix that in a moment. There are no `title` keys: the ones Pydantic would derive from the class and field names only repeat them. A title you set yourself with `Field(title=...)` is kept.
 
 There is no `$schema` key either: MCP treats a schema without one as **JSON Schema 2020-12**, which is what Pydantic generates, so there is nothing to choose until you write schemas by hand on the **[low-level Server](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)**.
 
@@ -79,11 +78,10 @@ The schema follows:
 {
   "type": "object",
   "properties": {
-    "query": {"title": "Query", "type": "string"},
-    "limit": {"default": 10, "title": "Limit", "type": "integer"}
+    "query": {"type": "string"},
+    "limit": {"default": 10, "type": "integer"}
   },
-  "required": ["query"],
-  "title": "search_booksArguments"
+  "required": ["query"]
 }
 ```
 

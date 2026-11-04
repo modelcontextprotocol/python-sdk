@@ -31,6 +31,12 @@ TYPES_DIR = REPO_ROOT / "src" / "mcp-types" / "mcp_types"
 # gets its typed `$ref` stripped by `make_server_info_opaque` below.
 SERVER_INFO_META_PROPERTY = "io.modelcontextprotocol/serverInfo"
 
+LEGACY_EXTENSIONS_FIELD = {
+    "additionalProperties": {"additionalProperties": True, "properties": {}, "type": "object"},
+    "description": "Optional MCP extensions that the peer supports, keyed by extension identifier.",
+    "type": "object",
+}
+
 # schema.ts -> schema.json renders TypeScript `number` as JSON Schema
 # `integer` at these sites; patch the JSON before codegen so floats validate.
 # Patched to `["integer", "number"]` (not bare `"number"`) so codegen emits
@@ -68,6 +74,10 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
             {"additionalProperties": True, "properties": {}, "type": "object"},
             {"anyOf": [{"additionalProperties": True, "properties": {}, "type": "object"}, {"type": "boolean"}]},
         ),
+        # Extensions are negotiated through `initialize` before 2026-07-28 too (e.g. MCP Apps);
+        # carry the 2026-07-28 field so the result sieve doesn't drop a server's acceptance.
+        ("$defs/ClientCapabilities/properties/extensions", None, LEGACY_EXTENSIONS_FIELD),
+        ("$defs/ServerCapabilities/properties/extensions", None, LEGACY_EXTENSIONS_FIELD),
     ],
     "2026-07-28": [
         ("$defs/NumberSchema/properties/default/type", "number", ["integer", "number"]),
@@ -149,6 +159,8 @@ def load_pinned() -> list[dict[str, str]]:
 def patch_schema(schema: dict[str, Any], patches: list[tuple[str, Any, Any]]) -> None:
     """Apply `(path, old, new)` JSON-pointer-ish patches in place, asserting the old value.
 
+    An `old` of `None` asserts the key is absent, so a patch can add a property.
+
     Path segments use JSON-pointer escaping (`~1` for `/`, `~0` for `~`) so keys
     that themselves contain a slash (the reserved `io.modelcontextprotocol/*`
     `_meta` keys) are addressable.
@@ -158,8 +170,8 @@ def patch_schema(schema: dict[str, Any], patches: list[tuple[str, Any, Any]]) ->
         node: Any = schema
         for part in parts:
             node = node[int(part) if part.isdigit() else part]
-        if node[leaf] != old:
-            raise SystemExit(f"schema patch {path}: expected {old!r}, found {node[leaf]!r}")
+        if node.get(leaf) != old:
+            raise SystemExit(f"schema patch {path}: expected {old!r}, found {node.get(leaf)!r}")
         node[leaf] = new
 
 

@@ -27,12 +27,7 @@ async def test_context_parameter_never_reaches_the_input_schema() -> None:
     async with Client(tutorial001.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.input_schema == snapshot(
-            {
-                "type": "object",
-                "properties": {"genre": {"title": "Genre", "type": "string"}},
-                "required": ["genre"],
-                "title": "count_booksArguments",
-            }
+            {"type": "object", "properties": {"genre": {"type": "string"}}, "required": ["genre"]}
         )
 
 

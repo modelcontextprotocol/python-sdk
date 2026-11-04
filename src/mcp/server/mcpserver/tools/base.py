@@ -21,7 +21,7 @@ from mcp.server.mcpserver.resolve import (
     returns_input_required,
 )
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
-from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, UntitledJsonSchema, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
 from mcp.shared.inbound import find_invalid_x_mcp_header
@@ -104,7 +104,9 @@ class Tool(BaseModel):
             skip_names=skip_names,
             structured_output=structured_output,
         )
-        parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
+        parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True, schema_generator=UntitledJsonSchema)
+        # The arguments model is generated, so its class-name title says nothing.
+        parameters.pop("title", None)
         if (reason := find_invalid_x_mcp_header(parameters)) is not None:
             raise InvalidSignature(f"Tool {func_name!r} has an invalid x-mcp-header annotation: {reason}")
 

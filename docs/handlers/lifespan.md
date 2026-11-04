@@ -32,10 +32,9 @@ Nothing new. `ctx` is a **Context** parameter, so the SDK injects it and it neve
 {
   "type": "object",
   "properties": {
-    "genre": {"title": "Genre", "type": "string"}
+    "genre": {"type": "string"}
   },
-  "required": ["genre"],
-  "title": "count_booksArguments"
+  "required": ["genre"]
 }
 ```
 

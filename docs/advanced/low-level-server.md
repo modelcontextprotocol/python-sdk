@@ -61,7 +61,7 @@ asyncio.run(main())
 The same text the `@mcp.tool()` version produced. Two honest differences:
 
 * `result.structured_content` is `None`. The high-level server wraps a `-> str` into `{"result": ...}` for you; here nobody builds what you didn't build.
-* `list_tools` returns the schema **you** typed, character for character. The high-level version had `"title": "Query"` on every property and a `"title": "search_booksArguments"` at the root: Pydantic artifacts. Down here, if it's on the wire, you put it there.
+* `list_tools` returns the schema **you** typed, character for character. Down here, if it's on the wire, you put it there.
 
 In a test you skip uvicorn and the port: `Client(server)` takes a low-level `Server` in-process exactly like it takes an `MCPServer`, and **[Testing](../get-started/testing.md)** is that pattern.
 

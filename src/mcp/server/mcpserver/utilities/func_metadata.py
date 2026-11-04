@@ -4,7 +4,6 @@ import json
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
-from types import GenericAlias
 from typing import Annotated, Any, NotRequired, Union, cast, get_args, get_origin
 
 import anyio
@@ -63,7 +62,17 @@ def _returns_content(annotation: Any) -> bool:
     return False
 
 
-class StrictJsonSchema(GenerateJsonSchema):
+class UntitledJsonSchema(GenerateJsonSchema):
+    """A JSON schema generator that leaves out the titles pydantic derives from field names.
+
+    They only repeat the property key; titles set explicitly with `Field(title=...)` are kept.
+    """
+
+    def field_title_should_be_set(self, schema: Any) -> bool:
+        return False
+
+
+class StrictJsonSchema(UntitledJsonSchema):
     """A JSON schema generator that raises exceptions instead of emitting warnings.
 
     This is used to detect non-serializable types during schema generation.
@@ -128,6 +137,9 @@ class FuncMetadata(BaseModel):
         if self.output_model is not None and self.output_schema is None:
             # StrictJsonSchema raises instead of warning, so an unserializable return type fails construction.
             schema = self._output_adapter(self.output_model).json_schema(schema_generator=StrictJsonSchema)
+            if self.wrap_output:
+                # The `{"result": ...}` wrapper is ours, so its class-name title says nothing.
+                schema.pop("title", None)
             self.output_schema = _inline_root_ref(schema)
 
     def _output_adapter(self, output_model: Any) -> TypeAdapter[Any]:
@@ -338,7 +350,7 @@ def func_metadata(
         field_metadata: list[Any] = []
 
         if param.annotation is inspect.Parameter.empty:
-            field_metadata.append(WithJsonSchema({"title": param.name, "type": "string"}))
+            field_metadata.append(WithJsonSchema({"type": "string"}))
         # Check if the parameter name conflicts with BaseModel attributes
         # This is necessary because Pydantic warns about shadowing parent attributes
         if hasattr(BaseModel, field_name) and callable(getattr(BaseModel, field_name)):
@@ -434,10 +446,11 @@ def func_metadata(
     else:
         original_annotation = effective_annotation
 
-    if structured_output is None and _returns_content(return_type_expr):
+    if structured_output is None and (return_type_expr in (list, tuple) or _returns_content(return_type_expr)):
         # Content blocks and the Image/Audio helpers are what the model reads, not data for the
         # application: a derived schema would advertise the block's own model as output_schema (and,
         # unless the tool builds its own CallToolResult, echo every block into structured_content).
+        # A bare list/tuple says nothing about its items, so it may hold blocks too.
         # structured_output=True still forces one.
         return FuncMetadata(arg_model=arguments_model)
 
@@ -499,16 +512,14 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         model = _create_wrapped_model(func_name, original_annotation)
         wrap_output = True
 
-    # Handle GenericAlias types (list[str], dict[str, int], Union[str, int], etc.)
-    elif isinstance(type_expr, GenericAlias):
-        origin = get_origin(type_expr)
-
+    # Handle parameterized generics (list[str], typing.Dict[str, int], Union[str, int], etc.)
+    elif (origin := get_origin(type_expr)) is not None:
         if origin is dict:
             args = get_args(type_expr)
             if len(args) == 2 and args[0] is str:
                 # TODO: should we use the original annotation? We are losing any potential `Annotated`
                 # metadata for Pydantic here:
-                model = Annotated[type_expr, Field(title=f"{func_name}DictOutput")]
+                model = type_expr
             else:
                 # dict with non-str keys needs wrapping
                 model = _create_wrapped_model(func_name, original_annotation)
@@ -530,12 +541,16 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         elif is_typeddict(type_annotation):
             model = type_annotation
 
-        # Case 3: Primitive types that need wrapping
-        elif type_annotation in (str, int, float, bool, bytes, type(None)):
+        # Case 3: A bare dict is a JSON object already, like dict[str, Any]
+        elif type_annotation is dict:
+            model = dict[str, Any]
+
+        # Case 4: Primitive types and bare collections that need wrapping
+        elif type_annotation in (str, int, float, bool, bytes, type(None), list, tuple, set, frozenset):
             model = _create_wrapped_model(func_name, original_annotation)
             wrap_output = True
 
-        # Case 4: Other class types (dataclasses, regular classes with annotations)
+        # Case 5: Other class types (dataclasses, regular classes with annotations)
         else:
             type_hints = get_type_hints(type_annotation)
             if type_hints:
@@ -545,8 +560,6 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
 
     # Handle any other types not covered above
     else:
-        # This includes typing constructs that aren't GenericAlias in Python 3.10
-        # (e.g., Union, Optional in some Python versions)
         model = _create_wrapped_model(func_name, original_annotation)
         wrap_output = True
 

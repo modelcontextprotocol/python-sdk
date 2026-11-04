@@ -2764,12 +2764,7 @@ async def test_resolved_parameters_are_absent_from_the_advertised_tool_schema():
         (advertised,) = (await client.list_tools()).tools
 
     assert advertised.input_schema == snapshot(
-        {
-            "type": "object",
-            "properties": {"title": {"title": "Title", "type": "string"}},
-            "required": ["title"],
-            "title": "quoteArguments",
-        }
+        {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}
     )
 
 

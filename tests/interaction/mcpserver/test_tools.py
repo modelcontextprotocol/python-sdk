@@ -163,8 +163,8 @@ async def test_call_tool_model_return_becomes_structured_content(connect: Connec
     assert listed.tools[0].output_schema == snapshot(
         {
             "properties": {
-                "temperature": {"title": "Temperature", "type": "number"},
-                "conditions": {"title": "Conditions", "type": "string"},
+                "temperature": {"type": "number"},
+                "conditions": {"type": "string"},
             },
             "required": ["temperature", "conditions"],
             "title": "Weather",
@@ -205,9 +205,8 @@ async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect, 
 
     assert listed.tools[0].output_schema == snapshot(
         {
-            "properties": {"result": {"items": {"type": "integer"}, "title": "Result", "type": "array"}},
+            "properties": {"result": {"items": {"type": "integer"}, "type": "array"}},
             "required": ["result"],
-            "title": "primesOutput",
             "type": "object",
         }
     )

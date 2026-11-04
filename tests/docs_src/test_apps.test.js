@@ -15,7 +15,7 @@ for (const [name, file] of cases) {
     const source = readFileSync(path.join(root, file), "utf8");
     const html = source.match(/CLOCK_HTML = """([\s\S]*?)"""/)?.[1];
     assert.ok(html);
-    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    const script = html.match(/<script>([\s\S]*?)<\/script>/i)?.[1];
     const result = { content: [{ type: "text", text: "2026-06-26T12:00:00Z" }] };
     assert.ok(script);
     const clock = { textContent: "..." };

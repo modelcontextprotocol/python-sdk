@@ -158,15 +158,13 @@ async def test_client_list_tools(app: MCPServer):
                         name="greet",
                         description="Greet someone by name.",
                         input_schema={
-                            "properties": {"name": {"title": "Name", "type": "string"}},
+                            "properties": {"name": {"type": "string"}},
                             "required": ["name"],
-                            "title": "greetArguments",
                             "type": "object",
                         },
                         output_schema={
-                            "properties": {"result": {"title": "Result", "type": "string"}},
+                            "properties": {"result": {"type": "string"}},
                             "required": ["result"],
-                            "title": "greetOutput",
                             "type": "object",
                         },
                     )

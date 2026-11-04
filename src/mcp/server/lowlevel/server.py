@@ -557,7 +557,7 @@ class Server(Generic[LifespanResultT]):
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
                 experimental_capabilities,
-                extensions if extensions is not None else self.extensions,
+                extensions,
             ),
             instructions=self.instructions,
             website_url=self.website_url,

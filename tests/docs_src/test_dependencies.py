@@ -29,12 +29,7 @@ async def test_the_resolved_parameter_is_invisible_to_the_model() -> None:
         (tool,) = (await client.list_tools()).tools
 
     assert tool.input_schema == snapshot(
-        {
-            "type": "object",
-            "properties": {"title": {"title": "Title", "type": "string"}},
-            "required": ["title"],
-            "title": "reserve_bookArguments",
-        }
+        {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}
     )
 
 
