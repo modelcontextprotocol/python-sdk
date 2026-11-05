@@ -17,9 +17,7 @@ class BaseMetadata(WireModel):
     Base interface for metadata with name (identifier) and title (display name) properties.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     name: str
     """
     Intended for programmatic or logical use, but used as a display name in past specs or fallback (if title isn't present).
@@ -36,9 +34,7 @@ class BaseMetadata(WireModel):
 
 
 class BlobResourceContents(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -58,9 +54,7 @@ class BlobResourceContents(WireModel):
 
 
 class BooleanSchema(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     default: bool | None = None
     description: str | None = None
     title: str | None = None
@@ -68,9 +62,7 @@ class BooleanSchema(WireModel):
 
 
 class Params(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     task_id: Annotated[str, Field(alias="taskId")]
     """
     The task identifier to cancel.
@@ -82,9 +74,7 @@ class Elicitation(WireModel):
     Present if the client supports elicitation from the server.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     form: dict[str, Any] | None = None
     url: dict[str, Any] | None = None
 
@@ -94,9 +84,7 @@ class Roots(WireModel):
     Present if the client supports listing roots.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     list_changed: Annotated[bool | None, Field(alias="listChanged")] = None
     """
     Whether the client supports notifications for changes to the roots list.
@@ -108,9 +96,7 @@ class Sampling(WireModel):
     Present if the client supports sampling from an LLM.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     context: dict[str, Any] | None = None
     """
     Whether the client supports context inclusion via includeContext parameter.
@@ -127,9 +113,7 @@ class Elicitation1(WireModel):
     Task support for elicitation-related requests.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     create: dict[str, Any] | None = None
     """
     Whether the client supports task-augmented elicitation/create requests.
@@ -141,9 +125,7 @@ class Sampling1(WireModel):
     Task support for sampling-related requests.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     create_message: Annotated[dict[str, Any] | None, Field(alias="createMessage")] = None
     """
     Whether the client supports task-augmented sampling/createMessage requests.
@@ -155,9 +137,7 @@ class Requests(WireModel):
     Specifies which request types can be augmented with tasks.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     elicitation: Elicitation1 | None = None
     """
     Task support for elicitation-related requests.
@@ -173,9 +153,7 @@ class Tasks(WireModel):
     Present if the client supports task-augmented requests.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     cancel: dict[str, Any] | None = None
     """
     Whether this client supports tasks/cancel.
@@ -195,9 +173,7 @@ class ClientCapabilities(WireModel):
     Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
     """
 
-    model_config = ConfigDict(
-        extra="allow",
-    )
+    model_config = ConfigDict(extra="allow")
     elicitation: Elicitation | None = None
     """
     Present if the client supports elicitation from the server.
@@ -229,9 +205,7 @@ class Argument(WireModel):
     The argument's information
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     name: str
     """
     The name of the argument
@@ -247,9 +221,7 @@ class Context(WireModel):
     Additional, optional context for completions
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     arguments: dict[str, str] | None = None
     """
     Previously-resolved variables in a URI template or prompt.
@@ -257,9 +229,7 @@ class Context(WireModel):
 
 
 class Completion(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     has_more: Annotated[bool | None, Field(alias="hasMore")] = None
     """
     Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.
@@ -279,9 +249,7 @@ class CompleteResult(WireModel):
     The server's response to a completion/complete request
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -301,9 +269,7 @@ class RequestedSchema(WireModel):
     Only top-level properties are allowed, without nesting.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     schema_: Annotated[str | None, Field(alias="$schema")] = None
     properties: dict[str, Any]
     required: list[str] | None = None
@@ -315,9 +281,7 @@ class ElicitResult(WireModel):
     The client's response to an elicitation request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -338,9 +302,7 @@ class ElicitResult(WireModel):
 
 
 class Params1(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     elicitation_id: Annotated[str, Field(alias="elicitationId")]
     """
     The ID of the elicitation that completed.
@@ -352,18 +314,14 @@ class ElicitationCompleteNotification(WireModel):
     An optional notification from the server to the client, informing it of a completion of a out-of-band elicitation request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/elicitation/complete"]
     params: Params1
 
 
 class Error(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     code: int
     """
     The error type that occurred.
@@ -379,9 +337,7 @@ class Error(WireModel):
 
 
 class Params2(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     task_id: Annotated[str, Field(alias="taskId")]
     """
     The task identifier to retrieve results for.
@@ -395,9 +351,7 @@ class GetTaskPayloadResult(WireModel):
     For example, a tools/call task would return the CallToolResult structure.
     """
 
-    model_config = ConfigDict(
-        extra="allow",
-    )
+    model_config = ConfigDict(extra="allow")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -405,9 +359,7 @@ class GetTaskPayloadResult(WireModel):
 
 
 class Params3(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     task_id: Annotated[str, Field(alias="taskId")]
     """
     The task identifier to query.
@@ -419,9 +371,7 @@ class Icon(WireModel):
     An optionally-sized icon that can be displayed in a user interface.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     mime_type: Annotated[str | None, Field(alias="mimeType")] = None
     """
     Optional MIME type override if the source MIME type is missing or generic.
@@ -460,9 +410,7 @@ class Icons(WireModel):
     Base interface to add `icons` property.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     icons: list[Icon] | None = None
     """
     Optional set of sized icons that the client can display in a user interface.
@@ -482,9 +430,7 @@ class Implementation(WireModel):
     Describes the MCP implementation.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     description: str | None = None
     """
     An optional human-readable description of what this implementation does.
@@ -530,9 +476,7 @@ class JSONRPCNotification(WireModel):
     A notification which does not expect a response.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: str
     params: dict[str, Any] | None = None
@@ -544,9 +488,7 @@ class LegacyTitledEnumSchema(WireModel):
     This interface will be removed in a future version.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     default: str | None = None
     description: str | None = None
     enum: list[str]
@@ -573,9 +515,7 @@ class LoggingMessageNotificationParams(WireModel):
     Parameters for a `notifications/message` notification.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -602,9 +542,7 @@ class ModelHint(WireModel):
     to the client to interpret.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     name: str | None = None
     """
     A hint for a model name.
@@ -634,9 +572,7 @@ class ModelPreferences(WireModel):
     balance them against other considerations.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     cost_priority: Annotated[float | None, Field(alias="costPriority", ge=0.0, le=1.0)] = None
     """
     How much to prioritize cost when selecting a model. A value of 0 means cost
@@ -668,17 +604,13 @@ class ModelPreferences(WireModel):
 
 
 class Notification(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     method: str
     params: dict[str, Any] | None = None
 
 
 class NotificationParams(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -686,9 +618,7 @@ class NotificationParams(WireModel):
 
 
 class NumberSchema(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     default: int | float | None = None
     description: str | None = None
     maximum: int | float | None = None
@@ -698,9 +628,7 @@ class NumberSchema(WireModel):
 
 
 class PaginatedResult(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -723,9 +651,7 @@ class PromptArgument(WireModel):
     Describes an argument that a prompt can accept.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     description: str | None = None
     """
     A human-readable description of the argument.
@@ -754,9 +680,7 @@ class PromptListChangedNotification(WireModel):
     An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/prompts/list_changed"]
     params: NotificationParams | None = None
@@ -767,9 +691,7 @@ class PromptReference(WireModel):
     Identifies a prompt.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     name: str
     """
     Intended for programmatic or logical use, but used as a display name in past specs or fallback (if title isn't present).
@@ -791,9 +713,7 @@ class Meta(WireModel):
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
 
-    model_config = ConfigDict(
-        extra="allow",
-    )
+    model_config = ConfigDict(extra="allow")
     progress_token: Annotated[ProgressToken | None, Field(alias="progressToken")] = None
     """
     If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
@@ -805,9 +725,7 @@ class ReadResourceRequestParams(WireModel):
     Parameters for a `resources/read` request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -824,9 +742,7 @@ class RelatedTaskMetadata(WireModel):
     Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     task_id: Annotated[str, Field(alias="taskId")]
     """
     The task identifier this message is associated with.
@@ -834,9 +750,7 @@ class RelatedTaskMetadata(WireModel):
 
 
 class Request(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     method: str
     params: dict[str, Any] | None = None
 
@@ -852,9 +766,7 @@ class RequestParams(WireModel):
     Common params for any request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -866,9 +778,7 @@ class ResourceContents(WireModel):
     The contents of a specific resource or sub-resource.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -888,9 +798,7 @@ class ResourceListChangedNotification(WireModel):
     An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/resources/list_changed"]
     params: NotificationParams | None = None
@@ -901,9 +809,7 @@ class ResourceRequestParams(WireModel):
     Common parameters when working with resources.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -919,9 +825,7 @@ class ResourceTemplateReference(WireModel):
     A reference to a resource or resource template definition.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     type: Literal["ref/resource"]
     uri: str
     """
@@ -934,9 +838,7 @@ class ResourceUpdatedNotificationParams(WireModel):
     Parameters for a `notifications/resources/updated` notification.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -948,9 +850,7 @@ class ResourceUpdatedNotificationParams(WireModel):
 
 
 class Result(WireModel):
-    model_config = ConfigDict(
-        extra="allow",
-    )
+    model_config = ConfigDict(extra="allow")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -968,9 +868,7 @@ class Root(WireModel):
     Represents a root directory or file that the server can operate on.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -996,9 +894,7 @@ class RootsListChangedNotification(WireModel):
     The server should then request an updated list of roots using the ListRootsRequest.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/roots/list_changed"]
     params: NotificationParams | None = None
@@ -1009,9 +905,7 @@ class Prompts(WireModel):
     Present if the server offers any prompt templates.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     list_changed: Annotated[bool | None, Field(alias="listChanged")] = None
     """
     Whether this server supports notifications for changes to the prompt list.
@@ -1023,9 +917,7 @@ class Resources(WireModel):
     Present if the server offers any resources to read.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     list_changed: Annotated[bool | None, Field(alias="listChanged")] = None
     """
     Whether this server supports notifications for changes to the resource list.
@@ -1041,9 +933,7 @@ class Tools(WireModel):
     Task support for tool-related requests.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     call: dict[str, Any] | None = None
     """
     Whether the server supports task-augmented tools/call requests.
@@ -1055,9 +945,7 @@ class Requests1(WireModel):
     Specifies which request types can be augmented with tasks.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     tools: Tools | None = None
     """
     Task support for tool-related requests.
@@ -1069,9 +957,7 @@ class Tasks1(WireModel):
     Present if the server supports task-augmented requests.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     cancel: dict[str, Any] | None = None
     """
     Whether this server supports tasks/cancel.
@@ -1091,9 +977,7 @@ class Tools1(WireModel):
     Present if the server offers any tools to call.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     list_changed: Annotated[bool | None, Field(alias="listChanged")] = None
     """
     Whether this server supports notifications for changes to the tool list.
@@ -1105,9 +989,7 @@ class ServerCapabilities(WireModel):
     Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
     """
 
-    model_config = ConfigDict(
-        extra="allow",
-    )
+    model_config = ConfigDict(extra="allow")
     completions: dict[str, Any] | None = None
     """
     Present if the server supports argument autocompletion suggestions.
@@ -1147,9 +1029,7 @@ class SetLevelRequestParams(WireModel):
     Parameters for a `logging/setLevel` request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1161,9 +1041,7 @@ class SetLevelRequestParams(WireModel):
 
 
 class StringSchema(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     default: str | None = None
     description: str | None = None
     format: Literal["date", "date-time", "email", "uri"] | None = None
@@ -1178,9 +1056,7 @@ class SubscribeRequestParams(WireModel):
     Parameters for a `resources/subscribe` request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1197,9 +1073,7 @@ class TaskMetadata(WireModel):
     Include this in the `task` field of the request parameters.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     ttl: int | None = None
     """
     Requested duration in milliseconds to retain task from creation.
@@ -1213,9 +1087,7 @@ The status of a task.
 
 
 class TextResourceContents(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1235,9 +1107,7 @@ class TextResourceContents(WireModel):
 
 
 class AnyOfItem(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     const: str
     """
     The constant enum value.
@@ -1253,9 +1123,7 @@ class Items(WireModel):
     Schema for array items with enum options and display labels.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     any_of: Annotated[list[AnyOfItem], Field(alias="anyOf")]
     """
     Array of enum options with values and display labels.
@@ -1267,9 +1135,7 @@ class TitledMultiSelectEnumSchema(WireModel):
     Schema for multiple-selection enumeration with display titles for each option.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     default: list[str] | None = None
     """
     Optional default value.
@@ -1298,9 +1164,7 @@ class TitledMultiSelectEnumSchema(WireModel):
 
 
 class OneOfItem(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     const: str
     """
     The enum value.
@@ -1316,9 +1180,7 @@ class TitledSingleSelectEnumSchema(WireModel):
     Schema for single-selection enumeration with display titles for each option.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     default: str | None = None
     """
     Optional default value.
@@ -1343,9 +1205,7 @@ class InputSchema(WireModel):
     A JSON Schema object defining the expected parameters for the tool.
     """
 
-    model_config = ConfigDict(
-        extra="allow",
-    )
+    model_config = ConfigDict(extra="allow")
     schema_: Annotated[str | None, Field(alias="$schema")] = None
     properties: dict[str, dict[str, Any] | bool] | None = None
     required: list[str] | None = None
@@ -1361,9 +1221,7 @@ class OutputSchema(WireModel):
     Currently restricted to type: "object" at the root level.
     """
 
-    model_config = ConfigDict(
-        extra="allow",
-    )
+    model_config = ConfigDict(extra="allow")
     schema_: Annotated[str | None, Field(alias="$schema")] = None
     properties: dict[str, dict[str, Any] | bool] | None = None
     required: list[str] | None = None
@@ -1382,9 +1240,7 @@ class ToolAnnotations(WireModel):
     received from untrusted servers.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     destructive_hint: Annotated[bool | None, Field(alias="destructiveHint")] = None
     """
     If true, the tool may perform destructive updates to its environment.
@@ -1429,9 +1285,7 @@ class ToolChoice(WireModel):
     Controls tool selection behavior for sampling requests.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     mode: Literal["auto", "none", "required"] | None = None
     """
     Controls the tool use ability of the model:
@@ -1446,9 +1300,7 @@ class ToolExecution(WireModel):
     Execution-related properties for a tool.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     task_support: Annotated[Literal["forbidden", "optional", "required"] | None, Field(alias="taskSupport")] = None
     """
     Indicates whether this tool supports task-augmented execution.
@@ -1468,9 +1320,7 @@ class ToolListChangedNotification(WireModel):
     An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/tools/list_changed"]
     params: NotificationParams | None = None
@@ -1481,9 +1331,7 @@ class ToolUseContent(WireModel):
     A request from the assistant to call a tool.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     Optional metadata about the tool use. Clients SHOULD preserve this field when
@@ -1513,9 +1361,7 @@ class UnsubscribeRequestParams(WireModel):
     Parameters for a `resources/unsubscribe` request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1531,9 +1377,7 @@ class Items1(WireModel):
     Schema for the array items.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     enum: list[str]
     """
     Array of enum values to choose from.
@@ -1546,9 +1390,7 @@ class UntitledMultiSelectEnumSchema(WireModel):
     Schema for multiple-selection enumeration without display titles for options.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     default: list[str] | None = None
     """
     Optional default value.
@@ -1581,9 +1423,7 @@ class UntitledSingleSelectEnumSchema(WireModel):
     Schema for single-selection enumeration without display titles for options.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     default: str | None = None
     """
     Optional default value.
@@ -1608,9 +1448,7 @@ class Annotations(WireModel):
     Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     audience: list[Role] | None = None
     """
     Describes who the intended audience of this object or data is.
@@ -1641,9 +1479,7 @@ class AudioContent(WireModel):
     Audio provided to or from an LLM.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1668,9 +1504,7 @@ class CallToolRequestParams(WireModel):
     Parameters for a `tools/call` request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1699,9 +1533,7 @@ class CancelTaskRequest(WireModel):
     A request to cancel a task.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["tasks/cancel"]
@@ -1713,9 +1545,7 @@ class CancelledNotificationParams(WireModel):
     Parameters for a `notifications/cancelled` notification.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1739,9 +1569,7 @@ class CompleteRequestParams(WireModel):
     Parameters for a `completion/complete` request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1762,9 +1590,7 @@ class ElicitRequestFormParams(WireModel):
     The parameters for a request to elicit non-sensitive information from the user via a form in the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1798,9 +1624,7 @@ class ElicitRequestURLParams(WireModel):
     The parameters for a request to elicit information from the user via a URL in the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1841,9 +1665,7 @@ class EmbeddedResource(WireModel):
     of the LLM and/or the user.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1873,9 +1695,7 @@ class GetPromptRequestParams(WireModel):
     Parameters for a `prompts/get` request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1895,9 +1715,7 @@ class GetTaskPayloadRequest(WireModel):
     A request to retrieve the result of a completed task.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["tasks/result"]
@@ -1909,9 +1727,7 @@ class GetTaskRequest(WireModel):
     A request to retrieve the state of a task.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["tasks/get"]
@@ -1923,9 +1739,7 @@ class ImageContent(WireModel):
     An image provided to or from an LLM.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1950,9 +1764,7 @@ class InitializeRequestParams(WireModel):
     Parameters for an `initialize` request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1970,9 +1782,7 @@ class InitializeResult(WireModel):
     After receiving an initialize request from the client, the server sends this response.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -1996,9 +1806,7 @@ class InitializedNotification(WireModel):
     This notification is sent from the client to the server after initialization has finished.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/initialized"]
     params: NotificationParams | None = None
@@ -2009,9 +1817,7 @@ class JSONRPCErrorResponse(WireModel):
     A response to a request that indicates an error occurred.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     error: Error
     id: RequestId | None = None
     jsonrpc: Literal["2.0"]
@@ -2022,9 +1828,7 @@ class JSONRPCRequest(WireModel):
     A request that expects a response.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: str
@@ -2036,9 +1840,7 @@ class JSONRPCResultResponse(WireModel):
     A successful (non-error) response to a request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     result: Result
@@ -2055,9 +1857,7 @@ class ListRootsRequest(WireModel):
     structure or access specific locations that the client has permission to read from.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["roots/list"]
@@ -2071,9 +1871,7 @@ class ListRootsResult(WireModel):
     or file that the server can operate on.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2086,9 +1884,7 @@ class LoggingMessageNotification(WireModel):
     JSONRPCNotification of a log message passed from server to client. If no logging/setLevel request has been sent from the client, the server MAY decide which messages to send automatically.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/message"]
     params: LoggingMessageNotificationParams
@@ -2102,9 +1898,7 @@ class PaginatedRequestParams(WireModel):
     Common parameters for paginated requests.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2121,9 +1915,7 @@ class PingRequest(WireModel):
     A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["ping"]
@@ -2151,9 +1943,7 @@ class ProgressNotificationParams(WireModel):
     Parameters for a `notifications/progress` notification.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2181,9 +1971,7 @@ class Prompt(WireModel):
     A prompt or prompt template that the server offers.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2228,9 +2016,7 @@ class ReadResourceRequest(WireModel):
     Sent from the client to the server, to read a specific resource URI.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["resources/read"]
@@ -2242,9 +2028,7 @@ class ReadResourceResult(WireModel):
     The server's response to a resources/read request from the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2257,9 +2041,7 @@ class Resource(WireModel):
     A known resource that the server is capable of reading.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2322,9 +2104,7 @@ class ResourceLink(WireModel):
     Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2386,9 +2166,7 @@ class ResourceTemplate(WireModel):
     A template description for resources available on the server.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2443,9 +2221,7 @@ class ResourceUpdatedNotification(WireModel):
     A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a resources/subscribe request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/resources/updated"]
     params: ResourceUpdatedNotificationParams
@@ -2456,9 +2232,7 @@ class SetLevelRequest(WireModel):
     A request from the client to the server, to enable or adjust logging.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["logging/setLevel"]
@@ -2473,9 +2247,7 @@ class SubscribeRequest(WireModel):
     Sent from the client to request resources/updated notifications from the server whenever a particular resource changes.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["resources/subscribe"]
@@ -2487,9 +2259,7 @@ class Task(WireModel):
     Data associated with a task.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     created_at: Annotated[str, Field(alias="createdAt")]
     """
     ISO 8601 timestamp when the task was created.
@@ -2529,9 +2299,7 @@ class TaskAugmentedRequestParams(WireModel):
     Common params for any task-augmented request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2552,9 +2320,7 @@ class TaskStatusNotificationParams(NotificationParams, Task):
     Parameters for a `notifications/tasks/status` notification.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
 
 
 class TextContent(WireModel):
@@ -2562,9 +2328,7 @@ class TextContent(WireModel):
     Text provided to or from an LLM.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2585,9 +2349,7 @@ class Tool(WireModel):
     Definition for a tool the client can call.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2652,16 +2414,12 @@ class Data(WireModel):
     Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
     """
 
-    model_config = ConfigDict(
-        extra="allow",
-    )
+    model_config = ConfigDict(extra="allow")
     elicitations: list[ElicitRequestURLParams]
 
 
 class Error1(Error):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     code: Literal[-32042]
     """
     The error type that occurred.
@@ -2677,9 +2435,7 @@ class URLElicitationRequiredError(WireModel):
     An error response that indicates that the server requires the client to provide additional information via an elicitation request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     error: Error1
     id: RequestId | None = None
     jsonrpc: Literal["2.0"]
@@ -2690,9 +2446,7 @@ class UnsubscribeRequest(WireModel):
     Sent from the client to request cancellation of resources/updated notifications from the server. This should follow a previous resources/subscribe request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["resources/unsubscribe"]
@@ -2704,9 +2458,7 @@ class CallToolRequest(WireModel):
     Used by the client to invoke a tool provided by the server.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["tools/call"]
@@ -2718,9 +2470,7 @@ class CancelTaskResult(Result, Task):
     The response to a tasks/cancel request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
 
 
 class CancelledNotification(WireModel):
@@ -2736,9 +2486,7 @@ class CancelledNotification(WireModel):
     For task cancellation, use the `tasks/cancel` request instead of this notification.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/cancelled"]
     params: CancelledNotificationParams
@@ -2749,9 +2497,7 @@ class CompleteRequest(WireModel):
     A request from the client to the server, to ask for completion options.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["completion/complete"]
@@ -2766,9 +2512,7 @@ class CreateTaskResult(WireModel):
     A response to a task-augmented request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2787,9 +2531,7 @@ class GetPromptRequest(WireModel):
     Used by the client to get a prompt provided by the server.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["prompts/get"]
@@ -2801,9 +2543,7 @@ class GetTaskResult(Result, Task):
     The response to a tasks/get request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
 
 
 class InitializeRequest(WireModel):
@@ -2811,9 +2551,7 @@ class InitializeRequest(WireModel):
     This request is sent from the client to the server when it first connects, asking it to begin initialization.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["initialize"]
@@ -2837,9 +2575,7 @@ class ListPromptsRequest(WireModel):
     Sent from the client to request a list of prompts and prompt templates the server has.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["prompts/list"]
@@ -2851,9 +2587,7 @@ class ListPromptsResult(WireModel):
     The server's response to a prompts/list request from the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2871,9 +2605,7 @@ class ListResourceTemplatesRequest(WireModel):
     Sent from the client to request a list of resource templates the server has.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["resources/templates/list"]
@@ -2885,9 +2617,7 @@ class ListResourceTemplatesResult(WireModel):
     The server's response to a resources/templates/list request from the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2905,9 +2635,7 @@ class ListResourcesRequest(WireModel):
     Sent from the client to request a list of resources the server has.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["resources/list"]
@@ -2919,9 +2647,7 @@ class ListResourcesResult(WireModel):
     The server's response to a resources/list request from the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2939,9 +2665,7 @@ class ListTasksRequest(WireModel):
     A request to retrieve a list of tasks.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["tasks/list"]
@@ -2953,9 +2677,7 @@ class ListTasksResult(WireModel):
     The response to a tasks/list request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -2973,9 +2695,7 @@ class ListToolsRequest(WireModel):
     Sent from the client to request a list of tools the server has.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["tools/list"]
@@ -2987,9 +2707,7 @@ class ListToolsResult(WireModel):
     The server's response to a tools/list request from the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -3003,9 +2721,7 @@ class ListToolsResult(WireModel):
 
 
 class PaginatedRequest(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: str
@@ -3017,9 +2733,7 @@ class ProgressNotification(WireModel):
     An out-of-band notification used to inform the receiver of a progress update for a long-running request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/progress"]
     params: ProgressNotificationParams
@@ -3033,9 +2747,7 @@ class PromptMessage(WireModel):
     resources from the MCP server.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     content: ContentBlock
     role: Role
 
@@ -3045,9 +2757,7 @@ class TaskStatusNotification(WireModel):
     An optional notification from the receiver to the requestor, informing them that a task's status has changed. Receivers are not required to send these notifications.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/tasks/status"]
     params: TaskStatusNotificationParams
@@ -3058,9 +2768,7 @@ class ToolResultContent(WireModel):
     The result of a tool use, provided by the user back to the assistant.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     Optional metadata about the tool result. Clients SHOULD preserve this field when
@@ -3102,9 +2810,7 @@ class CallToolResult(WireModel):
     The server's response to a tool call.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -3169,9 +2875,7 @@ class ElicitRequest(WireModel):
     A request from the server to elicit additional information from the user via the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["elicitation/create"]
@@ -3183,9 +2887,7 @@ class GetPromptResult(WireModel):
     The server's response to a prompts/get request from the client.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -3238,9 +2940,7 @@ class CreateMessageResult(WireModel):
     to inspect the response (human in the loop) and decide whether to allow the server to see it.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -3277,9 +2977,7 @@ class SamplingMessage(WireModel):
     Describes a message issued to or received from an LLM API.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -3312,9 +3010,7 @@ class CreateMessageRequestParams(WireModel):
     Parameters for a `sampling/createMessage` request.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
     See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
@@ -3378,9 +3074,7 @@ class CreateMessageRequest(WireModel):
     A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
     """
 
-    model_config = ConfigDict(
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="ignore")
     id: RequestId
     jsonrpc: Literal["2.0"]
     method: Literal["sampling/createMessage"]
