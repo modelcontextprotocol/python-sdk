@@ -53,8 +53,8 @@ class WebhookReceiver:
     """ASGI app for the callback URL of webhook subscriptions made with one `secret`.
 
     Requests that are unsigned, signed with another secret, or older than `tolerance`
-    get a 401 and never reach `handler`. Events are deduplicated on `event_id` across
-    the last `dedupe_window` events, since servers retry deliveries.
+    get a 401 and never reach `handler`. Events are deduplicated on their subscription and
+    `event_id` across the last `dedupe_window` events, since servers retry deliveries.
     """
 
     def __init__(
@@ -69,7 +69,7 @@ class WebhookReceiver:
         self._handler = handler
         self._tolerance = tolerance
         self._dedupe_window = dedupe_window
-        self._seen: OrderedDict[str, None] = OrderedDict()
+        self._seen: OrderedDict[tuple[str, str], None] = OrderedDict()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         request = Request(scope, receive)
@@ -100,11 +100,13 @@ class WebhookReceiver:
                     delivery = EventOccurrence.model_validate(payload)
         except (ValueError, TypeError, KeyError, AttributeError, ValidationError):
             return Response(status_code=400)
-        if isinstance(delivery, EventOccurrence) and delivery.event_id in self._seen:
+        # One upstream event can match several subscriptions, and each must receive it.
+        seen_key = (subscription_id, delivery.event_id) if isinstance(delivery, EventOccurrence) else None
+        if seen_key in self._seen:
             return Response(status_code=204)
         await self._handler(delivery)
-        if isinstance(delivery, EventOccurrence):
-            self._seen[delivery.event_id] = None
+        if seen_key is not None:
+            self._seen[seen_key] = None
             if len(self._seen) > self._dedupe_window:
                 self._seen.popitem(last=False)
         return Response(status_code=204)

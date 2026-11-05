@@ -23,7 +23,14 @@ from mcp.experimental.events.server import (
     Subscriber,
     Webhooks,
 )
-from mcp.experimental.events.types import EXTENSION_ID, NOT_FOUND, PollEventsParams, PollEventsRequest
+from mcp.experimental.events.types import (
+    EXTENSION_ID,
+    FORBIDDEN,
+    NOT_FOUND,
+    PollEventsParams,
+    PollEventsRequest,
+    events_error,
+)
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.exceptions import MCPError
 
@@ -373,6 +380,43 @@ async def test_failing_on_subscribe_fails_the_poll_and_runs_again_on_the_next_on
         await events_client.poll("incident.created", {"service": "billing"})
         assert len(attempts) == 2
         assert attempts[0] == attempts[1]
+
+
+async def test_a_poll_during_another_polls_failing_on_subscribe_runs_the_hook_itself() -> None:
+    """Concurrent first polls for one key wait for the in-flight `on_subscribe`, so a hook that
+    rejects one of them is never skipped for the other (SDK-defined; the hook is where access is checked)."""
+    attempts: list[str] = []
+    entered = anyio.Event()
+    release = anyio.Event()
+    events = Events()
+    incidents = events.event("incident.created", arguments=ServiceFilter, payload=Incident)
+
+    @incidents.on_subscribe
+    async def check_access(subscriber: Subscriber[ServiceFilter]) -> None:
+        attempts.append(subscriber.id)
+        if len(attempts) == 1:
+            entered.set()
+            await release.wait()
+            raise events_error(FORBIDDEN, reason="access revoked")
+
+    mcp = MCPServer("pager", extensions=[events])
+
+    async with Client(mcp, extensions=[ClientEvents()]) as client:
+        events_client = client.extension(ClientEvents)
+
+        async def rejected_poll() -> None:
+            with pytest.raises(MCPError) as exc_info:
+                await events_client.poll("incident.created", {"service": "billing"})
+            assert exc_info.value.code == FORBIDDEN
+
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as task_group:
+                task_group.start_soon(rejected_poll)
+                await entered.wait()
+                task_group.start_soon(events_client.poll, "incident.created", {"service": "billing"})
+                await anyio.wait_all_tasks_blocked()
+                release.set()
+        assert len(attempts) == 2
 
 
 async def test_concurrent_connections_share_one_running_events_extension() -> None:

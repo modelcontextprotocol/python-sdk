@@ -18,6 +18,7 @@ from mcp_types import INVALID_PARAMS
 from pydantic import BaseModel
 
 from mcp.experimental.events._callbacks import CallbackFailure, Callbacks, NonPublicAddress
+from mcp.experimental.events._locks import KeyedLocks
 from mcp.experimental.events.event_type import EventBatch, EventQuery, EventType, Subscriber
 from mcp.experimental.events.signing import decode_secret
 from mcp.experimental.events.types import (
@@ -103,7 +104,8 @@ class WebhookSubscriptions:
         self._callbacks = Callbacks(client, config.trusted_origins)
         self._task_group = task_group
         self._subscriptions: dict[str, _Subscription] = {}
-        self._verified: set[tuple[str, str]] = set()
+        self._verified: set[tuple[str | None, str]] = set()
+        self._setup = KeyedLocks()
 
     async def subscribe(
         self, event_type: EventType[Any, Any], arguments: BaseModel, principal: str, params: SubscribeEventsParams
@@ -117,8 +119,26 @@ class WebhookSubscriptions:
         key = json.dumps([principal, url, event_type.name, params.arguments or {}], sort_keys=True)
         subscription_id = f"sub_{hashlib.sha256(key.encode()).hexdigest()[:16]}"
         ttl = self._grant(params)
-        if (existing := self._subscriptions.get(key)) is not None:
-            return self._refresh(existing, secret, ttl)
+        async with self._setup(key):
+            if (existing := self._subscriptions.get(key)) is not None:
+                return self._refresh(existing, secret, ttl)
+            try:
+                return await self._create(event_type, arguments, principal, params, key, subscription_id, ttl)
+            except BaseException:
+                self._forget_unused_verification(principal, url)
+                raise
+
+    async def _create(
+        self,
+        event_type: EventType[Any, Any],
+        arguments: BaseModel,
+        principal: str,
+        params: SubscribeEventsParams,
+        key: str,
+        subscription_id: str,
+        ttl: timedelta,
+    ) -> SubscribeEventsResult:
+        url, secret = params.delivery.url, params.delivery.secret
         if (principal, url) not in self._verified:
             try:
                 await self._callbacks.verify(url, subscription_id, secret)
@@ -138,8 +158,8 @@ class WebhookSubscriptions:
             url=url,
             secret=secret,
             expires_at=datetime.now(UTC) + ttl,
-            # Not yet delivered, so only the supplied cursor is safe to persist; after a gap it is stale.
-            cursor=params.cursor if batch.events and not batch.truncated else batch.cursor,
+            # The batch is not delivered yet, so only the supplied cursor is safe to persist.
+            cursor=params.cursor if batch.events else batch.cursor,
         )
         subscription.scope.deadline = anyio.current_time() + ttl.total_seconds()
         for hook in event_type.subscribe_hooks:
@@ -159,6 +179,11 @@ class WebhookSubscriptions:
         if subscription is None:
             raise events_error(NOT_FOUND, kind="subscription")
         subscription.scope.cancel()
+
+    def _forget_unused_verification(self, principal: str | None, url: str) -> None:
+        # The spec scopes verification to the subscriptions it covers, so the cache cannot outgrow them.
+        if not any(s.subscriber.principal == principal and s.url == url for s in self._subscriptions.values()):
+            self._verified.discard((principal, url))
 
     def _grant(self, params: SubscribeEventsParams) -> timedelta:
         # In-memory subscriptions cannot honour "no expiry", so an omitted or null ttlMs gets the cap.
@@ -184,6 +209,8 @@ class WebhookSubscriptions:
         try:
             with subscription.scope:
                 while True:
+                    # shortcut: events go out one at a time, so a failing event delays later ones by its
+                    # retries, where the spec retries each independently; needs per-event acks behind the cursor.
                     for index, occurrence in enumerate(batch.events):
                         last = index == len(batch.events) - 1
                         body = event_type.wire(occurrence, batch.cursor if last else subscription.cursor)
@@ -195,6 +222,7 @@ class WebhookSubscriptions:
         finally:
             if self._subscriptions.get(subscription.key) is subscription:
                 del self._subscriptions[subscription.key]
+            self._forget_unused_verification(subscriber.principal, subscription.url)
         for hook in event_type.unsubscribe_hooks:
             await hook(subscriber)
 

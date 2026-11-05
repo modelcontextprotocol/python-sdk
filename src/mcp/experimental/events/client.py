@@ -101,18 +101,18 @@ class EventsClient:
     async def watch(
         self, name: str, arguments: dict[str, Any] | None = None, *, cursor: str | None = None
     ) -> AsyncGenerator[PollEventsResult, None]:
-        """Poll forever, yielding each batch that has events or reports a gap (`truncated`).
+        """Poll forever, yielding every batch, including empty ones.
 
         Persist `batch.cursor` after handling a batch, and pass it back after a restart
-        to resume: delivery is at-least-once, so deduplicate on `event_id`.
+        to resume: delivery is at-least-once, so deduplicate on `event_id`. Empty batches
+        still move the cursor, which keeps it inside the upstream's retention window.
         """
         if cursor is None:
             cursor = (await self.poll(name, arguments)).cursor
         while True:
             batch = await self.poll(name, arguments, cursor=cursor)
             cursor = batch.cursor
-            if batch.events or batch.truncated:
-                yield batch
+            yield batch
             if not batch.has_more:
                 wait = max(timedelta(milliseconds=batch.next_poll_ms), self._min_poll_interval)
                 await anyio.sleep(wait.total_seconds())
@@ -145,7 +145,7 @@ class EventsClient:
         )
         result = await self._session.send_request(SubscribeEventsRequest(params=params), SubscribeEventsResult)
         async with anyio.create_task_group() as task_group:
-            task_group.start_soon(self._refresh, params, result.refresh_before)
+            task_group.start_soon(self._refresh, params, result)
             try:
                 yield result
             finally:
@@ -155,11 +155,10 @@ class EventsClient:
                     request = UnsubscribeEventsRequest(params=unsubscribe)
                     await self._session.send_request(request, UnsubscribeEventsResult)
 
-    async def _refresh(self, params: SubscribeEventsParams, refresh_before: datetime | None) -> None:
-        while refresh_before is not None:
+    async def _refresh(self, params: SubscribeEventsParams, result: SubscribeEventsResult) -> None:
+        while result.refresh_before is not None:
             # Refresh at two thirds of the remaining lifetime, leaving room for a failed attempt.
-            await anyio.sleep((refresh_before - datetime.now(UTC)).total_seconds() * 2 / 3)
-            # Resend the original cursor-less params: the server keeps the subscription's own position.
-            request = SubscribeEventsRequest(params=params.model_copy(update={"cursor": None}))
+            await anyio.sleep((result.refresh_before - datetime.now(UTC)).total_seconds() * 2 / 3)
+            # The latest safe cursor is a no-op for a live subscription, and the replay point if the server lost it.
+            request = SubscribeEventsRequest(params=params.model_copy(update={"cursor": result.cursor}))
             result = await self._session.send_request(request, SubscribeEventsResult)
-            refresh_before = result.refresh_before

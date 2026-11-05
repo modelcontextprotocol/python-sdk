@@ -121,6 +121,7 @@ fell out of the upstream's retention window. Clients use it to know they missed 
 from pydantic import BaseModel
 
 from mcp.experimental.events.server import Events, Subscriber
+from mcp.experimental.events.types import FORBIDDEN, events_error
 from mcp.server.mcpserver import MCPServer
 
 
@@ -140,6 +141,8 @@ watched: dict[str, int] = {}
 
 @incidents.on_subscribe
 async def start_watching(subscriber: Subscriber[IncidentFilter]) -> None:
+    if subscriber.principal is None:
+        raise events_error(FORBIDDEN, reason="sign in to watch incidents")
     service = subscriber.arguments.service
     watched[service] = watched.get(service, 0) + 1
 
@@ -152,7 +155,11 @@ async def stop_watching(subscriber: Subscriber[IncidentFilter]) -> None:
 mcp = MCPServer("pager", extensions=[events])
 ```
 
-Hooks let you set up and tear down upstream work per subscription. A poll client never says
+Hooks let you set up and tear down upstream work per subscription. `on_subscribe` is also where
+you check access: the subscriber carries the caller's `principal`, and raising an `MCPError`
+rejects the poll or subscription with that error.
+
+A poll client never says
 goodbye, so the SDK leases poll subscriptions: `on_subscribe` runs on the first poll for a
 principal, event type, and arguments, and `on_unsubscribe` runs once no poll renewed the lease
 for `poll_lease` (three poll intervals by default).
@@ -221,7 +228,8 @@ anyio.run(main)
 
 `watch` polls in a loop. It waits as long as the server asks (`nextPollMs`), never less than
 `Events(min_poll_interval=...)`, and polls again at once while the server has more. It yields
-only batches that have events or report a gap (`batch.truncated`).
+every batch, including empty ones, because an empty batch still moves the cursor. A batch with
+`batch.truncated` set means events were skipped.
 
 To resume after a restart, save `batch.cursor` once you handled a batch, and pass it back with
 `watch(..., cursor=saved)`. Delivery is at least once, so deduplicate on `event_id`.
@@ -273,7 +281,8 @@ anyio.run(main)
 ```
 
 `subscribe` holds the subscription for the duration of the block. It refreshes it before it
-expires, and unsubscribes on exit.
+expires, passing the latest cursor so a server that lost the subscription replays from there,
+and unsubscribes on exit.
 
 `WebhookReceiver` is an ASGI app for the callback URL. It answers the verification challenge,
 rejects requests that are unsigned, signed with another secret, or more than five minutes old,

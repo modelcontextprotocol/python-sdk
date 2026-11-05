@@ -31,6 +31,7 @@ from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import BaseModel, ValidationError
 
 from mcp.experimental.events._buffer import EmitBuffer
+from mcp.experimental.events._locks import KeyedLocks
 from mcp.experimental.events.event_type import EventBatch, EventQuery, EventType, NoArguments, Occurrence, Subscriber
 from mcp.experimental.events.types import (
     EXTENSION_ID,
@@ -117,6 +118,7 @@ class Events(Extension):
         self._buffer_max_age = buffer_max_age
         self._event_types: dict[str, EventType[Any, Any]] = {}
         self._leases: dict[str, anyio.CancelScope] = {}
+        self._lease_setup = KeyedLocks()
         self._task_group: TaskGroup | None = None
         self._subscriptions: WebhookSubscriptions | None = None
 
@@ -221,20 +223,17 @@ class Events(Extension):
     async def _renew_lease(self, event_type: EventType[Any, Any], arguments: BaseModel, principal: str | None) -> None:
         key = json.dumps([principal, event_type.name, arguments.model_dump(mode="json")], sort_keys=True)
         deadline = anyio.current_time() + self._poll_lease.total_seconds()
-        if (lease := self._leases.get(key)) is not None:
-            lease.deadline = deadline
-            return
         assert self._task_group is not None, "Events runs inside the server's lifespan"
         subscription_id = f"sub_{hashlib.sha256(key.encode()).hexdigest()[:16]}"
         subscriber = Subscriber(id=subscription_id, arguments=arguments, principal=principal, mode="poll")
-        lease = self._leases[key] = anyio.CancelScope(deadline=deadline)
-        try:
+        async with self._lease_setup(key):
+            if (lease := self._leases.get(key)) is not None:
+                lease.deadline = deadline
+                return
             for hook in event_type.subscribe_hooks:
                 await hook(subscriber)
-        except BaseException:
-            del self._leases[key]
-            raise
-        self._task_group.start_soon(self._expire_lease, key, lease, event_type, subscriber)
+            lease = self._leases[key] = anyio.CancelScope(deadline=deadline)
+            self._task_group.start_soon(self._expire_lease, key, lease, event_type, subscriber)
 
     async def _expire_lease(
         self, key: str, lease: anyio.CancelScope, event_type: EventType[Any, Any], subscriber: Subscriber[Any]

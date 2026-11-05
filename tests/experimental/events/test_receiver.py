@@ -21,14 +21,20 @@ SECRET = "whsec_" + base64.b64encode(b"k" * 32).decode()
 EVENT = {"eventId": "e1", "name": "ping", "timestamp": "2026-11-05T12:00:00Z", "data": {"n": 1}, "cursor": "c1"}
 
 
-def signed(body: dict[str, Any] | bytes, *, secret: str = SECRET, timestamp: int | None = None) -> dict[str, Any]:
+def signed(
+    body: dict[str, Any] | bytes,
+    *,
+    secret: str = SECRET,
+    timestamp: int | None = None,
+    subscription_id: str = "sub_1",
+) -> dict[str, Any]:
     content = body if isinstance(body, bytes) else json.dumps(body).encode()
     timestamp = int(time.time()) if timestamp is None else timestamp
     headers = {
         "webhook-id": "msg_1",
         "webhook-timestamp": str(timestamp),
         "webhook-signature": f"v1,{sign(secret, 'msg_1', timestamp, content)}",
-        "x-mcp-subscription-id": "sub_1",
+        "x-mcp-subscription-id": subscription_id,
     }
     return {"content": content, "headers": headers}
 
@@ -72,16 +78,23 @@ async def test_receiver_hands_over_events_gaps_and_terminations() -> None:
     ]
 
 
-async def test_receiver_hands_over_a_retried_event_once_within_the_dedupe_window() -> None:
-    """Servers deliver at least once, so a repeated `eventId` is acknowledged without reaching the
-    handler, until it falls out of the window (SDK-defined)."""
+async def test_receiver_hands_over_a_retried_event_once_per_subscription_within_the_dedupe_window() -> None:
+    """Servers deliver at least once, so an `eventId` repeated on one subscription is acknowledged
+    without reaching the handler until it falls out of the window, while the same `eventId` on
+    another subscription is a separate delivery (spec-mandated subscription-scoped deduplication)."""
     received: list[Delivery] = []
-    async with receiver_client(received, dedupe_window=1) as http:
-        for event_id in ("e1", "e1", "e2", "e1"):
-            response = await http.post("/", **signed({**EVENT, "eventId": event_id}))
+    async with receiver_client(received, dedupe_window=2) as http:
+        for subscription_id, event_id in (
+            ("sub_1", "e1"),
+            ("sub_1", "e1"),
+            ("sub_2", "e1"),
+            ("sub_1", "e2"),
+            ("sub_1", "e1"),
+        ):
+            response = await http.post("/", **signed({**EVENT, "eventId": event_id}, subscription_id=subscription_id))
             assert response.status_code == 204
 
-    assert [d.event_id for d in received if isinstance(d, EventOccurrence)] == ["e1", "e2", "e1"]
+    assert [d.event_id for d in received if isinstance(d, EventOccurrence)] == ["e1", "e1", "e2", "e1"]
 
 
 @pytest.mark.parametrize(

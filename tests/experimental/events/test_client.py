@@ -35,8 +35,8 @@ class Ping(BaseModel):
 
 
 async def test_watch_yields_batches_with_events_and_resumes_from_the_latest_cursor() -> None:
-    """`watch` polls in a loop, drains `hasMore` batches at once, skips empty polls, and yields
-    batches that carry events or a gap (SDK-defined loop over spec-mandated poll semantics)."""
+    """`watch` polls in a loop and drains `hasMore` batches at once (SDK-defined loop over
+    spec-mandated poll semantics)."""
     events = Events(poll_interval=timedelta(0), max_events=2)
     pings = events.event("ping", arguments=NoArguments, payload=Ping)
     mcp = MCPServer("pinger", extensions=[events])
@@ -73,9 +73,10 @@ async def test_watch_from_a_saved_cursor_yields_the_gap_when_the_cursor_is_unkno
     assert (batch.events, batch.truncated) == ([], True)
 
 
-async def test_watch_waits_at_least_the_clients_floor_between_polls() -> None:
-    """The client's `min_poll_interval` overrides a server asking for a tighter loop (spec-mandated floor;
-    a time-based feature, so the test lets one floor elapse)."""
+async def test_watch_yields_empty_batches_and_waits_at_least_the_clients_floor_between_polls() -> None:
+    """Empty batches are yielded because they still advance the cursor (spec-mandated quiet-period
+    advancement), and the client's `min_poll_interval` overrides a server asking for a tighter loop
+    (spec-mandated floor; a time-based feature, so the test lets the floor elapse)."""
     polls: list[str | None] = []
     events = Events(poll_interval=timedelta(0))
     pings = events.event("ping", arguments=NoArguments, payload=Ping)
@@ -84,19 +85,24 @@ async def test_watch_waits_at_least_the_clients_floor_between_polls() -> None:
     async def check(query: EventQuery[NoArguments]) -> EventBatch[Ping]:
         polls.append(query.cursor)
         if len(polls) < 3:
-            return EventBatch(cursor="c")
-        return EventBatch(cursor="c", events=[Occurrence(Ping(n=len(polls)))])
+            return EventBatch(cursor=f"c{len(polls)}")
+        return EventBatch(cursor=f"c{len(polls)}", events=[Occurrence(Ping(n=len(polls)))])
 
     mcp = MCPServer("pinger", extensions=[events])
 
     async with Client(mcp, extensions=[ClientEvents(min_poll_interval=timedelta(milliseconds=20))]) as client:
         watch = client.extension(ClientEvents).watch("ping")
+        started = anyio.current_time()
         with anyio.fail_after(5):
-            batch = await anext(watch)
+            quiet = await anext(watch)
+            busy = await anext(watch)
             await watch.aclose()
+        elapsed = anyio.current_time() - started
 
-    assert polls == [None, "c", "c"]
-    assert [e.data for e in batch.events] == [{"n": 3}]
+    assert polls == [None, "c1", "c2"]
+    assert (quiet.events, quiet.cursor) == ([], "c2")
+    assert [e.data for e in busy.events] == [{"n": 3}]
+    assert elapsed >= 0.02
 
 
 class _OtherEventsServer(Extension):
@@ -127,7 +133,8 @@ class _OtherEventsServer(Extension):
     ) -> SubscribeEventsResult:
         self.subscribes.append(params)
         if len(self.subscribes) == 1:
-            return SubscribeEventsResult(id="sub-1", refresh_before=datetime.now(UTC) + timedelta(milliseconds=30))
+            refresh_before = datetime.now(UTC) + timedelta(milliseconds=30)
+            return SubscribeEventsResult(id="sub-1", refresh_before=refresh_before, cursor="c1")
         self.refreshed.set()
         return SubscribeEventsResult(id="sub-1", refresh_before=None)
 
@@ -149,8 +156,9 @@ async def test_list_follows_pagination_to_the_last_page() -> None:
 
 
 async def test_subscribe_refreshes_before_the_subscription_expires_and_unsubscribes_on_exit() -> None:
-    """`subscribe` resends the subscription before `refreshBefore`, stops once the server grants no
-    expiry, and unsubscribes when the block exits (spec-mandated refresh; a time-based feature)."""
+    """`subscribe` resends the subscription with the latest cursor before `refreshBefore`, stops once
+    the server grants no expiry, and unsubscribes when the block exits (spec-mandated refresh; a
+    time-based feature)."""
     server = _OtherEventsServer()
     mcp = MCPServer("other", extensions=[server])
     secret = "whsec_" + "a" * 43 + "="
@@ -164,5 +172,5 @@ async def test_subscribe_refreshes_before_the_subscription_expires_and_unsubscri
             await server.unsubscribed.wait()
 
     first, refresh = server.subscribes
-    assert (first.cursor, refresh.cursor) == ("c0", None)
+    assert (first.cursor, refresh.cursor) == ("c0", "c1")
     assert refresh.delivery == first.delivery

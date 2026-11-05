@@ -37,6 +37,7 @@ from mcp.experimental.events.types import (
     UnsubscribeEventsResult,
     WebhookDelivery,
     WebhookTarget,
+    events_error,
 )
 from mcp.server.auth.middleware.auth_context import auth_context_var
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
@@ -84,11 +85,14 @@ def echo_challenge(request: httpx2.Request) -> httpx2.Response:
     return httpx2.Response(200, json={"challenge": challenge})
 
 
-def subscribe_request(ttl_ms: int | None = None, secret: str = SECRET, url: str = URL) -> SubscribeEventsRequest:
+def subscribe_request(
+    ttl_ms: int | None = None, secret: str = SECRET, url: str = URL, cursor: str | None = None
+) -> SubscribeEventsRequest:
     params = SubscribeEventsParams(
         name="incident.created",
         arguments={"service": "billing"},
         delivery=WebhookDelivery(url=url, secret=secret),
+        cursor=cursor,
         ttl_ms=ttl_ms,
     )
     return SubscribeEventsRequest(params=params)
@@ -196,9 +200,10 @@ async def test_unsubscribing_an_unknown_subscription_raises_not_found() -> None:
     assert exc_info.value.code == NOT_FOUND
 
 
-async def test_a_second_subscription_to_a_verified_callback_is_not_verified_again() -> None:
-    """Verification is per principal and callback URL, so another subscription to the same
-    endpoint skips the challenge (spec-mandated scope of verification)."""
+async def test_a_verified_callback_is_verified_again_only_after_its_last_subscription_ends() -> None:
+    """Verification is per principal and callback URL, so another subscription to the same endpoint
+    skips the challenge, and the cache lives only as long as those subscriptions (spec-mandated
+    scope of verification)."""
     challenges: list[str] = []
 
     async def endpoint(request: httpx2.Request) -> httpx2.Response:
@@ -222,6 +227,119 @@ async def test_a_second_subscription_to_a_verified_callback_is_not_verified_agai
         search_sub = await client.session.send_request(search, SubscribeEventsResult)
         assert billing_sub.id != search_sub.id
         assert len(challenges) == 1
+
+        for request in (subscribe_request(), search):
+            unsubscribe = UnsubscribeEventsParams(
+                name="incident.created", arguments=request.params.arguments, delivery=WebhookTarget(url=URL)
+            )
+            await client.session.send_request(UnsubscribeEventsRequest(params=unsubscribe), UnsubscribeEventsResult)
+        await anyio.wait_all_tasks_blocked()
+        await client.session.send_request(subscribe_request(), SubscribeEventsResult)
+        assert len(challenges) == 2
+
+
+async def test_concurrent_identical_subscribes_upsert_one_subscription() -> None:
+    """Two `events/subscribe` calls for one key that race each other create a single subscription:
+    one verification and one `on_subscribe` (spec-mandated idempotent upsert)."""
+    challenges: list[str] = []
+    subscribed: list[str] = []
+
+    async def endpoint(request: httpx2.Request) -> httpx2.Response:
+        challenges.append(json.loads(request.content)["challenge"])
+        await anyio.wait_all_tasks_blocked()
+        return echo_challenge(request)
+
+    events = Events(
+        webhooks=Webhooks(
+            http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(endpoint)),
+            trusted_origins=["https://client.test"],
+        ),
+        principal=lambda ctx: "alice",
+    )
+    incidents = events.event("incident.created", arguments=ServiceFilter, payload=Incident)
+
+    @incidents.on_subscribe
+    async def on_subscribe(subscriber: Subscriber[ServiceFilter]) -> None:
+        subscribed.append(subscriber.id)
+
+    mcp = MCPServer("pager", extensions=[events])
+    results: list[SubscribeEventsResult] = []
+
+    async with Client(mcp) as client:
+
+        async def subscribe() -> None:
+            results.append(await client.session.send_request(subscribe_request(), SubscribeEventsResult))
+
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(subscribe)
+            task_group.start_soon(subscribe)
+
+        assert len(challenges) == 1
+        assert len(subscribed) == 1
+        assert results[0].id == results[1].id
+
+
+async def test_an_on_subscribe_hook_that_raises_rejects_the_subscription() -> None:
+    """`on_subscribe` is where the server checks the principal's access: raising `Forbidden` fails
+    `events/subscribe` and leaves no subscription behind (spec-mandated subscribe-time authorization)."""
+    events = Events(
+        webhooks=Webhooks(
+            http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(echo_challenge)),
+            trusted_origins=["https://client.test"],
+        ),
+        principal=lambda ctx: "mallory",
+    )
+    incidents = events.event("incident.created", arguments=ServiceFilter, payload=Incident)
+
+    @incidents.on_subscribe
+    async def check_access(subscriber: Subscriber[ServiceFilter]) -> None:
+        raise events_error(FORBIDDEN, reason=f"{subscriber.principal} cannot see {subscriber.arguments.service}")
+
+    mcp = MCPServer("pager", extensions=[events])
+    unsubscribe = UnsubscribeEventsParams(
+        name="incident.created", arguments={"service": "billing"}, delivery=WebhookTarget(url=URL)
+    )
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as rejected:
+            await client.session.send_request(subscribe_request(), SubscribeEventsResult)
+        with pytest.raises(MCPError) as missing:
+            await client.session.send_request(UnsubscribeEventsRequest(params=unsubscribe), UnsubscribeEventsResult)
+        assert rejected.value.error.model_dump(exclude_none=True) == snapshot(
+            {"code": -32024, "message": "Forbidden", "data": {"reason": "mallory cannot see billing"}}
+        )
+        assert missing.value.code == NOT_FOUND
+
+
+async def test_subscribe_keeps_the_supplied_cursor_until_the_first_batch_is_delivered() -> None:
+    """The subscribe response's cursor must be safe to persist, so while the first batch is still
+    undelivered it stays the client's own, even when the batch also reports a gap (spec-mandated
+    watermark)."""
+    inbox = Inbox()
+    answers = [
+        EventBatch(cursor="c9", events=[Occurrence(Incident(service="billing", title="a"), id="e1")], truncated=True)
+    ]
+    events = Events(
+        webhooks=Webhooks(
+            http_client=httpx2.AsyncClient(transport=httpx2.ASGITransport(app=WebhookReceiver(SECRET, inbox))),
+            trusted_origins=["https://client.test"],
+        ),
+        principal=lambda ctx: "alice",
+    )
+    incidents = events.event("incident.created", arguments=ServiceFilter, payload=Incident)
+
+    @incidents.check
+    async def check(query: EventQuery[ServiceFilter]) -> EventBatch[Incident]:
+        return answers.pop() if answers else EventBatch(cursor="c9")
+
+    mcp = MCPServer("pager", extensions=[events])
+
+    async with Client(mcp) as client:
+        result = await client.session.send_request(subscribe_request(cursor="c1"), SubscribeEventsResult)
+        await inbox.wait_for(1)
+        assert (result.cursor, result.truncated) == ("c1", True)
+        [event] = inbox.deliveries
+        assert isinstance(event, EventOccurrence) and event.cursor == "c9"
 
 
 async def test_webhook_calls_without_an_authenticated_principal_raise_forbidden() -> None:
