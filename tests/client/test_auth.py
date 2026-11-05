@@ -3667,3 +3667,13 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+def test_a_token_is_invalid_at_its_expiry_instant(oauth_provider: OAuthClientProvider):
+    """SDK-defined: the deadline from `expires_in` is exclusive, like a JWT `exp` (RFC 7519 §4.1.4)."""
+    context = oauth_provider.context
+    with mock.patch("time.time", return_value=1_800_000_000.0):
+        token = OAuthToken(access_token="t", token_type="Bearer", expires_in=0)
+        context.current_tokens = token
+        context.update_token_expiry(token)
+        assert not context.is_token_valid()
