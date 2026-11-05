@@ -136,7 +136,7 @@ async def stdio_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
-    shutting_down = False
+    shutting_down_event = anyio.Event()
     writer_done = anyio.Event()
 
     async def stdout_reader() -> None:
@@ -157,13 +157,17 @@ async def stdio_client(
                             except (anyio.ClosedResourceError, anyio.BrokenResourceError):
                                 return  # the session is gone; only the drain below remains
                 finally:
+                    # The server is usually gone by now; if it is not, its pipes stay
+                    # open and the drain below would wait on it forever.
+                    if not shutting_down_event.is_set():
+                        await _terminate_process_tree(process)
                     await _drain_stdout(process)
         except anyio.ClosedResourceError:
             pass  # our own shutdown closed the stdout stream under the read
         except (anyio.BrokenResourceError, ConnectionError):
             # Teardown noise during shutdown, a real failure otherwise; either way
             # the session sees clean closure when the read stream closes.
-            if not shutting_down:
+            if not shutting_down_event.is_set():
                 logger.exception("Reading from the MCP server's stdout failed mid-session")
 
     async def stdin_writer() -> None:
@@ -204,7 +208,7 @@ async def stdio_client(
         try:
             yield read_stream, write_stream
         finally:
-            shutting_down = True
+            shutting_down_event.set()
             # Shutdown must finish even under caller cancellation, or the server
             # process would leak; every wait inside is bounded. (Native
             # task.cancel() and the fallback's worker threads can still defeat it.)

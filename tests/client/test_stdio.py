@@ -324,6 +324,29 @@ async def test_invalid_json_from_the_server_surfaces_as_an_in_stream_exception(
 
 
 @pytest.mark.anyio
+async def test_stdout_eof_while_the_server_keeps_running_ends_the_read_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EOF on stdout closes the session even though the process never exited.
+
+    A crashed wrapper or a closed fd leaves the server alive with its stdin and stderr
+    still open, so nothing else ends the connection; the read stream must close before
+    the reader parks in the drain, which waits on a live server's pipes forever.
+    """
+    process = FakeProcess()
+    terminated = install_fake_process(monkeypatch, process)
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS) as (read_stream, _):
+            process.close_stdout()
+            with pytest.raises(anyio.EndOfStream):
+                await read_stream.receive()
+
+    # The server is still around, so it is killed instead of left behind.
+    assert terminated == [process]
+
+
+@pytest.mark.anyio
 async def test_a_server_that_dies_before_responding_fails_initialize_with_connection_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -723,6 +746,8 @@ async def test_a_failed_write_to_a_live_server_closes_the_read_stream_instead_of
     1. A send fails with EIO while the server is alive; the read stream ends.
     2. Output the server produces afterwards is still drained, so it cannot wedge
        on a full pipe.
+    3. The server outlived the session and gets the same termination shutdown would
+       have given it.
     """
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     pong = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
@@ -744,7 +769,7 @@ async def test_a_failed_write_to_a_live_server_closes_the_read_stream_instead_of
             assert process.pending_stdout_chunks() == 0
 
     assert process.written == []
-    assert terminated == []
+    assert terminated == [process]
 
 
 @pytest.mark.anyio
