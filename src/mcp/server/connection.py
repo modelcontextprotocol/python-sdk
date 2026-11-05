@@ -490,4 +490,4 @@ class Connection:
             for identifier in capability.extensions:
                 if identifier not in have.extensions:
                     return False
-        return True
+        return set(capability.model_extra or {}) <= set(have.model_extra or {})

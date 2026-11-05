@@ -1008,6 +1008,21 @@ def test_serialize_server_result_drops_top_level_server_info_on_discover_but_kee
     assert sieved["_meta"] == {types.SERVER_INFO_META_KEY: stamp}
 
 
+@pytest.mark.parametrize("version", PRE_2026)
+def test_initialize_round_trips_unknown_capabilities_at_pre_2026_versions(version: str):
+    """Spec-mandated: capabilities are "not a closed set", so unknown top-level keys survive the
+    `initialize` sieve on both the server result and the client params."""
+    custom: dict[str, Any] = {"events": {"enabled": True}}
+    capabilities: dict[str, Any] = {"tools": {}, **custom}
+    result = {"protocolVersion": version, "capabilities": capabilities, "serverInfo": {"name": "S", "version": "1"}}
+    sieved = methods.serialize_server_result("initialize", version, result)
+    assert sieved["capabilities"] == capabilities
+    params = {"protocolVersion": version, "capabilities": custom, "clientInfo": {"name": "C", "version": "1"}}
+    request = methods.parse_client_request("initialize", version, params)
+    assert isinstance(request, types.InitializeRequest)
+    assert request.params.capabilities.model_extra == custom
+
+
 def test_serialize_server_result_drops_an_unknown_nested_tool_field():
     tool = {"name": "echo", "inputSchema": {"type": "object"}, "unknownField": 1}
     sieved = methods.serialize_server_result("tools/list", "2025-11-25", {"tools": [tool], "resultType": "complete"})

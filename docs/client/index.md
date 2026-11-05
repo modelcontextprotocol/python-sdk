@@ -42,7 +42,7 @@ Everything else on this page is identical across all four. Headers, subprocesses
 Four read-only properties, populated the moment you enter the block:
 
 * `client.server_info`: the server's identity, or `None` for a 2026-era server that does not report one (python-sdk servers do by default). `server_info.name` here is `"Bookshop"`, `server_info.version` is whatever the server reports.
-* `client.server_capabilities`: what the server can do (`tools`, `resources`, `prompts`, `completions`, ...). A capability the server doesn't have is `None`.
+* `client.server_capabilities`: what the server can do (`tools`, `resources`, `prompts`, `completions`, ...). A capability the server doesn't have is `None`. Capabilities the SDK doesn't model, such as MCP Events' `events`, are in `client.server_capabilities.model_extra`.
 * `client.protocol_version`: the protocol version the two sides agreed on. Here it is `"2026-07-28"`.
 * `client.instructions`: the server's `instructions=` string, or `None` if it didn't set one.
 
