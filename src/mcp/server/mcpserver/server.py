@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, cast, overload
 
 import anyio
@@ -154,6 +154,20 @@ def lifespan_wrapper(
     return wrap
 
 
+def _with_extension_lifespans(
+    lifespan: Callable[[Server[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
+    extensions: Sequence[Extension],
+) -> Callable[[Server[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]]:
+    @asynccontextmanager
+    async def wrap(server: Server[LifespanResultT]) -> AsyncIterator[LifespanResultT]:
+        async with AsyncExitStack() as stack:
+            for extension in extensions:
+                await stack.enter_async_context(extension.lifespan())
+            yield await stack.enter_async_context(lifespan(server))
+
+    return wrap
+
+
 class MCPServer(Generic[LifespanResultT]):
     def __init__(
         self,
@@ -270,6 +284,7 @@ class MCPServer(Generic[LifespanResultT]):
         for extension in extensions or ():
             self._apply_extension(extension)
         self._install_extension_interceptor()
+        self._lowlevel_server.lifespan = _with_extension_lifespans(self._lowlevel_server.lifespan, self._extensions)
 
     @property
     def name(self) -> str:

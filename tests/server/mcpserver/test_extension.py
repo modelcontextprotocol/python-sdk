@@ -5,6 +5,8 @@ resources, request methods, and the single `tools/call` interceptor - through
 the highest-level public surface (in-memory `Client`).
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import Any, Literal
 
@@ -501,3 +503,28 @@ async def test_require_client_extension_raises_minus_32021_when_client_did_not_d
 
     assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
     assert exc_info.value.error.data == snapshot({"requiredCapabilities": {"extensions": {_NEEDS_EXT: {}}}})
+
+
+async def test_extension_lifespan_wraps_the_server_lifespan() -> None:
+    """An extension's `lifespan()` is entered before the server's own lifespan and exited after it (SDK-defined)."""
+    order: list[str] = []
+
+    class _BackgroundExt(Extension):
+        identifier = "com.example/background"
+
+        @asynccontextmanager
+        async def lifespan(self) -> AsyncIterator[None]:
+            order.append("extension enter")
+            yield
+            order.append("extension exit")
+
+    @asynccontextmanager
+    async def server_lifespan(server: MCPServer) -> AsyncIterator[dict[str, Any]]:
+        order.append("server enter")
+        yield {}
+        order.append("server exit")
+
+    mcp = MCPServer("test", lifespan=server_lifespan, extensions=[_BackgroundExt()])
+    async with Client(mcp):
+        assert order == ["extension enter", "server enter"]
+    assert order == ["extension enter", "server enter", "server exit", "extension exit"]

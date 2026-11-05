@@ -133,6 +133,43 @@ The client is its own program, and it carries both halves of the client story:
   so the client declares them for itself. A published extension would ship them in
   a package that both sides import.
 
+### Running background work
+
+Override `lifespan()` when the extension needs tasks that outlive a request, such as
+delivery loops or lease timers:
+
+```python
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import anyio
+
+from mcp.server.extension import Extension
+from mcp.server.mcpserver import MCPServer
+
+
+class Heartbeat(Extension):
+    identifier = "com.example/heartbeat"
+
+    @asynccontextmanager
+    async def lifespan(self) -> AsyncIterator[None]:
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(self._beat)
+            yield
+            task_group.cancel_scope.cancel()
+
+    async def _beat(self) -> None:
+        while True:
+            await anyio.sleep(30)
+
+
+mcp = MCPServer("demo", extensions=[Heartbeat()])
+```
+
+`MCPServer` enters every extension's `lifespan()` before its own lifespan and exits them
+after it, so your tasks run whenever the server does. Cancel them after the `yield`, or
+shutdown waits for them.
+
 ### Intercepting `tools/call`
 
 The one interceptive hook. Override `intercept_tool_call` to observe, short-circuit,
