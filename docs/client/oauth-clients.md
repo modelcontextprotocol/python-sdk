@@ -25,6 +25,8 @@ Nothing else in the file mentions OAuth. `main()` never sees a token.
 
 `OAuthClientMetadata` is the real [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591) registration document, as a Pydantic model.
 
+You can pass URL strings or Pydantic URL subclasses in `redirect_uris`. The SDK stores them as `AnyUrl` values without changing their serialized URI.
+
 You set three fields. The defaults fill in the rest: `grant_types` is already `["authorization_code", "refresh_token"]` and `response_types` is already `["code"]`, which is exactly the flow this provider runs.
 
 !!! check
