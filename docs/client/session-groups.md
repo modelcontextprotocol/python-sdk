@@ -4,6 +4,8 @@ A `Client` connects to one server. Real applications often want several (a searc
 
 **`ClientSessionGroup`** is one object that holds many connections and merges everything they expose into a single view.
 
+The group only lists tools, resources, and prompts that each server advertises in its negotiated capabilities.
+
 ## Two servers
 
 Start with two ordinary servers. They have nothing to do with each other, so both naturally called their tool `search`:
