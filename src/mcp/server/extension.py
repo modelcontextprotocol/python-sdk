@@ -20,6 +20,7 @@ extensions remain importable without constructing an `MCPServer`.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -133,6 +134,13 @@ class Extension:
     def methods(self) -> Sequence[MethodBinding]:
         """New request methods this extension serves (additive)."""
         return ()
+
+    def lifespan(self) -> AbstractAsyncContextManager[None]:
+        """Context the server holds open while it runs, for background work such as delivery loops.
+
+        Entered before the server's own lifespan and exited after it. Default: nothing to run.
+        """
+        return nullcontext()
 
     async def intercept_tool_call(
         self,
