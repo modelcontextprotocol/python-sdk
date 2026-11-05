@@ -256,6 +256,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 **[Add to an existing app](run/asgi.md)** is the page for this, including several servers in one app and FastAPI. Two neighbouring strings from the same class:
 
 * `StreamableHTTPSessionManager .run() can only be called once per instance. Create a new instance if you need to run again.` The manager is single-use; entering the same app's lifespan twice hits it.
+  In a warm AWS Lambda process, an adapter that starts and stops the lifespan for each invocation hits this on the second invocation. Build a fresh HTTP app inside each invocation; see [Runtimes that reuse a process](run/deploy.md#runtimes-that-reuse-a-process).
 * `mcp.session_manager` only exists **after** `streamable_http_app()` has been called, so build the routes first and touch the manager only inside the lifespan.
 
 ## `MCPError: Session not found`
