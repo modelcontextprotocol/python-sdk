@@ -15,6 +15,9 @@ Example:
 
     # Define handler functions
     async def handle_sse(request):
+        # Starlette also routes HEAD here, and the stream would never end
+        if request.method == "HEAD":
+            return await sse.head_response(request)
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
@@ -72,6 +75,9 @@ class SseServerTransport:
         2. handle_post_message() is an ASGI application which receives incoming POST
            requests, which should contain client messages that link to a
            previously-established SSE session.
+
+    head_response() answers a HEAD request to the SSE endpoint, which Starlette
+    routes to the same endpoint as GET.
     """
 
     _endpoint: str
@@ -133,6 +139,27 @@ class SseServerTransport:
         self._security = TransportSecurityMiddleware(security_settings)
         self._post_message_app = RequestBodyLimitMiddleware(self._handle_post_message, max_request_body_size)
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
+
+    async def head_response(self, request: Request) -> Response:
+        """Build the response to a HEAD request on the SSE endpoint.
+
+        An SSE stream never ends, so a HEAD served through `connect_sse()` would never complete.
+        This runs the same Host/Origin validation and returns the headers a GET gets, with no body.
+
+        Args:
+            request: The HEAD request.
+
+        Returns:
+            The validation error response, or the SSE headers with no body.
+        """
+        if error_response := await self._security.validate_request(request, is_post=False):
+            return error_response
+        response = Response(
+            media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
+        )
+        # A Content-Length would claim an empty stream.
+        del response.headers["content-length"]
+        return response
 
     @asynccontextmanager
     async def connect_sse(self, scope: Scope, receive: Receive, send: Send):

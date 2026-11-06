@@ -51,8 +51,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.routing import Mount, Route
-from starlette.types import Receive, Scope, Send
+from starlette.routing import Mount, Route, request_response
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
@@ -1172,14 +1171,18 @@ class MCPServer(Generic[LifespanResultT]):
             message_path, security_settings=transport_security, max_request_body_size=max_request_body_size
         )
 
-        async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
-            # Add client ID from auth context into request context if available
-
-            async with sse.connect_sse(scope, receive, send) as streams:
+        async def sse_endpoint(request: Request) -> Response:
+            if request.method == "HEAD":
+                return await sse.head_response(request)
+            async with sse.connect_sse(  # pragma: no cover
+                request.scope,
+                request.receive,
+                request._send,  # type: ignore[reportPrivateUsage]
+            ) as streams:
                 await self._lowlevel_server.run(
                     streams[0], streams[1], self._lowlevel_server.create_initialization_options()
                 )
-            return Response()
+            return Response()  # pragma: no cover
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -1237,7 +1240,9 @@ class MCPServer(Generic[LifespanResultT]):
             routes.append(
                 Route(
                     sse_path,
-                    endpoint=RequireAuthMiddleware(handle_sse, required_scopes, resource_metadata_url),
+                    endpoint=RequireAuthMiddleware(
+                        request_response(sse_endpoint), required_scopes, resource_metadata_url
+                    ),
                     methods=["GET"],
                 )
             )
@@ -1249,11 +1254,6 @@ class MCPServer(Generic[LifespanResultT]):
             )
         else:
             # Auth is disabled, no need for RequireAuthMiddleware
-            # Since handle_sse is an ASGI app, we need to create a compatible endpoint
-            async def sse_endpoint(request: Request) -> Response:  # pragma: no cover
-                # Convert the Starlette request to ASGI parameters
-                return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
-
             routes.append(
                 Route(
                     sse_path,
