@@ -91,3 +91,63 @@ async def test_client_span_records_error_status_when_peer_answers_with_jsonrpc_e
     assert failed.attributes is not None
     assert failed.attributes["error.type"] == str(types.INVALID_PARAMS)
     assert failed.attributes["rpc.response.status_code"] == str(types.INVALID_PARAMS)
+
+
+async def test_client_and_server_spans_agree_on_tool_error(capfire: CaptureLogfire):
+    """When tools/call returns a CallToolResult with isError=true, both the client and server spans
+    must record status ERROR and error.type='tool_error', while a successful tools/call leaves both
+    spans UNSET (#3810).
+    """
+    server = MCPServer("test")
+
+    @server.tool()
+    def ok_tool() -> str:
+        return "ok"
+
+    @server.tool()
+    def failing_tool() -> types.CallToolResult:
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text="tool failure")],
+            is_error=True,
+        )
+
+    @server.tool()
+    def protocol_error_tool() -> str:
+        raise MCPError(types.INTERNAL_ERROR, "upstream failure")
+
+    async with Client(server, mode="legacy") as client:
+        ok_res = await client.call_tool("ok_tool", {})
+        err_res = await client.call_tool("failing_tool", {})
+        with pytest.raises(MCPError):
+            await client.call_tool("protocol_error_tool", {})
+
+    assert not ok_res.is_error
+    assert err_res.is_error
+
+    spans = {
+        span.name: span
+        for span in capfire.exporter.exported_spans
+        if (span.attributes or {}).get("logfire.span_type") != "pending_span"
+    }
+
+    # 1. Successful tool call leaves both client and server spans UNSET
+    assert spans["MCP send tools/call ok_tool"].status.status_code == StatusCode.UNSET
+    assert "error.type" not in (spans["MCP send tools/call ok_tool"].attributes or {})
+    assert spans["tools/call ok_tool"].status.status_code == StatusCode.UNSET
+
+    # 2. Tool error (isError=true) sets ERROR and error.type="tool_error" on both spans
+    client_tool_err = spans["MCP send tools/call failing_tool"]
+    server_tool_err = spans["tools/call failing_tool"]
+    assert client_tool_err.status.status_code == StatusCode.ERROR
+    assert server_tool_err.status.status_code == StatusCode.ERROR
+    assert (client_tool_err.attributes or {}).get("error.type") == "tool_error"
+    assert (server_tool_err.attributes or {}).get("error.type") == "tool_error"
+
+    # 3. Protocol error sets ERROR and matching error.type code on both spans
+    client_proto_err = spans["MCP send tools/call protocol_error_tool"]
+    server_proto_err = spans["tools/call protocol_error_tool"]
+    assert client_proto_err.status.status_code == StatusCode.ERROR
+    assert server_proto_err.status.status_code == StatusCode.ERROR
+    assert (client_proto_err.attributes or {}).get("error.type") == str(types.INTERNAL_ERROR)
+    assert (server_proto_err.attributes or {}).get("error.type") == str(types.INTERNAL_ERROR)
+
