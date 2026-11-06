@@ -23,6 +23,7 @@ from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
     REQUEST_TIMEOUT,
+    CallToolResult,
     ErrorData,
     JSONRPCError,
     JSONRPCMessage,
@@ -418,6 +419,13 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     code = str(outcome.code)
                     span.set_attributes({"error.type": code, "rpc.response.status_code": code})
                     span.set_status(StatusCode.ERROR, outcome.message)
+                elif method == "tools/call":
+                    match outcome:
+                        case CallToolResult(is_error=True) | {"isError": True}:
+                            span.set_attribute("error.type", "tool_error")
+                            span.set_status(StatusCode.ERROR)
+                        case _:
+                            pass
         except TimeoutError:
             if not timeout_armed:
                 # The clock starts only after the write, so this TimeoutError is the
