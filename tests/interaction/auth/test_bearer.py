@@ -87,36 +87,33 @@ def parse_www_authenticate(value: str) -> dict[str, str]:
 async def test_a_request_with_no_authorization_header_is_challenged_with_resource_metadata(
     protected: httpx2.AsyncClient,
 ) -> None:
-    """No `Authorization` header → 401 with a `WWW-Authenticate` carrying `resource_metadata`.
+    """No `Authorization` header → 401 with a `WWW-Authenticate` carrying `resource_metadata` and `scope`.
 
-    The snapshot pins current behaviour: the SDK collapses the no-header, unknown-token, and
-    expired-token cases into one challenge (`error="invalid_token"`, no `scope` parameter). The
-    spec says the discovery-time challenge SHOULD include `scope` and RFC 6750 says the
-    no-credentials case SHOULD NOT carry an error code; both gaps are recorded as the divergence
-    on this requirement. Asserting the dict equals an exact key set also pins that no parameter
-    appears twice.
+    RFC 6750 Section 3.1 says a request that carried no credentials SHOULD NOT be answered with an
+    error code, and the spec's discovery-time requirement says the challenge SHOULD advertise the
+    required `scope`. Both hold here: the challenge carries `resource_metadata` and `scope` and no
+    `error`/`error_description`, and the body is empty. Asserting the dict equals an exact key set
+    also pins that no parameter appears twice.
     """
     response = await post_mcp(protected)
 
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == snapshot(
-        'Bearer error="invalid_token", error_description="Authentication required", '
-        'resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"'
+        'Bearer resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp", scope="mcp:read"'
     )
     assert parse_www_authenticate(response.headers["www-authenticate"]) == {
-        "error": "invalid_token",
-        "error_description": "Authentication required",
         "resource_metadata": RESOURCE_METADATA_URL,
+        "scope": REQUIRED_SCOPE,
     }
-    assert response.json() == snapshot({"error": "invalid_token", "error_description": "Authentication required"})
+    assert response.content == b""
 
 
 @requirement("hosting:auth:invalid-401")
 async def test_an_unrecognized_bearer_token_is_answered_401_invalid_token(protected: httpx2.AsyncClient) -> None:
     """A token the verifier does not recognize is answered 401 `invalid_token`.
 
-    The challenge is identical to the no-header case (the backend returns `None` for both); the
-    missing `scope` parameter is the recorded divergence on this requirement.
+    A credential WAS presented, so RFC 6750 Section 3.1 keeps the `invalid_token` error code; the
+    challenge also advertises the required `scope`.
     """
     response = await post_mcp(protected, bearer="tok-unknown")
 
@@ -125,6 +122,7 @@ async def test_an_unrecognized_bearer_token_is_answered_401_invalid_token(protec
         "error": "invalid_token",
         "error_description": "Authentication required",
         "resource_metadata": RESOURCE_METADATA_URL,
+        "scope": REQUIRED_SCOPE,
     }
 
 
@@ -143,15 +141,15 @@ async def test_an_expired_token_is_answered_401(protected: httpx2.AsyncClient) -
 
 
 @requirement("hosting:auth:scope-403")
-async def test_a_token_missing_a_required_scope_is_answered_403_insufficient_scope_without_a_scope_param(
+async def test_a_token_missing_a_required_scope_is_answered_403_insufficient_scope(
     protected: httpx2.AsyncClient,
 ) -> None:
-    """A token lacking the required scope is answered 403 `insufficient_scope`, with no `scope` parameter.
+    """A token lacking the required scope is answered 403 `insufficient_scope`, naming the scope.
 
     The spec's runtime-insufficient-scope guidance says the challenge SHOULD include `scope`
-    naming the required scope; the SDK never emits it, recorded as the divergence on this
-    requirement. The SDK client reads `scope` from this header to drive step-up, so the gap is
-    a resource-server/client asymmetry.
+    naming the required scope, and the SDK client reads `scope` from this header to drive
+    step-up (utils.py extract_scope_from_www_auth) — a resource-server/client asymmetry the
+    SDK now closes.
     """
     response = await post_mcp(protected, bearer="tok-noscope")
 
@@ -161,8 +159,8 @@ async def test_a_token_missing_a_required_scope_is_answered_403_insufficient_sco
         "error": "insufficient_scope",
         "error_description": f"Required scope: {REQUIRED_SCOPE}",
         "resource_metadata": RESOURCE_METADATA_URL,
+        "scope": REQUIRED_SCOPE,
     }
-    assert "scope" not in parsed
 
 
 @requirement("hosting:auth:aud-validation")
@@ -214,4 +212,9 @@ async def test_an_access_token_in_the_query_string_is_not_accepted(protected: ht
     response = await post_mcp(protected, query={"access_token": "tok-valid"})
 
     assert response.status_code == 401
-    assert parse_www_authenticate(response.headers["www-authenticate"])["error"] == "invalid_token"
+    # No credentials were presented (the query string is never consulted), so the
+    # challenge carries no error code at all (RFC 6750 Section 3.1) and advertises
+    # the required scope instead.
+    parsed = parse_www_authenticate(response.headers["www-authenticate"])
+    assert "error" not in parsed
+    assert parsed["scope"] == REQUIRED_SCOPE

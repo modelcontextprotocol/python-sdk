@@ -67,17 +67,28 @@ You registered one tool. The second route is the SDK's.
 This document is how a client that has never heard of your server finds its way in: it reads `authorization_servers` and goes there for a token. You wrote none of it.
 
 !!! check
-    Call `/mcp` with no token (or with one your verifier returned `None` for) and the request is
+    Call `/mcp` with no token and the request is
     stopped at the door:
 
     ```text
     HTTP/1.1 401 Unauthorized
-    WWW-Authenticate: Bearer error="invalid_token", error_description="Authentication required", resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"
+    WWW-Authenticate: Bearer resour…ata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp", scope="notes:read"
+    ```
+
+    Nothing was parsed and no tool ran. The challenge carries no error code, because no
+    credentials were presented (RFC 6750 Section 3.1), and it names the `scope` a token needs.
+
+    A token your verifier returned `None` for is a different case: a credential *was* presented
+    and was rejected, so it is answered with the error code.
+
+    ```text
+    HTTP/1.1 401 Unauthorized
+    WWW-Authenticate: Bearer error="invalid_token", error_description="Authentication required", resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp", scope="notes:read"
 
     {"error": "invalid_token", "error_description": "Authentication required"}
     ```
 
-    Nothing was parsed and no tool ran. And that `resource_metadata` pointer in `WWW-Authenticate` is
+    And that `resource_metadata` pointer in `WWW-Authenticate` is
     what makes discovery automatic: 401 -> metadata document -> authorization server -> token -> retry.
 
 !!! warning

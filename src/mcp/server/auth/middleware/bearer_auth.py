@@ -5,6 +5,7 @@ from typing import Any, TypedDict
 
 from pydantic import AnyHttpUrl, ValidationError
 from starlette.authentication import AuthCredentials, AuthenticationBackend, SimpleUser
+from starlette.datastructures import Headers
 from starlette.requests import HTTPConnection
 from starlette.types import Receive, Scope, Send
 
@@ -115,8 +116,17 @@ class RequireAuthMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         auth_user = scope.get("user")
         if not isinstance(auth_user, AuthenticatedUser):
+            # RFC 6750 3.1: a request with no credentials SHOULD NOT include an
+            # error code. Only a presented-but-invalid token gets
+            # error="invalid_token". Advertise the required scopes either way.
+            headers = Headers(scope=scope)
+            presented = headers.get("authorization") is not None
             await self._send_auth_error(
-                send, status_code=401, error="invalid_token", description="Authentication required"
+                send,
+                status_code=401,
+                error="invalid_token" if presented else None,
+                description="Authentication required" if presented else None,
+                scope=self.required_scopes or None,
             )
             return
 
@@ -126,24 +136,44 @@ class RequireAuthMiddleware:
             # auth_credentials should always be provided; this is just paranoia
             if auth_credentials is None or required_scope not in auth_credentials.scopes:
                 await self._send_auth_error(
-                    send, status_code=403, error="insufficient_scope", description=f"Required scope: {required_scope}"
+                    send,
+                    status_code=403,
+                    error="insufficient_scope",
+                    description=f"Required scope: {required_scope}",
+                    scope=[required_scope],
                 )
                 return
 
         await self.app(scope, receive, send)
 
-    async def _send_auth_error(self, send: Send, status_code: int, error: str, description: str) -> None:
+    async def _send_auth_error(
+        self,
+        send: Send,
+        status_code: int,
+        error: str | None = None,
+        description: str | None = None,
+        scope: list[str] | None = None,
+    ) -> None:
         """Send an authentication error response with WWW-Authenticate header."""
         # Build WWW-Authenticate header value
-        www_auth_parts = [f'error="{error}"', f'error_description="{description}"']
+        www_auth_parts = []
+        if error:
+            www_auth_parts.append(f'error="{error}"')
+        if description:
+            www_auth_parts.append(f'error_description="{description}"')
         if self.resource_metadata_url:
             www_auth_parts.append(f'resource_metadata="{self.resource_metadata_url}"')
+        if scope:
+            # Join outside the f-string: nested same-type quotes in an f-string
+            # need PEP 701 (Python 3.12+), and this project supports 3.11.
+            scope_value = " ".join(scope)
+            www_auth_parts.append(f'scope="{scope_value}"')
 
         www_authenticate = f"Bearer {', '.join(www_auth_parts)}"
 
         # Send response
-        body = {"error": error, "error_description": description}
-        body_bytes = json.dumps(body).encode()
+        body = {} if error is None else {"error": error, "error_description": description}
+        body_bytes = json.dumps(body).encode() if body else b""
 
         await send(
             {

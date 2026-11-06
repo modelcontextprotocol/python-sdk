@@ -60,15 +60,20 @@ async def test_a_request_without_a_token_never_reaches_the_protocol() -> None:
     async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as http_client:
         response = await http_client.post("/mcp", json={})
     assert response.status_code == 401
-    assert response.json() == {"error": "invalid_token", "error_description": "Authentication required"}
+    # No credentials were presented, so RFC 6750 Section 3.1 says the challenge
+    # carries no error code and the body is empty; the required scope is advertised.
+    assert response.content == b""
     assert response.headers["www-authenticate"] == (
-        'Bearer error="invalid_token", error_description="Authentication required", '
-        'resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"'
+        'Bearer resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp", scope="notes:read"'
     )
 
 
 async def test_a_token_the_verifier_rejects_gets_the_same_401() -> None:
-    """tutorial001: `verify_token` returning `None` and a missing header are indistinguishable to the caller."""
+    """tutorial001: a rejected token is answered 401 `invalid_token`.
+
+    A credential WAS presented, so RFC 6750 Section 3.1 keeps the error code; the challenge
+    additionally advertises the required scope.
+    """
     transport = httpx2.ASGITransport(app=tutorial001.mcp.streamable_http_app())
     async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as http_client:
         response = await http_client.post("/mcp", json={}, headers={"Authorization": "Bearer not-a-real-token"})
