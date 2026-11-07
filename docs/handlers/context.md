@@ -107,10 +107,10 @@ On a 2026-07-28 connection, clients receive change notifications only on a `subs
 
 !!! check
     Before anyone runs `enable_recommendations`, the tool you are promising does not exist. Call it
-    anyway and the result is an error the model can read:
+    anyway and `Client.call_tool()` raises `MCPError` with code `-32602`:
 
     ```text
-    Unknown tool: recommend_book
+    mcp.shared.exceptions.MCPError: Unknown tool: recommend_book
     ```
 
     Run `enable_recommendations`, and the very same call succeeds. The tool list is genuinely

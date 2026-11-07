@@ -55,7 +55,24 @@ class ToolError(MCPServerError):
     The SDK raises it too, for an unknown tool name and for arguments that fail
     the input schema, and `UnexpectedToolError` subclasses it, so `except ToolError`
     around `MCPServer.call_tool()` catches every tool failure, crash or not.
+    For a missing name, the SDK raises `ToolNotFoundError`; the request boundary
+    translates that lookup miss to a JSON-RPC `INVALID_PARAMS` error.
     """
+
+
+class ToolNotFoundError(ToolError):
+    """The requested tool does not exist.
+
+    Direct calls remain catchable as `ToolError`. At the request boundary, a
+    missing requested tool becomes a JSON-RPC `INVALID_PARAMS` error.
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__(f"Unknown tool: {name}")
+
+    def __reduce__(self) -> tuple[type["ToolNotFoundError"], tuple[str], dict[str, object]]:
+        return type(self), (self.name,), self.__dict__
 
 
 class UnexpectedToolError(ToolError):

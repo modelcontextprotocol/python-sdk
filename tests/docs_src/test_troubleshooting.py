@@ -108,12 +108,13 @@ async def test_a_crashing_tool_is_the_bare_form_with_its_traceback_in_the_server
     assert record.exc_info is not None
 
 
-async def test_an_unknown_tool_is_the_same_kind_of_result() -> None:
-    """`Unknown tool: <name>` travels the same `is_error=True` path as a failing tool."""
+async def test_an_unknown_tool_is_a_protocol_error() -> None:
+    """`Unknown tool: <name>` is an invalid params error, rather than an execution failure."""
     async with Client(tutorial001.mcp) as client:
-        result = await client.call_tool("get_forecast", {"city": "London"})
-    assert result.is_error
-    assert result.content == [TextContent(type="text", text="Unknown tool: get_forecast")]
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("get_forecast", {"city": "London"})
+    assert exc_info.value.code == INVALID_PARAMS
+    assert exc_info.value.message == snapshot("Unknown tool: get_forecast")
 
 
 async def test_the_tool_decorator_without_parentheses_raises_at_import_time() -> None:

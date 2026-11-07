@@ -82,7 +82,7 @@ async def main() -> None:
 
 `__aexit__` is the disconnection, which is why there is no `client.close()` to forget. **[Testing](get-started/testing.md)** is built on exactly this pattern.
 
-## `Error executing tool <name>: <message>`, `Error executing tool <name>`, and `Unknown tool: <name>`
+## `Error executing tool <name>: <message>` and `Error executing tool <name>`
 
 You are reading a **result**, not an exception. `call_tool` did not raise, and it never will for a failing tool.
 
@@ -94,11 +94,37 @@ result.content   # [TextContent(text="Error executing tool forecast: No forecast
 result.structured_content  # None
 ```
 
-`Unknown tool: get_forecast` is the same shape for a name the server never registered, and a bad argument is rejected the same way, against the tool's input schema, before your function ever runs.
+A bad argument is rejected the same way, against the tool's input schema, before your function ever runs.
 
 The fix is in your client: **check `result.is_error`**. A `try/except` around `call_tool` catches none of these, because there is nothing to catch. This is deliberate, and it is the single most useful thing on this page to internalise: the *model* chose the call, so the model gets the message and a chance to try again. **[Handling errors](servers/handling-errors.md)** is the whole story, including the `MCPError` path that *does* raise.
 
 The bare form, `Error executing tool <name>` with no message, means the tool **crashed**: an exception it didn't anticipate escaped it (or its return value failed the output schema), and that exception's text is kept off the wire. The traceback is in the **server's log** at `ERROR`, as `Tool '<name>' raised an unexpected exception`.
+
+## `Unknown tool: <name>`
+
+```python
+import anyio
+from mcp import Client, MCPError
+from mcp.server import MCPServer
+from mcp_types import INVALID_PARAMS
+
+
+async def main() -> None:
+    server = MCPServer("example")
+    async with Client(server) as client:
+        try:
+            await client.call_tool("get_forecast", {"city": "London"})
+        except MCPError as error:
+            assert error.code == INVALID_PARAMS
+            assert error.message == "Unknown tool: get_forecast"
+
+
+anyio.run(main)
+```
+
+The requested tool does not exist. The server returns a JSON-RPC error with code `-32602`,
+and `Client.call_tool()` raises `MCPError`. Refresh the tool list and check the name you sent.
+An existing tool that calls a missing tool still returns an execution error with `is_error=True`.
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool`
 
@@ -426,7 +452,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## Recap
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` is never the error. Read the **last line**; catching `MCPError` *inside* the `async with Client(...)` block skips the wrapping entirely.
-* `call_tool` does not raise for a failing tool. `Error executing tool ...` and `Unknown tool: ...` are results: check `result.is_error`. No message after the tool name means it crashed, and the traceback is in the server log.
+* `Error executing tool ...` is a result: check `result.is_error`. `Unknown tool: ...` for the requested name raises `MCPError` with code `-32602`. A bare execution-error message means the tool crashed; its traceback is in the server log.
 * `Client must be used within an async context manager` -> use `async with`. `Use @tool() instead of @tool` -> add the parentheses.
 * `has an invalid x-mcp-header annotation` -> only `str`, `int` and `bool` arguments can be marked.
 * `Tool already exists:` in the server log is the only sign that two same-named tools collapsed into one.

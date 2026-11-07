@@ -137,12 +137,11 @@ A tool that raises does **not** raise in your client. It comes back as an ordina
     some other exception, `content` would say only `Error executing tool lookup_book`.) Always look at
     `is_error` before you trust `structured_content`.
 
-!!! warning
-    `is_error=True` covers more than your own `raise`. Ask for a tool the server doesn't even have
-    (`call_tool("does_not_exist", {})`) and nothing raises. You get the same shape back,
-    `is_error=True` with `Unknown tool: does_not_exist` in `content`. A `Client` method raises
-    `MCPError` only when the server answers with a JSON-RPC **error** instead of a result, and
-    **[Handling errors](../servers/handling-errors.md)** covers when a server produces which.
+!!! warning "Unknown tools raise protocol errors"
+    Ask for a tool the server does not have and `Client.call_tool()` raises `MCPError` with
+    code `-32602` and `Unknown tool: <name>` as its message. Argument-validation failures and
+    tool execution failures return `is_error=True` instead.
+    **[Handling errors](../servers/handling-errors.md)** covers both paths.
 
 ## Resources
 
