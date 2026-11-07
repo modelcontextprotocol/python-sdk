@@ -418,6 +418,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     code = str(outcome.code)
                     span.set_attributes({"error.type": code, "rpc.response.status_code": code})
                     span.set_status(StatusCode.ERROR, outcome.message)
+                elif method == "tools/call" and isinstance(outcome, Mapping) and outcome.get("isError") is True:
+                    span.set_attribute("error.type", "tool_error")
+                    span.set_status(StatusCode.ERROR)
         except TimeoutError:
             if not timeout_armed:
                 # The clock starts only after the write, so this TimeoutError is the
