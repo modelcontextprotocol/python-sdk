@@ -523,3 +523,54 @@ async def test_sse_session_cleanup_on_disconnect() -> None:
             headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_sse_client_none_disables_the_sse_event_limit() -> None:
+    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/3803
+
+    Passing max_sse_event_size=None to sse_client disables the 1 MiB default SSE
+    event size limit so tool results over 1 MiB can be received over SSE.
+    """
+    payload = "x" * (2 * 1024 * 1024)
+    response = JSONRPCResponse(
+        jsonrpc="2.0",
+        id=1,
+        result={"text": payload},
+    )
+    response_json = response.model_dump_json(by_alias=True, exclude_none=True)
+    event_stream = (
+        "event: endpoint\ndata: /messages/?session_id=abc123\n\n"
+        f"event: message\ndata: {response_json}\n\n"
+    )
+
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, text=event_stream)
+
+    def factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(transport=httpx2.MockTransport(serve))
+
+    with anyio.fail_after(5):
+        async with sse_client("http://test/sse", httpx_client_factory=factory, max_sse_event_size=None) as (
+            read_stream,
+            _,
+        ):
+            msg = await read_stream.receive()
+
+    assert isinstance(msg, SessionMessage)
+    assert isinstance(msg.message, types.JSONRPCResponse)
+    assert msg.message.result == {"text": payload}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("invalid_size", [0, -1])
+async def test_sse_client_rejects_non_positive_max_sse_event_size(invalid_size: int) -> None:
+    """sse_client rejects zero or negative max_sse_event_size values."""
+    with pytest.raises(ValueError, match="max_sse_event_size must be positive or None"):
+        async with sse_client("http://test/sse", max_sse_event_size=invalid_size):
+            pytest.fail("should not connect")  # pragma: no cover
+

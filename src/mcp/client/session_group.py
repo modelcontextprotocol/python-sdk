@@ -43,6 +43,9 @@ class SseServerParameters(BaseModel):
     # Timeout for SSE read operations (in seconds).
     sse_read_timeout: float = 300.0
 
+    # Maximum bytes in one server-sent event. None disables the limit.
+    max_sse_event_size: int | None = Field(default=DEFAULT_MAX_SSE_EVENT_SIZE, gt=0)
+
 
 class StreamableHttpParameters(BaseModel):
     """Parameters for initializing a streamable_http_client."""
@@ -321,6 +324,7 @@ class ClientSessionGroup:
                     headers=server_params.headers,
                     timeout=server_params.timeout,
                     sse_read_timeout=server_params.sse_read_timeout,
+                    max_sse_event_size=server_params.max_sse_event_size,
                 )
                 read, write = await session_stack.enter_async_context(client)
             else:

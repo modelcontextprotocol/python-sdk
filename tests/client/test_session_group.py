@@ -306,10 +306,10 @@ async def test_client_session_group_disconnect_non_existent_server():
             "mcp.client.session_group.mcp.stdio_client",
         ),
         (
-            SseServerParameters(url="http://test.com/sse", timeout=10.0),
+            SseServerParameters(url="http://test.com/sse", timeout=10.0, max_sse_event_size=32 * 1024 * 1024),
             "sse",
             "mcp.client.session_group.sse_client",
-        ),  # url, headers, timeout, sse_read_timeout
+        ),  # url, headers, timeout, sse_read_timeout, max_sse_event_size
         (
             StreamableHttpParameters(
                 url="http://test.com/stream", terminate_on_close=False, max_sse_event_size=32 * 1024 * 1024
@@ -374,6 +374,7 @@ async def test_client_session_group_establish_session_parameterized(
                     headers=server_params_instance.headers,
                     timeout=server_params_instance.timeout,
                     sse_read_timeout=server_params_instance.sse_read_timeout,
+                    max_sse_event_size=server_params_instance.max_sse_event_size,
                 )
             elif client_type_name == "streamablehttp":  # pragma: no branch
                 assert isinstance(server_params_instance, StreamableHttpParameters)

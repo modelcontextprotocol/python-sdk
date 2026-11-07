@@ -22,6 +22,8 @@ from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MAX_SSE_EVENT_SIZE = 1024 * 1024
+
 
 def remove_request_params(url: str) -> str:
     return urljoin(url, urlparse(url).path)
@@ -41,6 +43,7 @@ async def sse_client(
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx2.Auth | None = None,
     on_session_created: Callable[[str], None] | None = None,
+    max_sse_event_size: int | None = DEFAULT_MAX_SSE_EVENT_SIZE,
 ):
     """Client transport for SSE.
 
@@ -62,12 +65,15 @@ async def sse_client(
             they make.
         auth: Optional httpx2 authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
+        max_sse_event_size: Maximum bytes buffered for one SSE event. None disables the limit.
     """
+    if max_sse_event_size is not None and max_sse_event_size <= 0:
+        raise ValueError("max_sse_event_size must be positive or None")
     logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
     async with httpx_client_factory(
         headers=headers, auth=auth, timeout=httpx2.Timeout(timeout, read=sse_read_timeout)
     ) as client:
-        async with sse_within_origin(client, url) as event_source:
+        async with sse_within_origin(client, url, max_event_size=max_sse_event_size) as event_source:
             event_source.response.raise_for_status()
             logger.debug("SSE connection established")
 
