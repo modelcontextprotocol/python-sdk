@@ -212,6 +212,8 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
             yield read_stream, write_stream
     finally:
         if restore_stdout is not None:
+            with suppress(OSError, ValueError):
+                sys.stdout.flush()
             restore_stdout()
         if restore_stdin is not None:
             restore_stdin()
