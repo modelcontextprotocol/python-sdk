@@ -80,6 +80,9 @@ _SHUTDOWN_WRITE_TIMEOUT: float = 1
 _CLOSED_OUTCOME = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
 """What a waiter receives when the connection closes; matched by identity, since a peer can send the same code."""
 
+_CALLER_ERROR_CODES: frozenset[int] = frozenset({-32700, -32600, -32601, -32602, -32002})
+"""JSON-RPC error codes that indicate a caller-side request problem and should not mark the client span ERROR."""
+
 TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext)
 
 PeerCancelMode = Literal["interrupt", "signal"]
@@ -416,8 +419,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     outcome = await receive.receive()
                 if isinstance(outcome, ErrorData) and outcome is not _CLOSED_OUTCOME:
                     code = str(outcome.code)
-                    span.set_attributes({"error.type": code, "rpc.response.status_code": code})
-                    span.set_status(StatusCode.ERROR, outcome.message)
+                    span.set_attribute("rpc.response.status_code", code)
+                    if outcome.code not in _CALLER_ERROR_CODES:
+                        span.set_attribute("error.type", code)
+                        span.set_status(StatusCode.ERROR, outcome.message)
         except TimeoutError:
             if not timeout_armed:
                 # The clock starts only after the write, so this TimeoutError is the
