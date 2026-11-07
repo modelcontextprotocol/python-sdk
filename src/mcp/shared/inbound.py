@@ -12,7 +12,6 @@ validator so client emit and server validate read the same source of truth.
 """
 
 import base64
-import binascii
 import re
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -176,7 +175,7 @@ def decode_header_value(value: str | None) -> str | None:
     payload = m.group("payload")
     try:
         decoded = base64.b64decode(payload, validate=True)
-    except binascii.Error:
+    except ValueError:
         return None
     # Reject non-canonical base64 (e.g. non-zero trailing bits), which
     # `validate=True` tolerates; the encoder only ever emits canonical form.
