@@ -771,6 +771,10 @@ class StreamableHTTPServerTransport:
                         # Send the message via SSE
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
+            except anyio.ClosedResourceError:
+                # terminate() closes the GET stream while this writer is still iterating it.
+                # A client-initiated session close is a normal end, not an error (issue #3833).
+                logger.debug("Standalone SSE stream closed during session termination")
             except Exception:
                 logger.exception("Error in standalone SSE writer")
             finally:

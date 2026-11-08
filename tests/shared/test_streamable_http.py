@@ -5,6 +5,7 @@ Contains tests for both server and client sides of the StreamableHTTP transport.
 """
 
 import json
+import logging
 import multiprocessing
 import socket
 import time
@@ -36,6 +37,7 @@ from mcp.client.streamable_http import (
 )
 from mcp.server import Server
 from mcp.server.streamable_http import (
+    GET_STREAM_KEY,
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
     SESSION_ID_PATTERN,
@@ -791,6 +793,61 @@ async def test_transport_whose_idle_period_ran_out_answers_as_terminated() -> No
         assert await _post_to_transport(transport, ping) == 404
         assert transport.is_terminated
         assert await _post_to_transport(transport, ping) == 404
+
+
+@pytest.mark.anyio
+async def test_termination_does_not_log_an_error_in_the_standalone_sse_writer(caplog: pytest.LogCaptureFixture) -> None:
+    """A client-initiated session close closes the GET stream under the SSE writer; that is a normal
+    end of the stream and must not be logged at ERROR (issue #3833)."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="valid-id")
+    caplog.set_level(logging.DEBUG, logger="mcp.server.streamable_http")
+
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [
+            (b"accept", b"text/event-stream"),
+            (MCP_SESSION_ID_HEADER.encode(), b"valid-id"),
+        ],
+    }
+    sent: list[Message] = []
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    disconnected = anyio.Event()
+
+    async def receive() -> Message:
+        await disconnected.wait()
+        return {"type": "http.disconnect"}
+
+    handler_done = anyio.Event()
+
+    async def run_handler() -> None:
+        try:
+            await transport.handle_request(scope, receive, send)
+        finally:
+            handler_done.set()
+
+    async with transport.connect():
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run_handler)
+            with anyio.fail_after(5):
+                while GET_STREAM_KEY not in transport._request_streams:
+                    await anyio.sleep(0.01)
+            await transport.terminate()
+            disconnected.set()
+            await handler_done.wait()
+            tg.cancel_scope.cancel()
+
+    errors = [
+        record
+        for record in caplog.records
+        if record.name == "mcp.server.streamable_http" and record.levelno >= logging.ERROR
+    ]
+    assert errors == []
 
 
 def test_session_termination(basic_server: None, basic_server_url: str):
