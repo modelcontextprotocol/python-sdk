@@ -1,11 +1,16 @@
 import contextlib
+from collections.abc import Generator
+from typing import Any
 from unittest import mock
 
+import anyio
 import httpx2
 import mcp_types as types
 import pytest
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 import mcp
+import mcp.shared._httpx_utils as httpx_utils
 from mcp.client.session_group import (
     ClientSessionGroup,
     ClientSessionParameters,
@@ -13,7 +18,11 @@ from mcp.client.session_group import (
     StreamableHttpParameters,
 )
 from mcp.client.stdio import StdioServerParameters
+from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
+from tests.interaction._connect import BASE_URL, build_sse_app
+from tests.interaction.transports import StreamingASGITransport
 
 
 @pytest.fixture
@@ -374,6 +383,7 @@ async def test_client_session_group_establish_session_parameterized(
                     headers=server_params_instance.headers,
                     timeout=server_params_instance.timeout,
                     sse_read_timeout=server_params_instance.sse_read_timeout,
+                    auth=server_params_instance.auth,
                 )
             elif client_type_name == "streamablehttp":  # pragma: no branch
                 assert isinstance(server_params_instance, StreamableHttpParameters)
@@ -405,3 +415,183 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+class _BearerAuth(httpx2.Auth):
+    """Test auth handler. `__repr__` includes the token so a leak into `repr(params)` fails the test."""
+
+    def __init__(self, token: str) -> None:
+        self.token = token
+
+    def __repr__(self) -> str:
+        return f"_BearerAuth({self.token})"
+
+    def auth_flow(self, request: httpx2.Request) -> Generator[httpx2.Request, httpx2.Response, None]:
+        request.headers["Authorization"] = f"Bearer {self.token}"
+        yield request
+
+
+def _by_host(apps: dict[str, ASGIApp]) -> ASGIApp:
+    """One ASGI app that forwards to the server for the request's host.
+
+    Each HTTP client then owns a single streaming transport. One client entering several
+    transports exits their cancel scopes from the wrong task.
+    """
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            return
+        host = next(value.decode("latin-1") for name, value in scope["headers"] if name == b"host")
+        await apps[host.split(":", 1)[0]](scope, receive, send)
+
+    return app
+
+
+def _recording_app(app: ASGIApp, authorizations: list[str | None], traces: list[str | None]) -> ASGIApp:
+    async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            headers = {name.decode("latin-1").lower(): value.decode("latin-1") for name, value in scope["headers"]}
+            authorizations.append(headers.get("authorization"))
+            traces.append(headers.get("x-trace-id"))
+        await app(scope, receive, send)
+
+    return wrapped
+
+
+def _server(name: str, tool_name: str) -> MCPServer:
+    server = MCPServer(name)
+
+    @server.tool(name=tool_name)
+    def _call() -> str:
+        """Return the server name."""
+        return name
+
+    return server
+
+
+def _streamable_app(server: MCPServer, authorizations: list[str | None], traces: list[str | None]) -> ASGIApp:
+    app = server.streamable_http_app(
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    )
+    return _recording_app(app, authorizations, traces)
+
+
+def _patch_in_process_clients(monkeypatch: pytest.MonkeyPatch, app: ASGIApp, *, cancel_on_close: bool) -> None:
+    """Make `create_mcp_http_client` talk to `app`. The group builds that client itself."""
+
+    class InProcessClient(httpx2.AsyncClient):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            kwargs["transport"] = StreamingASGITransport(app, cancel_on_close=cancel_on_close)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(httpx_utils.httpx2, "AsyncClient", InProcessClient)
+
+
+def test_http_parameters_omit_auth_from_serialization() -> None:
+    """`auth` stays on the object and off `model_dump`, `model_dump_json`, and `repr`.
+
+    SDK-defined: the handler is not JSON and can hold a credential. `model_copy` keeps the same instance.
+    """
+    auth = _BearerAuth("secret-token")
+    sse = SseServerParameters(url="http://example.test/sse", auth=auth)
+    stream = StreamableHttpParameters(url="http://example.test/mcp", auth=auth)
+
+    assert SseServerParameters(url="http://example.test/sse").auth is None
+    assert StreamableHttpParameters(url="http://example.test/mcp").auth is None
+    for params in (sse, stream):
+        assert params.auth is auth
+        assert params.model_copy().auth is auth
+        assert "auth" not in params.model_dump()
+        assert "secret-token" not in params.model_dump_json()
+        assert "secret-token" not in repr(params)
+
+
+@pytest.mark.anyio
+async def test_streamable_http_group_sends_auth_and_keeps_other_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A streamable HTTP server sees the auth handler's bearer token, not a manual `Authorization` header.
+
+    SDK-defined. `X-Trace-Id` from `headers=` is still sent. The group builds the HTTP client, so this
+    test routes that client at an in-process app.
+    """
+    server = _server("Library", "search")
+    authorizations: list[str | None] = []
+    traces: list[str | None] = []
+    app = _streamable_app(server, authorizations, traces)
+    _patch_in_process_clients(monkeypatch, app, cancel_on_close=True)
+    params = StreamableHttpParameters(
+        url=f"{BASE_URL}/mcp",
+        headers={"X-Trace-Id": "trace-1", "Authorization": "Bearer manual"},
+        auth=_BearerAuth("from-auth"),
+    )
+
+    with anyio.fail_after(5):
+        async with server.session_manager.run(), contextlib.AsyncExitStack() as stack:
+            group = ClientSessionGroup(exit_stack=stack)
+            await group.connect_to_server(params)
+            result = await group.call_tool("search")
+
+    assert result.structured_content == {"result": "Library"}
+    assert authorizations
+    assert set(authorizations) == {"Bearer from-auth"}
+    assert set(traces) == {"trace-1"}
+
+
+@pytest.mark.anyio
+async def test_sse_group_sends_the_auth_handlers_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An SSE server sees the bearer token from `SseServerParameters.auth`.
+
+    SDK-defined. Same in-process route as the streamable HTTP test. `cancel_on_close` is false
+    because the legacy SSE server only finishes the session after the GET observes a disconnect.
+    """
+    server = _server("Legacy", "search")
+    app, _sse = build_sse_app(server)
+    authorizations: list[str | None] = []
+    traces: list[str | None] = []
+    _patch_in_process_clients(monkeypatch, _recording_app(app, authorizations, traces), cancel_on_close=False)
+    params = SseServerParameters(url=f"{BASE_URL}/sse", auth=_BearerAuth("sse-token"))
+
+    with anyio.fail_after(5):
+        async with contextlib.AsyncExitStack() as stack:
+            group = ClientSessionGroup(exit_stack=stack)
+            await group.connect_to_server(params)
+            result = await group.call_tool("search")
+
+    assert result.structured_content == {"result": "Legacy"}
+    assert authorizations
+    assert set(authorizations) == {"Bearer sse-token"}
+
+
+@pytest.mark.anyio
+async def test_each_server_in_a_group_uses_its_own_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two streamable HTTP servers in one group each see only the auth object they were given.
+
+    SDK-defined. The handlers are distinct instances, so a token on one server is not the other's.
+    """
+    library = _server("Library", "library_search")
+    web = _server("Web", "web_search")
+    library_auth: list[str | None] = []
+    web_auth: list[str | None] = []
+    app = _by_host(
+        {
+            "library.example": _streamable_app(library, library_auth, []),
+            "web.example": _streamable_app(web, web_auth, []),
+        }
+    )
+    _patch_in_process_clients(monkeypatch, app, cancel_on_close=True)
+
+    with anyio.fail_after(5):
+        async with library.session_manager.run(), web.session_manager.run(), contextlib.AsyncExitStack() as stack:
+            group = ClientSessionGroup(exit_stack=stack)
+            await group.connect_to_server(
+                StreamableHttpParameters(url="http://library.example/mcp", auth=_BearerAuth("library-token"))
+            )
+            await group.connect_to_server(
+                StreamableHttpParameters(url="http://web.example/mcp", auth=_BearerAuth("web-token"))
+            )
+            library_result = await group.call_tool("library_search")
+            web_result = await group.call_tool("web_search")
+
+    assert library_result.structured_content == {"result": "Library"}
+    assert web_result.structured_content == {"result": "Web"}
+    assert set(library_auth) == {"Bearer library-token"}
+    assert set(web_auth) == {"Bearer web-token"}
