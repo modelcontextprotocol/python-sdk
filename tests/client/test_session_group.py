@@ -439,8 +439,6 @@ def _by_host(apps: dict[str, ASGIApp]) -> ASGIApp:
     """
 
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            return
         host = next(value.decode("latin-1") for name, value in scope["headers"] if name == b"host")
         await apps[host.split(":", 1)[0]](scope, receive, send)
 
@@ -449,10 +447,9 @@ def _by_host(apps: dict[str, ASGIApp]) -> ASGIApp:
 
 def _recording_app(app: ASGIApp, authorizations: list[str | None], traces: list[str | None]) -> ASGIApp:
     async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http":
-            headers = {name.decode("latin-1").lower(): value.decode("latin-1") for name, value in scope["headers"]}
-            authorizations.append(headers.get("authorization"))
-            traces.append(headers.get("x-trace-id"))
+        headers = {name.decode("latin-1").lower(): value.decode("latin-1") for name, value in scope["headers"]}
+        authorizations.append(headers.get("authorization"))
+        traces.append(headers.get("x-trace-id"))
         await app(scope, receive, send)
 
     return wrapped
@@ -498,6 +495,8 @@ def test_http_parameters_omit_auth_from_serialization() -> None:
 
     assert SseServerParameters(url="http://example.test/sse").auth is None
     assert StreamableHttpParameters(url="http://example.test/mcp").auth is None
+    # The token is visible on the handler itself, so a leak into the parameters repr would fail below.
+    assert repr(auth) == "_BearerAuth(secret-token)"
     for params in (sse, stream):
         assert params.auth is auth
         assert params.model_copy().auth is auth
