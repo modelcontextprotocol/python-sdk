@@ -42,6 +42,10 @@ def blockbuster() -> Iterator[None]:
     bb.functions["io.BufferedReader.read"].can_block_in(
         "mcp/server/mcpserver/utilities/types.py", ("to_image_content", "to_audio_content")
     )
+    # Stdio transport flushes stdout before restoring fd 1.
+    for name in ("os.write", "io.BufferedWriter.write", "io.TextIOWrapper.write"):
+        if name in bb.functions:
+            bb.functions[name].can_block_in("mcp/server/stdio.py", ("release", "_restore_fd"))
     bb.activate()
     try:
         yield

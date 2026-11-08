@@ -345,6 +345,46 @@ async def test_stdio_server_takes_stdout_off_the_descriptor_table_while_serving(
 
 
 @pytest.mark.anyio
+async def test_stdio_server_flushes_stdout_and_ensures_line_buffering_before_restore(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unflushed writes to sys.stdout during stdio_server flush to diversion before fd 1 restore.
+
+    Regression for issue #3821: without a flush before restoring fd 1, buffered writes to
+    sys.stdout made while fd 1 was diverted leak onto the wire when flushed after restore,
+    corrupting client JSON-RPC streams. Also verifies line-buffering is ensured on restore.
+    """
+    response = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+    with _pipe_planted_on_fd1(monkeypatch) as (out_r, out_w), _pipe_planted_on_fd2() as err_r:
+        # sys.stdout begins without line-buffering (pipe default)
+        assert getattr(sys.stdout, "line_buffering", None) is False
+
+        with anyio.fail_after(5):
+            async with stdio_server(stdin=anyio.AsyncFile(io.StringIO())) as (read_stream, write_stream):
+                read_stream.close()
+
+                # Buffered write to sys.stdout without explicit flush
+                sys.stdout.write("stray buffered log\n")
+
+                await write_stream.send(SessionMessage(response))
+                line = await _read_from(out_r)
+                assert jsonrpc_message_adapter.validate_json(line.decode().strip()) == response
+                await write_stream.aclose()
+
+            # The unflushed write must have been flushed to stderr before fd 1 was restored
+            assert await _read_from(err_r) == b"stray buffered log\n"
+
+        # After restore, line buffering is ensured on sys.stdout
+        assert getattr(sys.stdout, "line_buffering", None) is True
+
+        # And subsequent flush on sys.stdout does not write the stray log to the wire
+        sys.stdout.flush()
+        os.set_blocking(out_r, False)
+        with pytest.raises(BlockingIOError):
+            os.read(out_r, 4096)
+
+
+@pytest.mark.anyio
 async def test_stdio_server_diverts_stdout_to_the_null_device_when_stderr_is_unusable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

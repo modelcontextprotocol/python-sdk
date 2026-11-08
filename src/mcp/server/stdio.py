@@ -93,6 +93,12 @@ def _open_stdout_diversion() -> int:
 
 def _restore_fd(fd: int, private_fd: int) -> bool:
     """Point fd back at the wire; the Windows handle rebind never affects the outcome."""
+    if fd == 1:
+        with suppress(Exception):
+            sys.stdout.flush()
+        if hasattr(sys.stdout, "reconfigure"):
+            with suppress(Exception):
+                sys.stdout.reconfigure(line_buffering=True)
     try:
         os.dup2(private_fd, fd)
     except OSError:
@@ -123,6 +129,17 @@ def _claim_fd(
         _claims[fd] = claim
 
     def release() -> None:
+        if fd == 1:
+            with suppress(Exception):
+                sys.stdout.flush()
+            with suppress(Exception):
+                stream.flush()
+            if hasattr(sys.stdout, "reconfigure"):
+                with suppress(Exception):
+                    sys.stdout.reconfigure(line_buffering=True)
+            if hasattr(stream, "reconfigure"):
+                with suppress(Exception):
+                    stream.reconfigure(line_buffering=True)
         if claim.private_fd is None or _restore_fd(fd, claim.private_fd):
             with _claims_lock:
                 del _claims[fd]
@@ -138,6 +155,11 @@ def _claim_fd(
     except OSError:
         return stream.buffer, release
     try:
+        if fd == 1:
+            with suppress(Exception):
+                sys.stdout.flush()
+            with suppress(Exception):
+                stream.flush()
         os.dup2(diversion_fd, fd)
     except OSError:
         # The divert did not land; ensure fd carries the wire (a Windows dup2 can
@@ -176,7 +198,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
             stdin = anyio.wrap_file(_UnownedTextWrapper(stdin_buffer, encoding="utf-8", errors="replace"))
         if not stdout:
             stdout_buffer, restore_stdout = _claim_fd(1, sys.stdout, "wb", _open_stdout_diversion)
-            stdout = anyio.wrap_file(_UnownedTextWrapper(stdout_buffer, encoding="utf-8"))
+            stdout = anyio.wrap_file(_UnownedTextWrapper(stdout_buffer, encoding="utf-8", line_buffering=True))
 
         read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
         write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
