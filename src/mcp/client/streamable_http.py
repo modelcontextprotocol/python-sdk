@@ -40,6 +40,7 @@ from mcp.shared._httpx_utils import (
     sse_within_origin,
     stream_within_origin,
 )
+from mcp.shared.exceptions import _SESSION_NOT_FOUND_MARKER
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.jsonrpc_dispatcher import cancelled_request_id_from_params
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
@@ -406,9 +407,16 @@ class StreamableHTTPTransport:
                             body = await response.aread()
                             parsed = jsonrpc_message_adapter.validate_json(body, by_name=False)
                             if isinstance(parsed, JSONRPCError):
+                                error = parsed.error
+                                if response.status_code == 404 and self.session_id is not None:
+                                    error = ErrorData(
+                                        code=error.code,
+                                        message=error.message,
+                                        data={_SESSION_NOT_FOUND_MARKER: True, "data": error.data},
+                                    )
                                 # The server may have set `id: null` (request rejected before its
                                 # id was parsed); use this request's id so correlation works.
-                                reply = JSONRPCError(jsonrpc="2.0", id=message.id, error=parsed.error)
+                                reply = JSONRPCError(jsonrpc="2.0", id=message.id, error=error)
                                 await ctx.read_stream_writer.send(SessionMessage(reply))
                                 return
                         except (httpx2.StreamError, ValidationError):
@@ -421,7 +429,11 @@ class StreamableHTTPTransport:
                             # this method); "Session terminated" would be a lie here.
                             error_data = ErrorData(code=METHOD_NOT_FOUND, message="Not Found")
                         else:
-                            error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                            error_data = ErrorData(
+                                code=INVALID_REQUEST,
+                                message="Session terminated",
+                                data={_SESSION_NOT_FOUND_MARKER: True},
+                            )
                     else:
                         error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))

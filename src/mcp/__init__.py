@@ -68,7 +68,12 @@ from .client.session_group import ClientSessionGroup
 from .client.stdio import StdioServerParameters, stdio_client
 from .server.session import ServerSession
 from .server.stdio import stdio_server
-from .shared.exceptions import MCPDeprecationWarning, MCPError, UrlElicitationRequiredError
+from .shared.exceptions import (
+    MCPDeprecationWarning,
+    MCPError,
+    SessionNotFoundError,
+    UrlElicitationRequiredError,
+)
 from .shared.uri_template import InvalidUriTemplate, UriTemplate
 
 __all__ = [
@@ -105,6 +110,7 @@ __all__ = [
     "LoggingMessageNotification",
     "MCPDeprecationWarning",
     "MCPError",
+    "SessionNotFoundError",
     "Notification",
     "PingRequest",
     "ProgressNotification",

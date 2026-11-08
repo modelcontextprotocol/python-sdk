@@ -52,7 +52,12 @@ from mcp.shared.dispatcher import (
     coerce_request_id,
     run_notify_intercept,
 )
-from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.exceptions import (
+    MCPError,
+    NoBackChannelError,
+    SessionNotFoundError,
+    _SESSION_NOT_FOUND_MARKER,
+)
 from mcp.shared.message import (
     ClientMessageMetadata,
     MessageMetadata,
@@ -458,6 +463,12 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             receive.close()
 
         if isinstance(outcome, ErrorData):
+            if isinstance(outcome.data, dict) and outcome.data.get(_SESSION_NOT_FOUND_MARKER):
+                raise SessionNotFoundError(
+                    code=outcome.code,
+                    message=outcome.message,
+                    data=outcome.data.get("data"),
+                )
             raise MCPError(code=outcome.code, message=outcome.message, data=outcome.data)
         return outcome
 

@@ -5,6 +5,11 @@ from typing import Any, cast
 from mcp_types import INVALID_REQUEST, URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
 
+# Internal transport marker used to preserve the distinction between a lost
+# Streamable HTTP session and an ordinary INVALID_REQUEST response.
+_SESSION_NOT_FOUND_MARKER = "__mcp_session_not_found__"
+
+
 class MCPDeprecationWarning(UserWarning):
     """A custom deprecation warning for the MCP SDK.
 
@@ -50,6 +55,10 @@ class MCPError(Exception):
 
     def __str__(self) -> str:
         return self.message
+
+
+class SessionNotFoundError(MCPError):
+    """Raised when a Streamable HTTP server no longer recognizes the session."""
 
 
 class NoBackChannelError(MCPError):

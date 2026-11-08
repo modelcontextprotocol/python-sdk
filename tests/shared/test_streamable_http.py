@@ -44,7 +44,7 @@ from starlette.requests import Request
 from starlette.routing import Mount
 from starlette.types import Message, Scope
 
-from mcp import MCPError
+from mcp import MCPError, SessionNotFoundError
 from mcp.client import ClientRequestContext, IncomingMessage
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
@@ -1140,7 +1140,7 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
+                with pytest.raises(SessionNotFoundError) as exc_info:  # pragma: no branch
                     await session.list_tools()
                 assert exc_info.value.error.code == INVALID_REQUEST
                 assert exc_info.value.error.message == "Session not found"
@@ -1201,7 +1201,7 @@ async def test_streamable_http_client_session_termination_204(basic_app: Starlet
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
+                with pytest.raises(SessionNotFoundError) as exc_info:  # pragma: no branch
                     await session.list_tools()
                 assert exc_info.value.error.code == INVALID_REQUEST
                 assert exc_info.value.error.message == "Session not found"
