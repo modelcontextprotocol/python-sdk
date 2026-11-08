@@ -12,7 +12,7 @@ import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
-    INVALID_PARAMS,
+    INVALID_REQUEST,
     CallToolResult,
     ClientCapabilities,
     CompletionsCapability,
@@ -228,11 +228,12 @@ async def test_initialize_server_sees_client_capabilities(connect: Connect) -> N
 
 @requirement("lifecycle:requests-before-initialized")
 async def test_request_before_initialization_is_rejected() -> None:
-    """A feature request sent before the handshake completes is rejected; ping is exempt.
+    """A feature request sent before the handshake completes is rejected with a
+    descriptive error; ping is exempt.
 
     Client always initializes on entry, so this drives a bare ClientSession that never sends
-    initialize. The server's stated reason for the rejection never reaches the client: the error
-    is reported as a generic invalid-params failure.
+    initialize. The rejection names the missing handshake (-32600), so a client on a stale
+    session learns it must (re-)run `initialize` instead of debugging its params.
     """
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
@@ -253,7 +254,11 @@ async def test_request_before_initialization_is_rejected() -> None:
             pong = await session.send_ping()
 
     assert exc_info.value.error == snapshot(
-        ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+        ErrorData(
+            code=INVALID_REQUEST,
+            message="Received request before initialization was complete",
+            data="The client must send an 'initialize' request before any other request.",
+        )
     )
     assert pong == snapshot(EmptyResult())
 

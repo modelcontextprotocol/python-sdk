@@ -28,7 +28,6 @@ from mcp_types import (
     CLIENT_INFO_META_KEY,
     CORE_RESULT_TYPES,
     INTERNAL_ERROR,
-    INVALID_PARAMS,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
@@ -209,8 +208,15 @@ class ServerRunner(Generic[LifespanT]):
             if entry is None:
                 raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method)
             if not self.connection.initialize_accepted and method not in _INIT_EXEMPT:
-                # Pinned compat: the same error shape the union validation produced.
-                raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+                # A request before the handshake is a lifecycle error, not a
+                # parameter error: answer -32600 with the reason, so a client
+                # on a stale session (e.g. after a server restart) learns it
+                # must (re-)run `initialize` instead of debugging its params.
+                raise MCPError(
+                    code=INVALID_REQUEST,
+                    message="Received request before initialization was complete",
+                    data="The client must send an 'initialize' request before any other request.",
+                )
             # Absent params validate as {} (required fields still reject), so
             # the handler receives the model with its defaults, never None.
             typed_params = entry.params_type.model_validate({} if params is None else params, by_name=False)

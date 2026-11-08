@@ -208,7 +208,11 @@ async def test_runner_gates_requests_before_initialize(server: SrvT):
     async with connected_runner(server, initialized=False) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/list", None)
-        assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+        assert exc.value.error == ErrorData(
+            code=INVALID_REQUEST,
+            message="Received request before initialization was complete",
+            data="The client must send an 'initialize' request before any other request.",
+        )
         # ping is exempt from the gate
         assert await client.send_raw_request("ping", None) == {}
 
@@ -249,7 +253,11 @@ async def test_runner_custom_method_with_handler_is_still_gated_before_initializ
     async with connected_runner(server, initialized=False) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("custom/greet", None)
-        assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+        assert exc.value.error == ErrorData(
+            code=INVALID_REQUEST,
+            message="Received request before initialization was complete",
+            data="The client must send an 'initialize' request before any other request.",
+        )
 
 
 @pytest.mark.anyio
@@ -632,7 +640,11 @@ async def test_runner_middleware_raise_after_call_next_on_initialize_leaves_conn
         assert exc.value.error.message == "rejected by middleware"
         with pytest.raises(MCPError) as gate_exc:
             await client.send_raw_request("tools/list", None)
-        assert gate_exc.value.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+        assert gate_exc.value.error == ErrorData(
+            code=INVALID_REQUEST,
+            message="Received request before initialization was complete",
+            data="The client must send an 'initialize' request before any other request.",
+        )
         # ping passes through the middleware untouched
         assert await client.send_raw_request("ping", None) == {}
     assert runner.connection.initialize_accepted is False
