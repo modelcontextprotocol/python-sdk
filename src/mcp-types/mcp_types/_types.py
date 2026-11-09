@@ -393,6 +393,8 @@ class ClientCapabilities(MCPModel):
     `initialize` through 2025-11-25; per-request in `_meta` on 2026-07-28.
     """
 
+    model_config = ConfigDict(extra="allow")
+
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the client supports."""
     sampling: SamplingCapability | None = None
@@ -484,6 +486,8 @@ class ServerTasksCapability(MCPModel):
 
 class ServerCapabilities(MCPModel):
     """Capabilities that a server may support. Not a closed set."""
+
+    model_config = ConfigDict(extra="allow")
 
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the server supports."""

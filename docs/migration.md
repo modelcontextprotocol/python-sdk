@@ -365,6 +365,8 @@ params = CallToolRequestParams(
 
 If you relied on extra fields round-tripping through MCP types, move that data into `_meta`.
 
+`ClientCapabilities` and `ServerCapabilities` are exceptions: the spec defines them as an open set, so unknown top-level keys are kept in `model_extra` and sent on the wire.
+
 ### Resource URI type changed from `AnyUrl` to `str`
 
 The `uri` field on resource-related types now uses `str` instead of Pydantic's `AnyUrl`. This aligns with the [MCP specification schema](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/2025-11-25/schema.ts) which defines URIs as plain strings (`uri: string`) without strict URL validation. This change allows relative paths like `users/me` that were previously rejected.
@@ -2653,7 +2655,7 @@ Validation runs when the result is serialized onto the wire, not when the model 
 
 ### Client validates inbound traffic against the protocol schema
 
-`ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp.types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras (and `experimental` for capability extras).
+`ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp.types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras. Capabilities are an open set, so unknown capability keys are kept.
 
 ### Unknown request methods now return `-32601` (Method not found)
 

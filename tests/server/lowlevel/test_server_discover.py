@@ -215,6 +215,23 @@ async def test_overridable_via_add_request_handler() -> None:
     assert result is custom
 
 
+@pytest.mark.anyio
+async def test_a_custom_capability_reaches_the_client() -> None:
+    """Spec-mandated: capabilities are "not a closed set", so a key the SDK doesn't model, like
+    MCP Events' `events`, survives the wire sieve and lands in the client's `model_extra`."""
+    server = Server("events-server")
+    events = {"listChanged": False}
+
+    async def discover(ctx: ServerRequestContext[Any], params: types.RequestParams) -> types.DiscoverResult:
+        capabilities = types.ServerCapabilities.model_validate({"events": events})
+        return types.DiscoverResult(supported_versions=list(MODERN_PROTOCOL_VERSIONS), capabilities=capabilities)
+
+    server.add_request_handler("server/discover", types.RequestParams, discover)
+
+    async with Client(server) as client:
+        assert client.server_capabilities.model_extra == {"events": events}
+
+
 async def _listen_stub(
     ctx: ServerRequestContext[Any], params: types.SubscriptionsListenRequestParams
 ) -> types.SubscriptionsListenResult:

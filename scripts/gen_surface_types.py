@@ -106,12 +106,24 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
 }
 
 # Classes the spec defines as open key-value bags: `_meta` content, the
-# JSON-Schema-document fields on `Tool`, and the schemas with explicit
-# `additionalProperties: {}`. These keep `extra="allow"` so the sieve preserves
-# arbitrary keys; every other class ignores extras. Per-version because codegen
-# reuses class names across versions for unrelated schemas (e.g. `Data`).
+# JSON-Schema-document fields on `Tool`, the capability objects (documented as
+# "not a closed set"), and the schemas with explicit `additionalProperties: {}`.
+# These keep `extra="allow"` so the sieve preserves arbitrary keys; every other
+# class ignores extras. Per-version because codegen reuses class names across
+# versions for unrelated schemas (e.g. `Data`).
 OPEN_CLASSES: dict[str, frozenset[str]] = {
-    "2025-11-25": frozenset({"Meta", "InputSchema", "OutputSchema", "Result", "GetTaskPayloadResult", "Data"}),
+    "2025-11-25": frozenset(
+        {
+            "Meta",
+            "InputSchema",
+            "OutputSchema",
+            "Result",
+            "GetTaskPayloadResult",
+            "Data",
+            "ClientCapabilities",
+            "ServerCapabilities",
+        }
+    ),
     "2026-07-28": frozenset(
         {
             "MetaObject",
@@ -122,6 +134,8 @@ OPEN_CLASSES: dict[str, frozenset[str]] = {
             "InputSchema",
             "OutputSchema",
             "Result",
+            "ClientCapabilities",
+            "ServerCapabilities",
         }
     ),
 }
@@ -236,7 +250,7 @@ def allow_open_class_extras(source: str, open_classes: frozenset[str]) -> str:
         return match.group(0).replace('extra="ignore"', 'extra="allow"')
 
     source = re.sub(
-        r'^class (\w+)\(WireModel\):\n(?: {4}.*\n|\n)*? {4}model_config = ConfigDict\(\n {8}extra="ignore",\n {4}\)\n',
+        r'^class (\w+)\(WireModel\):\n(?: {4}.*\n|\n)*? {4}model_config = ConfigDict\(extra="ignore"\)\n',
         patch,
         source,
         flags=re.MULTILINE,
@@ -296,6 +310,9 @@ def build(entry: dict[str, str]) -> str:
     # them to full URLs so they resolve from the rendered API docs and pass the
     # strict mkdocs link validation.
     source = source.replace("](/", "](https://modelcontextprotocol.io/")
+    source = re.sub(
+        r'model_config = ConfigDict\(\n\s+(extra="ignore"),\n\s+\)', r"model_config = ConfigDict(\1)", source
+    )
     source = allow_open_class_extras(source, OPEN_CLASSES[version])
     if epilogue := EPILOGUES.get(version, ""):
         # Resolve aliases before rebuilding models with forward references.
