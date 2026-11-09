@@ -454,32 +454,31 @@ def func_metadata(
         # structured_output=True still forces one.
         return FuncMetadata(arg_model=arguments_model)
 
-    output_model, wrap_output = _create_output_model(original_annotation, return_type_expr, func.__name__)
-
-    if output_model is not None:
-        try:
+    try:
+        output_model, wrap_output = _create_output_model(original_annotation, return_type_expr, func.__name__)
+        if output_model is not None:
             # FuncMetadata builds the validator and schema on construction, so an unsupported return type
             # surfaces here, at registration, rather than on the first call.
             return FuncMetadata(arg_model=arguments_model, output_model=output_model, wrap_output=wrap_output)
-        except (
-            PydanticUserError,
-            ForbiddenQualifier,
-            NameError,
-            TypeError,
-            ValueError,
-            pydantic_core.SchemaError,
-            pydantic_core.ValidationError,
-        ) as e:
-            # These are expected errors when a type can't be converted to a Pydantic schema
-            # PydanticUserError: When Pydantic can't handle the type (e.g. PydanticInvalidForJsonSchema);
-            #   subclasses TypeError on pydantic <2.13 and RuntimeError on pydantic >=2.13
-            # ForbiddenQualifier, NameError: an invalid qualifier or unresolvable annotation on a TypedDict key,
-            #   met while rebuilding a stdlib TypedDict below 3.12 (pydantic reports both as PydanticUserError)
-            # ValueError: When there are issues with the type definition (including our custom warnings);
-            #   arrives wrapped in a ValidationError when raised during FuncMetadata construction
-            # SchemaError: When Pydantic can't build a schema
-            # ValidationError: When validation fails
-            logger.info(f"Cannot create schema for type {return_type_expr} in {func.__name__}: {type(e).__name__}: {e}")
+    except (
+        PydanticUserError,
+        ForbiddenQualifier,
+        NameError,
+        TypeError,
+        ValueError,
+        pydantic_core.SchemaError,
+        pydantic_core.ValidationError,
+    ) as e:
+        # These are expected errors when a type can't be converted to a Pydantic schema
+        # PydanticUserError: When Pydantic can't handle the type (e.g. PydanticInvalidForJsonSchema);
+        #   subclasses TypeError on pydantic <2.13 and RuntimeError on pydantic >=2.13
+        # ForbiddenQualifier, NameError: an invalid qualifier or unresolvable annotation on a TypedDict key,
+        #   met while rebuilding a stdlib TypedDict below 3.12 (pydantic reports both as PydanticUserError)
+        # ValueError: When there are issues with the type definition (including our custom warnings);
+        #   arrives wrapped in a ValidationError when raised during FuncMetadata construction
+        # SchemaError: When Pydantic can't build a schema
+        # ValidationError: When validation fails
+        logger.info(f"Cannot create schema for type {return_type_expr} in {func.__name__}: {type(e).__name__}: {e}")
 
     if structured_output is True:
         # Model creation failed or produced warnings - no structured output

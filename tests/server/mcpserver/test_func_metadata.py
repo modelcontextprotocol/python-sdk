@@ -6,7 +6,7 @@
 # pyright: reportMissingTypeArgument=false
 # pyright: reportUnknownVariableType=false
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, NotRequired, Required, TypedDict
 
@@ -1391,6 +1391,15 @@ def test_structured_output_unserializable_type_error():
         func_metadata(func_returning_namedtuple, structured_output=True)
     assert "is not serializable for structured output" in str(exc_info.value)
     assert "Point" in str(exc_info.value)
+
+
+def test_structured_output_iterator_falls_back_to_unstructured() -> None:
+    def search() -> Iterator[str]:
+        yield 'result'
+
+    assert func_metadata(search).output_schema is None
+    with pytest.raises(InvalidSignature, match='is not serializable for structured output'):
+        func_metadata(search, structured_output=True)
 
 
 def test_structured_output_aliases():
