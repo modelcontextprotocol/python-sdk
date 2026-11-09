@@ -997,6 +997,12 @@ def _scan_suffix(
         stops = _STOP_CHARS[var.operator]
         prev = atoms[i - 1] if i > 0 else None
 
+        # A dotted variable immediately following a literal has an unambiguous
+        # boundary: the operator's dot is the separator. Keep additional dots in
+        # the value so expansions such as `file{.ext}` with `ext="tar.gz"` round-trip.
+        if var.operator == "." and isinstance(prev, _Lit) and (i < 2 or isinstance(atoms[i - 2], _Lit)):
+            stops = "/?#"
+
         if atom.ifemp:
             # ;name or ;name=value. The preceding _Lit is ";name".
             # Try empty first: if the lit ends at pos the value is

@@ -838,6 +838,7 @@ def test_match_explode_encoded_separator_in_segment():
         ("file://docs/{+path}", {"path": "src/main.py"}),
         ("search{?q,lang}", {"q": "mcp", "lang": "en"}),
         ("file{.ext}", {"ext": "txt"}),
+        ("file{.ext}", {"ext": "tar.gz"}),
         ("/files{/path*}", {"path": ["a", "b", "c"]}),
         ("{var}", {"var": "hello world"}),
         ("item{;id}", {"id": "42"}),
