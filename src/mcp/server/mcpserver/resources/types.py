@@ -206,13 +206,13 @@ class DirectoryResource(Resource):
 
     @pydantic.field_validator("path")
     @classmethod
-    def validate_absolute_path(cls, path: Path) -> Path:  # pragma: no cover
+    def validate_absolute_path(cls, path: Path) -> Path:
         """Ensure path is absolute."""
         if not path.is_absolute():
             raise ValueError("Path must be absolute")
         return path
 
-    def list_files(self) -> list[Path]:  # pragma: no cover
+    def list_files(self) -> list[Path]:
         """List files in the directory."""
         if not self.path.exists():
             raise FileNotFoundError(f"Directory not found: {self.path}")
@@ -223,8 +223,9 @@ class DirectoryResource(Resource):
             return list(self.path.glob(self.pattern)) if not self.recursive else list(self.path.rglob(self.pattern))
         return list(self.path.glob("*")) if not self.recursive else list(self.path.rglob("*"))
 
-    async def read(self) -> str:  # Always returns JSON string  # pragma: no cover
+    async def read(self) -> str:
         """Read the directory listing."""
-        files = await anyio.to_thread.run_sync(self.list_files)
-        file_list = [str(f.relative_to(self.path)) for f in files if f.is_file()]
+        file_list = await anyio.to_thread.run_sync(
+            lambda: sorted(f.relative_to(self.path).as_posix() for f in self.list_files() if f.is_file())
+        )
         return json.dumps({"files": file_list}, indent=2)
