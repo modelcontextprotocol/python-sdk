@@ -55,7 +55,17 @@ class ToolError(MCPServerError):
     The SDK raises it too, for an unknown tool name and for arguments that fail
     the input schema, and `UnexpectedToolError` subclasses it, so `except ToolError`
     around `MCPServer.call_tool()` catches every tool failure, crash or not.
+
+    Args:
+        message: The error message for the model to read.
+        content: Optional tool result content to include in the error response.
+            When provided, these content blocks are returned with `is_error=True`
+            instead of a single text block derived from `message`.
     """
+
+    def __init__(self, message: str = "", *args: object, content: object = None) -> None:
+        super().__init__(message, *args)
+        self.content = content
 
 
 class UnexpectedToolError(ToolError):

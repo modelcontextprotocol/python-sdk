@@ -209,7 +209,10 @@ class Tool(BaseModel):
             raise UnexpectedToolError(f"Error executing tool {self.name}: {exc}") from exc
         except (ToolError, ResourceError) as exc:
             # Raised deliberately by the tool, a resolver, or a resource it read.
-            raise ToolError(f"Error executing tool {self.name}: {exc}") from exc
+            wrapped = ToolError(f"Error executing tool {self.name}: {exc}")
+            if isinstance(exc, ToolError) and getattr(exc, "content", None) is not None:
+                wrapped.content = exc.content
+            raise wrapped from exc
         except Exception as exc:
             # A crash: the exception's own text stays on the server.
             raise UnexpectedToolError(f"Error executing tool {self.name}") from exc

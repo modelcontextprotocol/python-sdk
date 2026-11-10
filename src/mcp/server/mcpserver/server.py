@@ -453,6 +453,17 @@ class MCPServer(Generic[LifespanResultT]):
                     logger.info("Tool %r failed: %r", params.name, str(exc))
             else:
                 logger.exception("Tool %r raised an unexpected exception", params.name)
+            if isinstance(exc, ToolError) and not isinstance(exc, UnexpectedToolError) and getattr(exc, "content", None) is not None:
+                from mcp.server.mcpserver.utilities.func_metadata import _convert_to_content
+
+                raw = exc.content
+                if isinstance(raw, (list, tuple)):
+                    blocks: list[Any] = []
+                    for item in raw:
+                        blocks.extend(_convert_to_content(item))
+                else:
+                    blocks = _convert_to_content(raw)
+                return CallToolResult(content=blocks, is_error=True)
             return CallToolResult(content=[TextContent(type="text", text=str(exc))], is_error=True)
 
     async def _handle_list_resources(

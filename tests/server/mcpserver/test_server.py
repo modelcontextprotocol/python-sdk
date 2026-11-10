@@ -2562,6 +2562,44 @@ async def test_tool_error_subclass_is_still_anticipated(caplog: pytest.LogCaptur
     )
 
 
+
+async def test_tool_error_with_content_returns_content_in_error_result():
+    """ToolError with content returns that content in the is_error result."""
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def analyze() -> str:
+        raise ToolError(
+            "analysis failed",
+            content=[TextContent(type="text", text="partial output"), ImageContent(type="image", data="YWJj", mime_type="image/png")],
+        )
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("analyze", {})
+
+    assert result.is_error is True
+    assert len(result.content) == 2
+    assert result.content[0] == TextContent(type="text", text="partial output")
+    assert result.content[1] == ImageContent(type="image", data="YWJj", mime_type="image/png")
+
+
+async def test_tool_error_with_image_helper_content_returns_image_in_error_result():
+    """ToolError with Image helper content converts to ImageContent in is_error result."""
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def screenshot() -> str:
+        raise ToolError("capture failed", content=[Image(data=b"abc", format="png")])
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("screenshot", {})
+
+    assert result.is_error is True
+    assert len(result.content) == 1
+    assert result.content[0].type == "image"
+    assert result.content[0].mime_type == "image/png"
+
+
 async def test_tool_argument_validation_failure_is_logged_at_info_without_traceback(
     caplog: pytest.LogCaptureFixture,
 ):
