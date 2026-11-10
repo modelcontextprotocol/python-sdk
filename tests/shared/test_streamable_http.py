@@ -21,7 +21,6 @@ import anyio
 import httpx2
 import mcp_types as types
 import pytest
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx2 import ServerSentEvent
 from mcp_types import (
     DEFAULT_NEGOTIATED_VERSION,
@@ -50,7 +49,6 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
-    GET_STREAM_KEY,
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
     SESSION_ID_PATTERN,
@@ -2279,7 +2277,7 @@ async def test_standalone_stream_teardown_mid_listen_is_not_an_error(caplog: pyt
                 await notified.wait()
             # Tear the standalone stream down while the writer is parked on it.
             (transport,) = session_manager._server_instances.values()  # pyright: ignore[reportPrivateUsage]
-            await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
+            transport.close_standalone_sse_stream()
     assert "Error in standalone SSE writer" not in caplog.text
 
 
@@ -2297,38 +2295,19 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
         mcp_session_id=None,
         security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
-    # The GET handler only checks that a read-stream writer exists; it is never written to.
-    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
-    transport._read_stream_writer = read_stream_writer  # pyright: ignore[reportPrivateUsage]
-
-    stream_registered = anyio.Event()
-
-    class SignalingStreams(
-        dict[types.RequestId, tuple[MemoryObjectSendStream[EventMessage], MemoryObjectReceiveStream[EventMessage]]]
-    ):
-        # Only the GET handler inserts here, so any insert is the standalone stream registration.
-        def __setitem__(
-            self,
-            key: types.RequestId,
-            value: tuple[MemoryObjectSendStream[EventMessage], MemoryObjectReceiveStream[EventMessage]],
-        ) -> None:
-            super().__setitem__(key, value)
-            stream_registered.set()
-
-    transport._request_streams = SignalingStreams()  # pyright: ignore[reportPrivateUsage]
-
+    headers_sent = anyio.Event()
     gate = anyio.Event()
     sent: list[Message] = []
 
     async def asgi_send(message: Message) -> None:
         sent.append(message)
+        if message["type"] == "http.response.start":
+            headers_sent.set()
         await gate.wait()
 
-    # Never delivers anything, parking the response's disconnect listener.
-    disconnect_send, disconnect_receive = anyio.create_memory_object_stream[Message](0)
-
     async def asgi_receive() -> Message:
-        return await disconnect_receive.receive()
+        await anyio.sleep_forever()
+        raise NotImplementedError
 
     scope: Scope = {
         "type": "http",
@@ -2339,18 +2318,24 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
     }
     notification = types.JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
 
-    async with read_stream_writer, read_stream, disconnect_send, disconnect_receive:
-        with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
+    with anyio.fail_after(5):
+        async with transport.connect() as (_, write_stream):
+
+            async def send_notifications() -> None:
+                while True:
+                    await write_stream.send(SessionMessage(notification))
+
+            async with anyio.create_task_group() as tg:
                 tg.start_soon(transport.handle_request, scope, asgi_receive, asgi_send)
-                await stream_registered.wait()
-                standalone_send = transport._request_streams[GET_STREAM_KEY][0]  # pyright: ignore[reportPrivateUsage]
-                # Zero-buffer rendezvous: once send() returns, the writer has dequeued the event
-                # and is blocked forwarding it past the closed gate — the between-dequeues window.
-                await standalone_send.send(EventMessage(notification))
-                await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
-                # Unblock the response; the writer's next dequeue hits its closed stream.
+                await headers_sent.wait()
+                async with anyio.create_task_group() as senders:
+                    senders.start_soon(send_notifications)
+                    # Fill the route until the router and SSE writer are both blocked.
+                    await anyio.wait_all_tasks_blocked()
+                    transport.close_standalone_sse_stream()
+                    senders.cancel_scope.cancel()
                 gate.set()
+            await transport.terminate()
 
     assert sent[0]["type"] == "http.response.start"
     assert sent[0]["status"] == 200
@@ -2359,3 +2344,4 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
     assert body_chunks[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
     assert "Error in standalone SSE writer" not in caplog.text
     assert "Error in standalone SSE response" not in caplog.text
+    assert "Error in message router" not in caplog.text
