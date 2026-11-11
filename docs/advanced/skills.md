@@ -254,9 +254,9 @@ Every 30 seconds here, the catalog calls `reload()`. Automatic refresh is **off 
 `auto_refresh=True` alone, `refresh_interval` defaults to 60 seconds; it must be a finite number
 greater than zero.
 
-There's no task to start and nothing to stop: the timer runs with the server's lifespan, on stdio,
-SSE and streamable HTTP. SSE enters the lifespan once per connection, so there the timer runs only
-while a client is connected.
+There's no task to start and nothing to stop: the timer runs with the server's lifespan. On
+streamable HTTP that is the server's whole lifetime. A transport that enters the lifespan once per
+connection runs the timer only while a client is connected.
 
 * **A failed refresh changes nothing.** The error is logged and the previous skills keep serving.
   The catalog tries again after the next interval.

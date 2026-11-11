@@ -106,7 +106,7 @@ class Extension:
     #: Reverse-DNS extension identifier, advertised under `ServerCapabilities.extensions`.
     identifier: str
     resources_are_dynamic: bool = False
-    """When true, `resources()` is consulted on each resource listing or lookup."""
+    """When true, `resources()` is called again on each resource listing, and on each lookup not already answered."""
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)

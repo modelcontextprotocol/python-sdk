@@ -335,6 +335,26 @@ async def test_read_file_refuses_a_non_regular_open_descriptor(tmp_path: Path, m
         await FilesystemSkillProvider(tmp_path).read_file("pipe")
 
 
+async def test_read_file_opens_without_blocking_so_a_fifo_swapped_in_cannot_hang_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SDK-defined: opening a real FIFO needs POSIX, so record the open flags to pin the guard everywhere."""
+    (tmp_path / "SKILL.md").write_bytes(b"x")
+    flags: list[int] = []
+    real_open = os.open
+
+    def recording_open(path: Any, open_flags: int, *args: Any, **kwargs: Any) -> int:
+        flags.append(open_flags)
+        return real_open(path, open_flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", recording_open)
+
+    assert await FilesystemSkillProvider(tmp_path).read_file("SKILL.md") == b"x"
+    nonblock = getattr(os, "O_NONBLOCK", 0)
+    assert len(flags) == 1
+    assert flags[0] & nonblock == nonblock
+
+
 async def test_a_root_that_is_itself_a_link_is_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """SDK-defined: trusted-root link metadata is not refused; simulate it without needing link privileges."""
     real = tmp_path / "real"

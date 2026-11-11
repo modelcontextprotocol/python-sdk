@@ -137,13 +137,15 @@ The client is its own program, and it carries both halves of the client story:
 
 Normally `resources()` is called once, when the server is built. If your resources change while
 the server runs, set `resources_are_dynamic = True` and the server asks `resources()` again on
-every listing and lookup.
+every listing, and on every lookup that a resource registered directly on the server or an
+earlier dynamic extension hasn't already answered.
 
 Build the new resources completely before you start returning them, so a request never sees a
 half-updated set. Return them as a tuple, and the same tuple until they change, so the server can
-look a resource up by URI instead of scanning every resource on each request. If two resources
-share a URI, the one registered directly on the server wins,
-then dynamic ones in extension order, then templates.
+look a resource up by URI instead of scanning every resource on each request. Don't change a
+resource's URI inside a tuple you've returned; return a new tuple instead. If two resources share
+a URI, the one registered directly on the server wins, then dynamic ones in extension order, then
+templates.
 
 To run background work, such as a task that keeps those resources up to date, override
 `lifespan()` with an `@asynccontextmanager`. Code before its `yield` runs when the server starts,

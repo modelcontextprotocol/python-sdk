@@ -109,10 +109,12 @@ class ResourceManager:
         return template
 
     def add_resource_provider(self, provider: Callable[[], Sequence[Resource]]) -> None:
-        """Register a dynamic source of concrete resources, consulted on every listing and lookup.
+        """Register a dynamic source of concrete resources.
 
-        Resources added with `add_resource` take precedence, then providers in the order they were added.
-        A provider that returns the same tuple again is looked up by URI without rescanning it.
+        The provider is called on every listing, and on every lookup that a resource added with
+        `add_resource` or an earlier provider hasn't already answered. A provider that returns the
+        same tuple again is looked up by URI without rescanning it, so don't change a resource's URI
+        inside a returned tuple; return a new tuple instead.
         """
         self._resource_sources.append(_ResourceSource(provider))
 
