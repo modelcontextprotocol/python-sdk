@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, cast, overload
 
 import anyio
@@ -64,6 +64,7 @@ from mcp.server.extension import (
     Extension,
     MethodBinding,
     RequestHandler,
+    ResourceBinding,
     compose_tool_call_handler,
     validate_extension_identifier,
 )
@@ -270,6 +271,7 @@ class MCPServer(Generic[LifespanResultT]):
         for extension in extensions or ():
             self._apply_extension(extension)
         self._install_extension_interceptor()
+        self._install_extension_lifespan()
 
     @property
     def name(self) -> str:
@@ -338,8 +340,11 @@ class MCPServer(Generic[LifespanResultT]):
 
         for tool in extension.tools():
             self.add_tool(tool.fn, meta=tool.meta, **tool.kwargs)
-        for resource in extension.resources():
-            self.add_resource(resource.resource)
+        if extension.resources_are_dynamic:
+            self._resource_manager.add_resource_provider(_dynamic_resources(extension))
+        else:
+            for resource in extension.resources():
+                self.add_resource(resource.resource)
         for method in extension.methods():
             if self._lowlevel_server.get_request_handler(method.method) is not None:
                 raise ValueError(
@@ -366,6 +371,22 @@ class MCPServer(Generic[LifespanResultT]):
                 CallToolRequestParams,
                 compose_tool_call_handler(self._extensions, self._handle_call_tool),
             )
+
+    def _install_extension_lifespan(self) -> None:
+        extensions = [e for e in self._extensions if type(e).lifespan is not Extension.lifespan]
+        if not extensions:
+            return
+        lifespan = self._lowlevel_server.lifespan
+
+        @asynccontextmanager
+        async def wrap(server: Server[LifespanResultT]) -> AsyncIterator[LifespanResultT]:
+            async with AsyncExitStack() as stack:
+                context = await stack.enter_async_context(lifespan(server))
+                for extension in extensions:
+                    await stack.enter_async_context(extension.lifespan())
+                yield context
+
+        self._lowlevel_server.lifespan = wrap
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...
@@ -1374,6 +1395,26 @@ class MCPServer(Generic[LifespanResultT]):
         except Exception as e:
             # Not logged here: the dispatcher boundary logs it once.
             raise ValueError(str(e)) from e
+
+
+def _dynamic_resources(extension: Extension) -> Callable[[], Sequence[Resource]]:
+    """Adapt a dynamic extension's `resources()` for the resource manager.
+
+    The same tuple of bindings maps to the same tuple of resources, so the manager can reuse its
+    URI index instead of rescanning every resource on each lookup.
+    """
+    last: tuple[Sequence[ResourceBinding], tuple[Resource, ...]] | None = None
+
+    def resources() -> Sequence[Resource]:
+        nonlocal last
+        bindings = extension.resources()
+        if not isinstance(bindings, tuple):
+            return [binding.resource for binding in bindings]
+        if last is None or last[0] is not bindings:
+            last = (bindings, tuple(binding.resource for binding in bindings))
+        return last[1]
+
+    return resources
 
 
 def _version_gated(method: MethodBinding) -> RequestHandler:

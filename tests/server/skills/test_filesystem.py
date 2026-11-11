@@ -2,8 +2,8 @@
 
 import logging
 import os
+import shutil
 import stat
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,27 +18,9 @@ pytestmark = pytest.mark.anyio
 
 FILESYSTEM_LOGGER = "mcp.server.skills.filesystem"
 
-# Creating a file symlink needs a privilege on Windows, and named pipes don't exist there. Skipped test
-# bodies are excluded from coverage by a pragma on each decorator.
-requires_file_symlinks = pytest.mark.skipif(sys.platform == "win32", reason="needs symlink privilege")
-requires_fifos = pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX-only")
-requires_posix_names = pytest.mark.skipif(sys.platform == "win32", reason="Windows forbids `\\` and `:` in names")
-
 IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003
 IO_REPARSE_TAG_SYMLINK = 0xA000000C
 IO_REPARSE_TAG_CLOUD_FILE = 0x9000601A  # OneDrive placeholder: a reparse point that is an ordinary file
-
-
-def link_directory(link: Path, target: Path) -> None:
-    """Make `link` a directory link to `target`: a symlink, or a junction where symlinks need a privilege."""
-    try:
-        link.symlink_to(target, target_is_directory=True)
-    except OSError as exc:  # pragma: lax no cover
-        if sys.platform != "win32" or exc.winerror != 1314:  # ERROR_PRIVILEGE_NOT_HELD; a junction needs no privilege
-            raise
-        import _winapi
-
-        _winapi.CreateJunction(str(target), str(link))
 
 
 def reparse_stat(mode: int, tag: int) -> Any:
@@ -78,6 +60,7 @@ def pretend_reparse_points(monkeypatch: pytest.MonkeyPatch, points: dict[str, tu
 
 
 async def test_list_files_returns_slash_separated_relative_paths_of_nested_files(tmp_path: Path) -> None:
+    """SDK-defined: discovery returns portable paths relative to the configured root."""
     (tmp_path / "git-workflow" / "references").mkdir(parents=True)
     (tmp_path / "git-workflow" / "SKILL.md").write_bytes(b"skill")
     (tmp_path / "git-workflow" / "references" / "conventions.md").write_bytes(b"conventions")
@@ -100,7 +83,7 @@ async def test_list_files_prunes_hidden_entries(tmp_path: Path) -> None:
 
 
 async def test_list_files_skips_a_linked_directory_with_a_warning(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """SDK-defined: links (symlinks, and junctions on Windows) are never followed, so a skill directory can't
     expose files outside the root."""
@@ -110,7 +93,8 @@ async def test_list_files_skips_a_linked_directory_with_a_warning(
     root = tmp_path / "root"
     (root / "skill").mkdir(parents=True)
     (root / "skill" / "SKILL.md").write_bytes(b"x")
-    link_directory(root / "skill" / "linked-dir", outside)
+    shutil.copytree(outside, root / "skill" / "linked-dir")
+    pretend_reparse_points(monkeypatch, {"linked-dir": (stat.S_IFLNK | 0o777, 0)})
 
     with caplog.at_level(logging.WARNING, logger=FILESYSTEM_LOGGER):
         files = await FilesystemSkillProvider(root).list_files()
@@ -119,16 +103,16 @@ async def test_list_files_skips_a_linked_directory_with_a_warning(
     assert any("linked-dir" in record.getMessage() for record in caplog.records)
 
 
-@requires_file_symlinks  # pragma: lax no cover
 async def test_list_files_skips_a_symlinked_file_with_a_warning(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """SDK-defined: a symlink to a file outside the root is not listed."""
+    """SDK-defined: a file reported as a POSIX symlink is not listed, simulated without platform privileges."""
     (tmp_path / "secret.txt").write_bytes(b"secret")
     root = tmp_path / "root"
     root.mkdir()
     (root / "SKILL.md").write_bytes(b"x")
-    (root / "linked-file.txt").symlink_to(tmp_path / "secret.txt")
+    (root / "linked-file.txt").write_bytes(b"secret")
+    pretend_reparse_points(monkeypatch, {"linked-file.txt": (stat.S_IFLNK | 0o777, 0)})
 
     with caplog.at_level(logging.WARNING, logger=FILESYSTEM_LOGGER):
         files = await FilesystemSkillProvider(root).list_files()
@@ -167,11 +151,13 @@ async def test_list_files_keeps_a_windows_reparse_point_that_is_not_a_link(
     assert await FilesystemSkillProvider(tmp_path).list_files() == ["SKILL.md", "placeholder.txt"]
 
 
-@requires_fifos  # pragma: lax no cover
-async def test_list_files_skips_a_named_pipe_with_a_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    """SDK-defined: only regular files are listed."""
+async def test_list_files_skips_a_named_pipe_with_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """SDK-defined: only regular files are listed; FIFO stat metadata is simulated on every platform."""
     (tmp_path / "SKILL.md").write_bytes(b"x")
-    os.mkfifo(tmp_path / "pipe")
+    (tmp_path / "pipe").write_bytes(b"")
+    pretend_reparse_points(monkeypatch, {"pipe": (stat.S_IFIFO | 0o600, 0)})
 
     with caplog.at_level(logging.WARNING, logger=FILESYSTEM_LOGGER):
         files = await FilesystemSkillProvider(tmp_path).list_files()
@@ -181,11 +167,13 @@ async def test_list_files_skips_a_named_pipe_with_a_warning(tmp_path: Path, capl
 
 
 async def test_list_files_raises_os_error_for_a_missing_root(tmp_path: Path) -> None:
+    """SDK-defined: discovery propagates missing-root errors rather than serving an empty catalog."""
     with pytest.raises(OSError):
         await FilesystemSkillProvider(tmp_path / "missing").list_files()
 
 
 async def test_read_file_returns_the_raw_bytes(tmp_path: Path) -> None:
+    """SDK-defined: file reads preserve undecodable bytes and line endings."""
     (tmp_path / "skill").mkdir()
     content = b"\xef\xbb\xbfline\r\n\xff"
     (tmp_path / "skill" / "SKILL.md").write_bytes(content)
@@ -217,25 +205,33 @@ async def test_read_file_refuses_windows_path_syntax_that_could_leave_the_root(
         await FilesystemSkillProvider(root).read_file(path)
 
 
-@requires_posix_names  # pragma: lax no cover
-async def test_names_containing_a_colon_or_backslash_are_served_off_windows(tmp_path: Path) -> None:
-    """SDK-defined: `:` and `\\` are ordinary name characters on POSIX, so the Windows rule must not reject them."""
-    (tmp_path / "skill").mkdir()
-    (tmp_path / "skill" / "a:b\\c.md").write_bytes(b"content")
+async def test_posix_path_validation_accepts_colons_and_backslashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SDK-defined: POSIX accepts these characters; simulate the I/O boundary because Windows cannot store them."""
     provider = FilesystemSkillProvider(tmp_path)
+    segments_seen: list[list[str]] = []
 
-    assert await provider.list_files() == ["skill/a:b\\c.md"]
+    def read(segments: list[str]) -> bytes:
+        segments_seen.append(segments)
+        return b"content"
+
+    monkeypatch.setattr("mcp.server.skills.filesystem._FORBIDDEN_SEGMENT_CHARS", "")
+    monkeypatch.setattr(provider, "_read_file", read)
     assert await provider.read_file("skill/a:b\\c.md") == b"content"
+    assert segments_seen == [["skill", "a:b\\c.md"]]
 
 
 async def test_read_file_raises_os_error_for_a_missing_file(tmp_path: Path) -> None:
+    """SDK-defined: reads propagate missing-file errors."""
     with pytest.raises(OSError):
         await FilesystemSkillProvider(tmp_path).read_file("missing.md")
 
 
-@requires_file_symlinks  # pragma: lax no cover
-async def test_read_file_refuses_a_file_swapped_for_a_symlink_after_listing(tmp_path: Path) -> None:
-    """SDK-defined: a symlink put in place of a listed file is not followed."""
+async def test_read_file_refuses_a_file_swapped_for_a_symlink_after_listing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SDK-defined: POSIX symlink metadata appearing after listing is refused, simulated on every platform."""
     secret = tmp_path / "secret.txt"
     secret.write_bytes(b"secret")
     root = tmp_path / "root"
@@ -244,26 +240,31 @@ async def test_read_file_refuses_a_file_swapped_for_a_symlink_after_listing(tmp_
     provider = FilesystemSkillProvider(root)
     assert "skill/SKILL.md" in await provider.list_files()
 
-    (root / "skill" / "SKILL.md").unlink()
-    (root / "skill" / "SKILL.md").symlink_to(secret)
+    (root / "skill" / "SKILL.md").write_bytes(secret.read_bytes())
+    pretend_reparse_points(monkeypatch, {"SKILL.md": (stat.S_IFLNK | 0o777, 0)})
 
     with pytest.raises(OSError):
         await provider.read_file("skill/SKILL.md")
 
 
-async def test_read_file_refuses_a_final_component_that_is_a_linked_directory(tmp_path: Path) -> None:
-    """SDK-defined: a link as the last path component is refused rather than followed."""
+async def test_read_file_refuses_a_final_component_that_is_a_linked_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SDK-defined: a final-component symlink is refused; simulate its stat metadata on every platform."""
     outside = tmp_path / "outside"
     outside.mkdir()
     root = tmp_path / "root"
     root.mkdir()
-    link_directory(root / "linked", outside)
+    shutil.copytree(outside, root / "linked")
+    pretend_reparse_points(monkeypatch, {"linked": (stat.S_IFLNK | 0o777, 0)})
 
     with pytest.raises(OSError):
         await FilesystemSkillProvider(root).read_file("linked")
 
 
-async def test_read_file_refuses_a_directory_swapped_for_a_link_after_listing(tmp_path: Path) -> None:
+async def test_read_file_refuses_a_directory_swapped_for_a_link_after_listing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """SDK-defined: an intermediate directory replaced by a link (a symlink, or a junction on Windows) is
     not traversed."""
     outside = tmp_path / "outside"
@@ -275,9 +276,8 @@ async def test_read_file_refuses_a_directory_swapped_for_a_link_after_listing(tm
     provider = FilesystemSkillProvider(root)
     assert "skill/SKILL.md" in await provider.list_files()
 
-    (root / "skill" / "SKILL.md").unlink()
-    (root / "skill").rmdir()
-    link_directory(root / "skill", outside)
+    (root / "skill" / "SKILL.md").write_bytes((outside / "SKILL.md").read_bytes())
+    pretend_reparse_points(monkeypatch, {"skill": (stat.S_IFLNK | 0o777, 0)})
 
     with pytest.raises(OSError):
         await provider.read_file("skill/SKILL.md")
@@ -322,22 +322,27 @@ async def test_read_file_refuses_a_directory(tmp_path: Path) -> None:
         await FilesystemSkillProvider(tmp_path).read_file("skill")
 
 
-@requires_fifos  # pragma: lax no cover
-async def test_read_file_refuses_a_named_pipe_without_blocking(tmp_path: Path) -> None:
-    """SDK-defined: a pipe swapped in after listing is refused rather than waited on."""
-    os.mkfifo(tmp_path / "pipe")
+async def test_read_file_refuses_a_non_regular_open_descriptor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SDK-defined: fstat rejects a non-regular descriptor even when lstat reported a regular file."""
+    (tmp_path / "pipe").write_bytes(b"must not be read")
+
+    def fstat(fd: int) -> Any:
+        return reparse_stat(stat.S_IFIFO | 0o600, 0)
+
+    monkeypatch.setattr(os, "fstat", fstat)
 
     with pytest.raises(OSError):
         await FilesystemSkillProvider(tmp_path).read_file("pipe")
 
 
-async def test_a_root_that_is_itself_a_link_is_served(tmp_path: Path) -> None:
-    """SDK-defined: the root is trusted configuration, so only entries below it are never followed."""
+async def test_a_root_that_is_itself_a_link_is_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SDK-defined: trusted-root link metadata is not refused; simulate it without needing link privileges."""
     real = tmp_path / "real"
     (real / "skill").mkdir(parents=True)
     (real / "skill" / "SKILL.md").write_bytes(b"x")
     link = tmp_path / "link"
-    link_directory(link, real)
+    shutil.copytree(real, link)
+    pretend_reparse_points(monkeypatch, {"link": (stat.S_IFLNK | 0o777, 0)})
 
     provider = FilesystemSkillProvider(link)
 

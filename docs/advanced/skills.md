@@ -204,14 +204,77 @@ are not served.
     (an error with `strict=True`). Use `FilesystemSkillProvider(Path("skills"))` instead.
 
 !!! note
-    The catalog reads and hashes every file **once**, when `load()` runs, and serves that snapshot.
-    That's how the `digest` and `size` in each skill's manifest are guaranteed to match what
-    `resources/read` returns.
+    The catalog reads and hashes every file when `load()` runs. By default, it reads files from
+    the provider again on each `resources/read` and checks their bytes against that fingerprint.
 
-    It also means the catalog is fixed for the lifetime of the server. If a file changes
-    afterwards, reading it fails with an internal error (`-32603`) until you restart the server or
-    create a new catalog. And because `load()` reads every file, a large asset directory makes
-    startup slower.
+    If a file changes afterwards, reading it fails with an internal error (`-32603`) until you
+    [reload the catalog](#reloading-skills) or restart the server. And because `load()`
+    reads every file, a large asset directory makes startup slower.
+
+### Reloading skills
+
+While you're writing a skill you'll keep editing its files, adding skills and deleting others.
+Call `reload()` to pick all of it up without restarting the server:
+
+```python
+async def refresh(skills_catalog: SkillCatalog) -> None:
+    changes = await skills_catalog.reload()
+    print(changes.added, changes.removed, changes.changed)  # SKILL.md URIs
+```
+
+`reload()` scans the whole provider again, and only when every skill has been read and validated
+does it replace everything the catalog serves, in one step. `skills/list`, `skills/get`, resource
+and directory listings, and file reads all switch together, so no request sees a half-updated
+catalog. Skills and files can be added, removed or edited. It returns a `SkillCatalogChanges`
+with the `added`, `removed` and `changed` skills.
+
+It is all or nothing. If the scan fails, `reload()` raises and the previous catalog stays installed:
+
+* the provider fails (`OSError`), or lists a path that isn't valid;
+* `strict=True` and any skill is invalid, as with `load()`;
+* a skill the catalog is serving has become invalid. This holds even without `strict`, so a typo in
+  the frontmatter mid-edit doesn't take a skill down. A skill that was already skipped at `load()`
+  stays skipped and doesn't block reloads.
+
+Calls to `reload()` run one after another.
+
+Without `auto_refresh`, file reads still go to the provider: a file that has changed or disappeared
+can fail to read even when the previous catalog stays installed. Enable `auto_refresh` to retain
+the previous files' bytes as well.
+
+#### Reloading on a timer
+
+Calling `reload()` yourself gets old fast. To have the catalog do it, turn on `auto_refresh`:
+
+```python title="server.py" hl_lines="14 15"
+--8<-- "docs_src/skills/tutorial003.py"
+```
+
+Every 30 seconds here, the catalog calls `reload()`. Automatic refresh is **off by default**. With
+`auto_refresh=True` alone, `refresh_interval` defaults to 60 seconds; it must be a finite number
+greater than zero.
+
+There's no task to start and nothing to stop: the timer runs with the server's lifespan, on stdio,
+SSE and streamable HTTP. SSE enters the lifespan once per connection, so there the timer runs only
+while a client is connected.
+
+* **A failed refresh changes nothing.** The error is logged and the previous skills keep serving.
+  The catalog tries again after the next interval.
+* **Scans never overlap.** The next interval starts after the previous scan finishes.
+
+!!! note
+    With `auto_refresh`, the catalog keeps the bytes of every served file **in memory**. That's
+    what lets the previous skills keep serving consistently, even if you edit or delete a file on
+    disk while a refresh is still running. Without it, a file edited on disk reads as an internal
+    error until the next `reload()`.
+
+!!! warning
+    Clients don't hear about a reload. They may keep a `skills/list` result for `ttl_ms`, and a
+    manifest fetched before a reload can describe different bytes than a file fetched after it.
+    Re-fetch the manifest and verify the digest before loading a changed skill.
+
+    Pagination cursors are offsets, not snapshots, so restart a paged listing if the catalog
+    changed between pages.
 
 ### Directory reads from a catalog
 
@@ -286,7 +349,9 @@ File content is returned unchanged. A file whose bytes are valid UTF-8 is return
 including any byte order mark and line endings; any other file is returned as a base64 blob. In
 both cases the content matches the `digest` and `size` in the skill's manifest. Each read is
 verified against the values recorded at load time, and a file that has changed is reported as an
-internal error (`-32603`) until you restart the server or create a new catalog.
+internal error (`-32603`) until you [reload the catalog](#reloading-skills).
+With [`auto_refresh`](#reloading-on-a-timer), reads instead return the retained snapshot's
+bytes until the next successful reload.
 
 `load()` reads and hashes every file of every valid skill once, so a large asset directory makes
 startup slower and temporarily uses memory for the largest file.
@@ -318,7 +383,7 @@ ones found while reading are refused, so a skill directory doesn't expose files 
 
 The root is trusted. This is a best-effort check, not a defence against someone who can modify the
 directory while the server runs. As a backstop, the catalog refuses to serve any file whose bytes
-no longer match the digest taken at `load()`. Blocking file system calls run in a worker thread.
+no longer match the digest taken at `load()` or the last `reload()`. Blocking file system calls run in a worker thread.
 
 ## Protocol version and caching
 
@@ -333,14 +398,13 @@ You don't have to branch on protocol version yourself.
 ## What this SDK doesn't do
 
 `Skills` is a protocol adapter, not a skills store. It has no opinion on where a skill's bytes
-live or when a catalog is refreshed.
+live. `SkillCatalog` supplies `reload()` and an optional refresh timer.
 
 `SkillCatalog` covers the common case of a directory (or any other file source behind a
 `SkillProvider`), with a few limits:
 
 * It doesn't include a YAML parser. `parse_frontmatter` supplies one.
-* The catalog isn't reloaded. To publish changes, create a new catalog.
+* It doesn't watch the file system or tell clients about a reload; call `reload()` or set `auto_refresh`.
 * Empty directories aren't served by directory reads.
 
-For anything else, such as a database or a catalog that changes while the server runs, write your
-own handlers for `Skills`.
+For anything else, write your own handlers for `Skills`.

@@ -5,6 +5,8 @@ resources, request methods, and the single `tools/call` interceptor - through
 the highest-level public surface (in-memory `Client`).
 """
 
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import Any, Literal
 
@@ -134,6 +136,131 @@ class _RecordingExt(Extension):
 def _echo(value: str) -> str:
     """Echo the input value (shared tool body across interceptor tests)."""
     return value
+
+
+async def test_extension_lifespans_preserve_application_state_and_clean_up_in_reverse_order() -> None:
+    """SDK-defined: extension lifespans nest inside the application's lifespan without replacing its state."""
+    events: list[str] = []
+
+    class ManagedExtension(Extension):
+        def __init__(self, name: str) -> None:
+            self.identifier = f"com.example/{name}"
+            self.name = name
+
+        @asynccontextmanager
+        async def lifespan(self) -> AsyncIterator[None]:
+            async with super().lifespan():
+                events.append(f"enter {self.name}")
+                try:
+                    yield
+                finally:
+                    events.append(f"exit {self.name}")
+
+    state = {"message": "application state"}
+
+    @asynccontextmanager
+    async def lifespan(server: MCPServer[dict[str, str]]) -> AsyncIterator[dict[str, str]]:
+        events.append("enter application")
+        try:
+            yield state
+        finally:
+            events.append("exit application")
+
+    server = MCPServer("test", lifespan=lifespan, extensions=[ManagedExtension("first"), ManagedExtension("second")])
+
+    @server.tool()
+    def message(ctx: Context[dict[str, str]]) -> str:
+        """Read the application lifespan state."""
+        return ctx.request_context.lifespan_context["message"]
+
+    async with Client(server) as client:
+        result = await client.call_tool("message")
+        assert result.content == [TextContent(text=state["message"])]
+        assert events == ["enter application", "enter first", "enter second"]
+    assert events == [
+        "enter application",
+        "enter first",
+        "enter second",
+        "exit second",
+        "exit first",
+        "exit application",
+    ]
+
+
+async def test_dynamic_resources_follow_replacements_without_shadowing_existing_resources() -> None:
+    """SDK-defined: dynamic resource sources stay live; concrete and earlier sources win URI collisions."""
+    shared = TextResource(uri="ext://shared", name="shared", text="static")
+    first = TextResource(uri="ext://first", name="first", text="first")
+    second = TextResource(uri="ext://second", name="second", text="second")
+
+    class DynamicExtension(Extension):
+        resources_are_dynamic = True
+
+        def __init__(self, identifier: str, files: list[TextResource]) -> None:
+            self.identifier = identifier
+            self.files = files
+
+        def resources(self) -> list[ResourceBinding]:
+            return [ResourceBinding(resource=file) for file in self.files]
+
+    one = DynamicExtension("com.example/one", [first, TextResource(uri=shared.uri, text="shadow")])
+    two = DynamicExtension("com.example/two", [second, TextResource(uri=first.uri, text="shadow")])
+    server = MCPServer("test", resources=[shared], extensions=[one, two])
+    async with Client(server) as client:
+        assert [r.uri for r in (await client.list_resources()).resources] == [shared.uri, first.uri, second.uri]
+        assert (await client.read_resource(shared.uri)).contents == [
+            types.TextResourceContents(uri=shared.uri, mime_type="text/plain", text=shared.text)
+        ]
+        assert (await client.read_resource(first.uri)).contents == [
+            types.TextResourceContents(uri=first.uri, mime_type="text/plain", text=first.text)
+        ]
+        assert (await client.read_resource(second.uri)).contents == [
+            types.TextResourceContents(uri=second.uri, mime_type="text/plain", text=second.text)
+        ]
+        replacement = TextResource(uri="ext://replacement", name="replacement", text="new")
+        two.files = [replacement]
+        assert [r.uri for r in (await client.list_resources()).resources] == [shared.uri, first.uri, replacement.uri]
+        assert (await client.read_resource(replacement.uri)).contents == [
+            types.TextResourceContents(uri=replacement.uri, mime_type="text/plain", text=replacement.text)
+        ]
+
+
+async def test_dynamic_resources_returned_as_the_same_tuple_are_not_rescanned_per_request() -> None:
+    """SDK-defined: an extension that returns one tuple of bindings per state is read once per state."""
+
+    class CountingBindings(tuple[ResourceBinding, ...]):
+        iterations = 0
+
+        def __iter__(self) -> Iterator[ResourceBinding]:
+            self.iterations += 1
+            return super().__iter__()
+
+    first = TextResource(uri="ext://first", name="first", text="first")
+    replacement = TextResource(uri="ext://replacement", name="replacement", text="new")
+
+    class TupleExtension(Extension):
+        identifier = "com.example/tuple"
+        resources_are_dynamic = True
+
+        def __init__(self) -> None:
+            self.bindings = CountingBindings((ResourceBinding(resource=first),))
+
+        def resources(self) -> CountingBindings:
+            return self.bindings
+
+    extension = TupleExtension()
+    async with Client(MCPServer("test", extensions=[extension])) as client:
+        assert (await client.read_resource(first.uri)).contents == [
+            types.TextResourceContents(uri=first.uri, mime_type="text/plain", text=first.text)
+        ]
+        assert [r.uri for r in (await client.list_resources()).resources] == [first.uri]
+        assert extension.bindings.iterations == 1
+        extension.bindings = CountingBindings((ResourceBinding(resource=replacement),))
+        assert [r.uri for r in (await client.list_resources()).resources] == [replacement.uri]
+        assert (await client.read_resource(replacement.uri)).contents == [
+            types.TextResourceContents(uri=replacement.uri, mime_type="text/plain", text=replacement.text)
+        ]
+        assert extension.bindings.iterations == 1
 
 
 async def test_additive_extension_registers_its_tool_and_resource() -> None:

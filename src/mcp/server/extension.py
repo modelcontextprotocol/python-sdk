@@ -19,7 +19,8 @@ extensions remain importable without constructing an `MCPServer`.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -104,6 +105,8 @@ class Extension:
 
     #: Reverse-DNS extension identifier, advertised under `ServerCapabilities.extensions`.
     identifier: str
+    resources_are_dynamic: bool = False
+    """When true, `resources()` is consulted on each resource listing or lookup."""
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -129,6 +132,14 @@ class Extension:
     def resources(self) -> Sequence[ResourceBinding]:
         """Resources this extension contributes (additive)."""
         return ()
+
+    @asynccontextmanager
+    async def lifespan(self) -> AsyncIterator[None]:
+        """Manage extension background work for the server's lifespan.
+
+        May be entered concurrently by transports with per-connection lifespans.
+        """
+        yield
 
     def methods(self) -> Sequence[MethodBinding]:
         """New request methods this extension serves (additive)."""

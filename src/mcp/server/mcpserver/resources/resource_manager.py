@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from mcp_types import Annotations, Icon, InputRequiredResult
@@ -25,12 +25,34 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+class _ResourceSource:
+    """A dynamic resource provider and the URI index of the tuple it last returned."""
+
+    def __init__(self, provider: Callable[[], Sequence[Resource]]) -> None:
+        self._provider = provider
+        self._indexed: Sequence[Resource] | None = None
+        self._by_uri: dict[str, Resource] = {}
+
+    def by_uri(self) -> Mapping[str, Resource]:
+        resources = self._provider()
+        if resources is self._indexed:
+            return self._by_uri
+        by_uri: dict[str, Resource] = {}
+        for resource in resources:
+            by_uri.setdefault(str(resource.uri), resource)
+        # A tuple can't change in place, so its index stays valid until the provider returns another one.
+        if isinstance(resources, tuple):
+            self._indexed, self._by_uri = resources, by_uri
+        return by_uri
+
+
 class ResourceManager:
     """Manages MCPServer resources."""
 
     def __init__(self, warn_on_duplicate_resources: bool = True, *, resources: list[Resource] | None = None):
         self._resources: dict[str, Resource] = {}
         self._templates: dict[str, ResourceTemplate] = {}
+        self._resource_sources: list[_ResourceSource] = []
         self.warn_on_duplicate_resources = warn_on_duplicate_resources
 
         for resource in resources or ():
@@ -86,6 +108,14 @@ class ResourceManager:
         self._templates[template.uri_template] = template
         return template
 
+    def add_resource_provider(self, provider: Callable[[], Sequence[Resource]]) -> None:
+        """Register a dynamic source of concrete resources, consulted on every listing and lookup.
+
+        Resources added with `add_resource` take precedence, then providers in the order they were added.
+        A provider that returns the same tuple again is looked up by URI without rescanning it.
+        """
+        self._resource_sources.append(_ResourceSource(provider))
+
     async def get_resource(
         self, uri: AnyUrl | str, context: Context[LifespanContextT, RequestT]
     ) -> Resource | InputRequiredResult:
@@ -114,6 +144,9 @@ class ResourceManager:
         # First check concrete resources
         if resource := self._resources.get(uri_str):
             return resource
+        for source in self._resource_sources:
+            if resource := source.by_uri().get(uri_str):
+                return resource
 
         # Then check templates
         for template in self._templates.values():
@@ -129,7 +162,11 @@ class ResourceManager:
     def list_resources(self) -> list[Resource]:
         """List all registered resources."""
         logger.debug("Listing resources", extra={"count": len(self._resources)})
-        return list(self._resources.values())
+        resources = dict(self._resources)
+        for source in self._resource_sources:
+            for uri, resource in source.by_uri().items():
+                resources.setdefault(uri, resource)
+        return list(resources.values())
 
     def list_templates(self) -> list[ResourceTemplate]:
         """List all registered templates."""

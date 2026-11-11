@@ -133,6 +133,30 @@ The client is its own program, and it carries both halves of the client story:
   so the client declares them for itself. A published extension would ship them in
   a package that both sides import.
 
+### Dynamic resources and background work
+
+Normally `resources()` is called once, when the server is built. If your resources change while
+the server runs, set `resources_are_dynamic = True` and the server asks `resources()` again on
+every listing and lookup.
+
+Build the new resources completely before you start returning them, so a request never sees a
+half-updated set. Return them as a tuple, and the same tuple until they change, so the server can
+look a resource up by URI instead of scanning every resource on each request. If two resources
+share a URI, the one registered directly on the server wins,
+then dynamic ones in extension order, then templates.
+
+To run background work, such as a task that keeps those resources up to date, override
+`lifespan()` with an `@asynccontextmanager`. Code before its `yield` runs when the server starts,
+and code after it runs when the server stops.
+
+The server enters it after your application's own lifespan, in extension order, and leaves it in
+the reverse order. The default does nothing, so you only pay for it if you override it.
+
+!!! note
+    Some transports enter the lifespan once per connection, so the same extension can be inside
+    several at once. If a worker must run only once, coordinate that yourself.
+    [`SkillCatalog`](skills.md#reloading-on-a-timer) does this for its refresh timer.
+
 ### Intercepting `tools/call`
 
 The one interceptive hook. Override `intercept_tool_call` to observe, short-circuit,

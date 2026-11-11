@@ -89,7 +89,7 @@ class FilesystemSkillProvider:
                 self._walk(Path(entry.path), segments, files)
             elif stat.S_ISREG(result.st_mode):
                 files.append("/".join(segments))
-            else:  # pragma: lax no cover  # FIFO/device: no test on Windows
+            else:
                 logger.warning("Skipping %s: not a regular file", entry.path)
 
     def _read_file(self, segments: list[str]) -> bytes:
@@ -105,7 +105,7 @@ class FilesystemSkillProvider:
         fd = os.open(current, _READ_FLAGS)
         with os.fdopen(fd, "rb") as file:
             if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
-                raise OSError(f"{current} is not a regular file")  # pragma: lax no cover  # only if swapped after lstat
+                raise OSError(f"{current} is not a regular file")
             return file.read()
 
 
