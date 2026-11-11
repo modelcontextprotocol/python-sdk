@@ -497,11 +497,11 @@ async def test_reading_a_file_deleted_after_load_is_an_internal_error_without_a_
     (tmp_path / "git-workflow" / "guide.md").write_bytes(b"# Guide\n")
     catalog = await SkillCatalog.load(FilesystemSkillProvider(tmp_path), parse_frontmatter=_parse)
     (tmp_path / "git-workflow" / "guide.md").unlink()
+    caplog.set_level(logging.INFO, logger=SERVER_LOGGER)
 
-    with caplog.at_level(logging.INFO, logger=SERVER_LOGGER):
-        async with Client(MCPServer("skills", extensions=[catalog])) as client:
-            with pytest.raises(MCPError) as exc_info:
-                await client.read_resource("skill://git-workflow/guide.md")
+    async with Client(MCPServer("skills", extensions=[catalog])) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.read_resource("skill://git-workflow/guide.md")
 
     assert exc_info.value.code == INTERNAL_ERROR
     assert (
