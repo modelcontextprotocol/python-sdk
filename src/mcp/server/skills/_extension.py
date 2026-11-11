@@ -9,11 +9,12 @@ https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640.
 
 This module provides the protocol-level plumbing only: request/response
 handling, SEP-2640 conformance validation, and capability advertisement. It
-does not discover, read, or hash skills from a filesystem — a server author
-supplies handlers that answer `skills/list`/`skills/get`/`resources/directory/read`
+does not discover, read, or hash skills itself — a server author supplies
+handlers that answer `skills/list`/`skills/get`/`resources/directory/read`
 however their catalog is stored, and serves the underlying `skill://` file
 content through the server's ordinary resource-registration APIs
-(`MCPServer.add_resource`, or an `@mcp.resource(...)` template).
+(`MCPServer.add_resource`, or an `@mcp.resource(...)` template). `SkillCatalog`
+builds on `Skills` to do the discovery for a `SkillProvider`.
 
     async def list_skills(ctx, params):
         return ListSkillsResult(skills=[...])

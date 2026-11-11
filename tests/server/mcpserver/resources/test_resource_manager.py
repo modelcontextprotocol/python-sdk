@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -6,7 +7,24 @@ from pydantic import AnyUrl
 
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError
-from mcp.server.mcpserver.resources import FileResource, FunctionResource, ResourceManager, ResourceTemplate
+from mcp.server.mcpserver.resources import (
+    FileResource,
+    FunctionResource,
+    Resource,
+    ResourceManager,
+    ResourceTemplate,
+    TextResource,
+)
+
+
+class _CountingTuple(tuple[Resource, ...]):
+    """A tuple that records how many times it is iterated."""
+
+    iterations = 0
+
+    def __iter__(self) -> Iterator[Resource]:
+        self.iterations += 1
+        return super().__iter__()
 
 
 @pytest.fixture()
@@ -118,6 +136,52 @@ def test_list_resources(temp_file: Path):
     resources = manager.list_resources()
     assert len(resources) == 2
     assert resources == [resource1, resource2]
+
+
+@pytest.mark.anyio
+async def test_a_provider_that_keeps_returning_the_same_tuple_is_scanned_once():
+    """SDK-defined: lookups reuse the URI index while a provider returns the same immutable tuple."""
+    first = TextResource(uri="dyn://first", name="first", text="1")
+    second = TextResource(uri="dyn://second", name="second", text="2")
+    served = _CountingTuple((first, second))
+    manager = ResourceManager()
+    manager.add_resource_provider(lambda: served)
+
+    assert await manager.get_resource("dyn://second", Context()) is second
+    assert await manager.get_resource("dyn://first", Context()) is first
+    assert manager.list_resources() == [first, second]
+    assert served.iterations == 1
+
+
+@pytest.mark.anyio
+async def test_a_provider_that_returns_a_new_tuple_is_indexed_again():
+    """SDK-defined: replacing the tuple a provider returns replaces what lookups find."""
+    old = TextResource(uri="dyn://old", name="old", text="old")
+    new = TextResource(uri="dyn://new", name="new", text="new")
+    current: list[tuple[Resource, ...]] = [(old,)]
+    manager = ResourceManager()
+    manager.add_resource_provider(lambda: current[0])
+
+    assert await manager.get_resource("dyn://old", Context()) is old
+    current[0] = (new,)
+    assert await manager.get_resource("dyn://new", Context()) is new
+    with pytest.raises(ResourceNotFoundError):
+        await manager.get_resource("dyn://old", Context())
+
+
+@pytest.mark.anyio
+async def test_a_list_from_a_provider_is_rescanned_so_changes_made_in_place_are_seen():
+    """SDK-defined: only tuples are indexed, because a list may be mutated after it is returned."""
+    old = TextResource(uri="dyn://old", name="old", text="old")
+    new = TextResource(uri="dyn://new", name="new", text="new")
+    served: list[Resource] = [old]
+    manager = ResourceManager()
+    manager.add_resource_provider(lambda: served)
+
+    assert await manager.get_resource("dyn://old", Context()) is old
+    served.append(new)
+    assert await manager.get_resource("dyn://new", Context()) is new
+    assert manager.list_resources() == [old, new]
 
 
 def get_item(id: str) -> str: ...

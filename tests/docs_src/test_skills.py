@@ -1,9 +1,12 @@
 """`docs/advanced/skills.md`: every claim the page makes, proved against the real SDK."""
 
+from pathlib import Path
+
+import anyio
 import pytest
 from mcp_types import INVALID_PARAMS, TextResourceContents
 
-from docs_src.skills import tutorial001
+from docs_src.skills import tutorial001, tutorial002, tutorial003
 from mcp import Client
 from mcp.client.extensions.skills import Skills
 from mcp.shared.exceptions import MCPError
@@ -45,3 +48,33 @@ async def test_the_skill_file_is_served_as_an_ordinary_resource() -> None:
     assert isinstance(contents, TextResourceContents)
     assert contents.mime_type == "text/markdown"
     assert contents.text == tutorial001.SKILL_MD
+
+
+async def test_a_directory_of_skills_is_served_with_no_handlers() -> None:
+    """tutorial002: `SkillCatalog` over `FilesystemSkillProvider` lists the sample skill and its files."""
+    server = await tutorial002.build_server(Path(tutorial002.__file__).parent / "skills")
+    skills = Skills()
+    async with Client(server, extensions=[skills]) as client:
+        skill = (await client.extension(Skills).list_skills())[0]
+        children = await client.extension(Skills).read_directory("skill://git-workflow/references")
+        contents = (await client.read_resource("skill://git-workflow/references/conventions.md")).contents[0]
+
+    assert skill.uri == "skill://git-workflow/SKILL.md"
+    assert skill.frontmatter["name"] == "git-workflow"
+    assert isinstance(skill.resources, list)
+    assert [r.uri for r in skill.resources] == [
+        "skill://git-workflow/SKILL.md",
+        "skill://git-workflow/references/conventions.md",
+    ]
+    assert [r.uri for r in children] == ["skill://git-workflow/references/conventions.md"]
+    assert isinstance(contents, TextResourceContents)
+    assert contents.text.startswith("# Conventions")
+
+
+async def test_a_catalog_with_auto_refresh_serves_the_directory_and_stops_its_timer_on_exit() -> None:
+    """tutorial003: `auto_refresh` serves the same skills; closing the client must not wait for the timer."""
+    server = await tutorial003.build_server(Path(tutorial003.__file__).parent / "skills")
+    with anyio.fail_after(5):
+        async with Client(server, extensions=[Skills()]) as client:
+            skills = await client.extension(Skills).list_skills()
+    assert [s.uri for s in skills] == ["skill://git-workflow/SKILL.md"]
