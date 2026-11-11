@@ -70,6 +70,7 @@ nav:
       - Extensions: advanced/extensions.md
       - MCP Apps: advanced/apps.md
       - Skills: advanced/skills.md
+      - Server Cards & discovery: advanced/server-cards.md
   - Troubleshooting: troubleshooting.md
   - Translations: translations.md
   - Migration Guide: migration.md
