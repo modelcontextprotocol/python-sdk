@@ -1135,6 +1135,30 @@ async def test_reload_picks_up_added_and_removed_skills_and_files_in_one_swap() 
     assert keep_directory == ["skill://keep/SKILL.md", "skill://keep/added.md"]
 
 
+async def test_reload_serves_a_renamed_file_at_its_new_uri_after_lookups_have_used_the_old_one() -> None:
+    """SDK-defined: each reload publishes a new tuple of new resources, so the server's URI index never goes stale."""
+    provider, catalog, server = await _reloadable({"guide/SKILL.md": _skill_md("guide"), "guide/old-name.md": b"notes"})
+    async with Client(server) as client:
+        before = (await client.read_resource("skill://guide/old-name.md")).contents[0]
+        published = catalog.resources()
+        provider.files = {"guide/SKILL.md": _skill_md("guide"), "guide/new-name.md": b"notes"}
+        await catalog.reload()
+        after = (await client.read_resource("skill://guide/new-name.md")).contents[0]
+        with pytest.raises(MCPError) as old_uri:
+            await client.read_resource("skill://guide/old-name.md")
+
+    assert isinstance(before, TextResourceContents)
+    assert before.text == "notes"
+    assert isinstance(after, TextResourceContents)
+    assert after.text == "notes"
+    assert old_uri.value.code == INVALID_PARAMS
+    assert catalog.resources() is not published
+    assert [str(binding.resource.uri) for binding in published] == [
+        "skill://guide/SKILL.md",
+        "skill://guide/old-name.md",
+    ]
+
+
 async def test_reload_reports_a_nested_skill_that_is_removed_and_comes_back() -> None:
     """SDK-defined: a nested skill's files are also served through its parent, so it can come and go on reload."""
     provider, catalog, server = await _reloadable(
