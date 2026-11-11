@@ -548,7 +548,11 @@ class ClientSession:
         """Send a request and wait for its typed result.
 
         Args:
+            request: The request to send.
+            result_type: The expected result type, or a `TypeAdapter` for it.
+            request_read_timeout_seconds: Per-request read timeout in seconds.
             metadata: Streamable HTTP resumption hints.
+            progress_callback: Called with progress notifications for this request.
 
         Raises:
             MCPError: Error response, read timeout, or connection closed.
@@ -942,8 +946,10 @@ class ClientSession:
         """Send a resources/read request.
 
         Args:
+            uri: The resource URI to read.
             input_responses: Responses to a prior `InputRequiredResult.input_requests`.
             request_state: Opaque state echoed from a prior `InputRequiredResult`.
+            meta: Request metadata, forwarded as `_meta`.
             allow_input_required: When `False` (default), an `InputRequiredResult`
                 from the server raises `RuntimeError`; when `True`, it is returned
                 so the caller can resolve the requests and retry.
@@ -1070,8 +1076,13 @@ class ClientSession:
         the tool before calling it to enable header emission.
 
         Args:
+            name: The tool name.
+            arguments: The tool arguments, or `None` for a tool that takes none.
+            read_timeout_seconds: Per-request read timeout in seconds.
+            progress_callback: Called with progress notifications for this call.
             input_responses: Responses to a prior `InputRequiredResult.input_requests`.
             request_state: Opaque state echoed from a prior `InputRequiredResult`.
+            meta: Request metadata, forwarded as `_meta`.
             allow_input_required: When ``False`` (default), an `InputRequiredResult`
                 from the server raises `RuntimeError`; when ``True``, it is returned
                 so the caller can resolve the requests and retry.
@@ -1227,8 +1238,11 @@ class ClientSession:
         """Send a prompts/get request.
 
         Args:
+            name: The prompt name.
+            arguments: The prompt arguments, or `None` for a prompt that takes none.
             input_responses: Responses to a prior `InputRequiredResult.input_requests`.
             request_state: Opaque state echoed from a prior `InputRequiredResult`.
+            meta: Request metadata, forwarded as `_meta`.
             allow_input_required: When `False` (default), an `InputRequiredResult`
                 from the server raises `RuntimeError`; when `True`, it is returned
                 so the caller can resolve the requests and retry.
