@@ -54,6 +54,7 @@ from tests.interaction._connect import Connect, connect_over_sse, connect_over_s
 pytestmark = pytest.mark.anyio
 
 CATALOG_LOGGER = "mcp.server.skills.catalog"
+SERVER_LOGGER = "mcp.server.mcpserver.server"
 
 
 class _RawResult(BaseModel):
@@ -484,6 +485,31 @@ async def test_reading_a_file_that_changed_after_load_is_an_internal_error() -> 
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("skill://git-workflow/SKILL.md")
     assert exc_info.value.code == INTERNAL_ERROR
+    assert exc_info.value.message == "skill://git-workflow/SKILL.md changed after the last scan"
+
+
+async def test_reading_a_file_deleted_after_load_is_an_internal_error_without_a_traceback(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """SDK-defined: a file removed before the next reload is an expected state, logged as a failed read, not a crash."""
+    (tmp_path / "git-workflow").mkdir()
+    (tmp_path / "git-workflow" / "SKILL.md").write_bytes(_skill_md("git-workflow"))
+    (tmp_path / "git-workflow" / "guide.md").write_bytes(b"# Guide\n")
+    catalog = await SkillCatalog.load(FilesystemSkillProvider(tmp_path), parse_frontmatter=_parse)
+    (tmp_path / "git-workflow" / "guide.md").unlink()
+
+    with caplog.at_level(logging.INFO, logger=SERVER_LOGGER):
+        async with Client(MCPServer("skills", extensions=[catalog])) as client:
+            with pytest.raises(MCPError) as exc_info:
+                await client.read_resource("skill://git-workflow/guide.md")
+
+    assert exc_info.value.code == INTERNAL_ERROR
+    assert (
+        exc_info.value.message
+        == "skill://git-workflow/guide.md could not be read; it was deleted or became unreadable after the last scan"
+    )
+    records = [record for record in caplog.records if record.name == SERVER_LOGGER]
+    assert [(record.levelno, record.exc_info) for record in records] == [(logging.INFO, None)]
 
 
 async def test_reading_a_uri_outside_the_catalog_is_invalid_params() -> None:

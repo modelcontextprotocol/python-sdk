@@ -72,7 +72,7 @@ _FRONTMATTER_ADAPTER: TypeAdapter[Frontmatter] = TypeAdapter(Frontmatter)
 class _SkillFileResource(Resource):
     """One file of a skill, read from the provider on every `resources/read`.
 
-    The bytes are checked against the digest taken at load time, so a manifest
+    The bytes are checked against the digest taken at the last scan, so a manifest
     entry never describes content other than what is served.
     """
 
@@ -91,9 +91,15 @@ class _SkillFileResource(Resource):
         return self._fingerprint.size
 
     async def read(self) -> str | bytes:
-        data = await self._provider.read_file(self._path)
+        try:
+            data = await self._provider.read_file(self._path)
+        except OSError as exc:
+            # A file removed or made unreadable between scans is an expected state, not a crash.
+            raise ResourceError(
+                f"{self.uri} could not be read; it was deleted or became unreadable after the last scan"
+            ) from exc
         if _fingerprint(data) != self._fingerprint:
-            raise ResourceError(f"{self.uri} changed since the catalog was loaded")
+            raise ResourceError(f"{self.uri} changed after the last scan")
         try:
             return data.decode("utf-8")
         except UnicodeDecodeError:

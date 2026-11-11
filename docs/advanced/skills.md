@@ -207,8 +207,8 @@ are not served.
     The catalog reads and hashes every file when `load()` runs. By default, it reads files from
     the provider again on each `resources/read` and checks their bytes against that fingerprint.
 
-    If a file changes afterwards, reading it fails with an internal error (`-32603`) until you
-    [reload the catalog](#reloading-skills) or restart the server. And because `load()`
+    If a file changes or is deleted afterwards, reading it fails with an internal error (`-32603`)
+    until you [reload the catalog](#reloading-skills) or restart the server. And because `load()`
     reads every file, a large asset directory makes startup slower.
 
 ### Reloading skills
@@ -265,8 +265,8 @@ connection runs the timer only while a client is connected.
 !!! note
     With `auto_refresh`, the catalog keeps the bytes of every served file **in memory**. That's
     what lets the previous skills keep serving consistently, even if you edit or delete a file on
-    disk while a refresh is still running. Without it, a file edited on disk reads as an internal
-    error until the next `reload()`.
+    disk between refreshes. Without it, a file edited or deleted on disk reads as an internal
+    error until you call `reload()`.
 
 !!! warning
     Clients don't hear about a reload. They may keep a `skills/list` result for `ttl_ms`, and a
