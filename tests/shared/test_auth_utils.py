@@ -2,7 +2,13 @@
 
 from pydantic import HttpUrl
 
-from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
+from mcp.shared.auth_utils import (
+    add_query_params,
+    check_resource_allowed,
+    remove_query_params,
+    replace_query_params,
+    resource_url_from_server_url,
+)
 
 # Tests for resource_url_from_server_url function
 
@@ -121,3 +127,39 @@ def test_check_resource_allowed_empty_paths():
     assert check_resource_allowed("https://example.com", "https://example.com") is True
     assert check_resource_allowed("https://example.com/", "https://example.com") is True
     assert check_resource_allowed("https://example.com/api", "https://example.com") is True
+
+
+def test_add_query_params_appends_after_existing_params_and_keeps_fragment():
+    """SDK-defined: new params follow the existing query; path and fragment are untouched."""
+    url = add_query_params("https://example.com/cb?state=abc#frag", {"code": "xyz"})
+    assert url == "https://example.com/cb?state=abc&code=xyz#frag"
+
+
+def test_add_query_params_duplicates_existing_key_instead_of_replacing():
+    """SDK-defined: an existing key is kept and the new value is appended alongside it."""
+    assert add_query_params("https://example.com/?a=1", {"a": "2"}) == "https://example.com/?a=1&a=2"
+
+
+def test_add_query_params_reencodes_existing_query():
+    """SDK-defined: the whole query is re-encoded, so `%20` in existing params becomes `+`."""
+    assert add_query_params("https://example.com/?q=a%20b", {"x": "y"}) == "https://example.com/?q=a+b&x=y"
+
+
+def test_remove_query_params_drops_every_occurrence_and_keeps_order_of_the_rest():
+    """SDK-defined: all values of a named key are removed; other params keep their order."""
+    url = remove_query_params("https://example.com/?a=1&b=2&a=3&c=&d=4", ["a", "d"])
+    assert url == "https://example.com/?b=2&c="
+
+
+def test_remove_query_params_omits_question_mark_when_query_becomes_empty():
+    """SDK-defined: removing the only params yields a URL with no query component."""
+    assert remove_query_params("https://example.com/p?a=1#frag", ["a"]) == "https://example.com/p#frag"
+
+
+def test_replace_query_params_overrides_given_keys_and_keeps_the_rest():
+    """SDK-defined: given keys replace all existing occurrences and are appended once.
+
+    Other params and the fragment are kept.
+    """
+    url = replace_query_params("https://example.com/p?a=1&b=2&a=3#f", {"a": "x", "c": "y"})
+    assert url == "https://example.com/p?b=2&a=x&c=y#f"

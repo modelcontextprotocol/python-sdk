@@ -1785,6 +1785,115 @@ async def test_403_without_a_scope_challenge_is_returned_to_the_caller(
         await auth_flow.asend(response_403)
 
 
+@pytest.mark.anyio
+async def test_authorization_url_retains_the_endpoint_query_component(oauth_provider: OAuthClientProvider):
+    """Spec-mandated (OAuth 2.1 section 3.1): the authorization endpoint's existing
+    application/x-www-form-urlencoded query is retained when the request parameters are added."""
+    oauth_provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.example.com"),
+        authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize?tenant=acme"),
+        token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+    )
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+
+    captured_url: str | None = None
+    captured_state: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_url, captured_state
+        captured_url = url
+        captured_state = parse_qs(urlparse(url).query)["state"][0]
+
+    async def echo_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = echo_callback
+
+    await oauth_provider._perform_authorization_code_grant()
+
+    assert captured_url is not None
+    assert captured_url.count("?") == 1
+    parsed = urlparse(captured_url)
+    assert parsed.path == "/authorize"
+    params = parse_qs(parsed.query)
+    assert params["tenant"] == ["acme"]
+    assert params["response_type"] == ["code"]
+    assert params["state"] == [captured_state]
+
+
+@pytest.mark.anyio
+async def test_authorization_url_sends_each_client_set_param_once_overriding_the_endpoint_query(
+    oauth_provider: OAuthClientProvider,
+):
+    """Spec-mandated (OAuth 2.1 section 3.1): a request parameter MUST NOT be included more
+    than once, so client-set values override same-named endpoint query parameters."""
+    client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    oauth_provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.example.com"),
+        authorization_endpoint=AnyHttpUrl(
+            "https://auth.example.com/authorize?response_type=token&client_id=other&tenant=acme"
+        ),
+        token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+    )
+    oauth_provider.context.client_info = client_info
+
+    captured_url: str | None = None
+    captured_state: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_url, captured_state
+        captured_url = url
+        captured_state = parse_qs(urlparse(url).query)["state"][0]
+
+    async def echo_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = echo_callback
+
+    await oauth_provider._perform_authorization_code_grant()
+
+    assert captured_url is not None
+    params = parse_qs(urlparse(captured_url).query)
+    assert params["response_type"] == ["code"]
+    assert params["client_id"] == [client_info.client_id]
+    assert params["tenant"] == ["acme"]
+
+
+@pytest.mark.anyio
+async def test_authorization_endpoint_with_fragment_raises_before_redirecting(oauth_provider: OAuthClientProvider):
+    """Spec-mandated (OAuth 2.1 section 3.1): the authorization endpoint URI MUST NOT include
+    a fragment, so a fragment-bearing endpoint fails before any redirect happens."""
+    oauth_provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.example.com"),
+        authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize#frag"),
+        token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+    )
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+
+    async def redirect_handler(url: str) -> None:
+        raise NotImplementedError
+
+    async def callback_handler() -> AuthorizationCodeResult:
+        raise NotImplementedError
+
+    oauth_provider.context.redirect_handler = redirect_handler
+    oauth_provider.context.callback_handler = callback_handler
+
+    with pytest.raises(OAuthFlowError):
+        await oauth_provider._perform_authorization_code_grant()
+
+
 @pytest.mark.parametrize(
     (
         "issuer_url",

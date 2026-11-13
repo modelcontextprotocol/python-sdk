@@ -12,7 +12,7 @@ import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, get_args
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import anyio
 import httpx2
@@ -56,6 +56,7 @@ from mcp.shared.auth import (
 from mcp.shared.auth_utils import (
     calculate_token_expiry,
     check_resource_allowed,
+    replace_query_params,
     resource_url_from_server_url,
 )
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
@@ -397,6 +398,10 @@ class OAuthClientProvider(RedirectAwareAuth):
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             auth_endpoint = urljoin(auth_base_url, "/authorize")
 
+        # OAuth 2.1 section 3.1: the authorization endpoint URI MUST NOT include a fragment.
+        if urlparse(auth_endpoint).fragment:
+            raise OAuthFlowError(f"Authorization endpoint must not include a fragment: {auth_endpoint}")
+
         if not self.context.client_info:
             raise OAuthFlowError("No client info available for authorization")  # pragma: no cover
 
@@ -425,7 +430,8 @@ class OAuthClientProvider(RedirectAwareAuth):
             if "offline_access" in self.context.client_metadata.scope.split():
                 auth_params["prompt"] = "consent"
 
-        authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
+        # OAuth 2.1 section 3.1: retain the endpoint's query and never send a parameter twice.
+        authorization_url = replace_query_params(auth_endpoint, auth_params)
         with waiting_on_a_person():
             await self.context.redirect_handler(authorization_url)
             result = await self.context.callback_handler()
