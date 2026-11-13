@@ -68,8 +68,6 @@ def create_simple_mcp_server(server_settings: ServerSettings, auth_settings: Sim
         debug=True,
         auth=mcp_auth_settings,
     )
-    # Store server settings for later use in run()
-    app._server_settings = server_settings  # type: ignore[attr-defined]
 
     @app.custom_route("/login", methods=["GET"])
     async def login_page_handler(request: Request) -> Response:

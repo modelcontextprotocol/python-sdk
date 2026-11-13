@@ -45,7 +45,6 @@ _claims_lock = threading.Lock()
 
 @dataclass
 class _StreamClaim:
-    fd: int
     private_fd: int | None = None
 
 
@@ -116,7 +115,7 @@ def _claim_fd(
     """
     if not _is_backed_by_fd(stream, fd):
         return stream.buffer, None
-    claim = _StreamClaim(fd)
+    claim = _StreamClaim()
     with _claims_lock:
         if fd in _claims:
             raise RuntimeError(f"another stdio_server() in this process has already claimed fd {fd}")

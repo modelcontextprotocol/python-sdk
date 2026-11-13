@@ -7,8 +7,6 @@ import uvicorn
 from mcp.server import Server, ServerRequestContext
 from starlette.middleware.cors import CORSMiddleware
 
-logger = logging.getLogger(__name__)
-
 
 async def handle_list_tools(
     ctx: ServerRequestContext, params: types.PaginatedRequestParams | None

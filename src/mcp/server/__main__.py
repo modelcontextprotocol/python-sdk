@@ -11,7 +11,6 @@ if not sys.warnoptions:
     warnings.simplefilter("ignore")
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("server")
 
 
 async def main() -> None:

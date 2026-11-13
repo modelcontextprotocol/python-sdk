@@ -74,8 +74,6 @@ def create_resource_server(settings: ResourceServerSettings) -> MCPServer:
             validate_token_resource=True,  # tokens must be reported as issued for server_url
         ),
     )
-    # Store settings for later use in run()
-    app._resource_server_settings = settings  # type: ignore[attr-defined]
 
     @app.tool()
     async def get_time() -> dict[str, Any]:
