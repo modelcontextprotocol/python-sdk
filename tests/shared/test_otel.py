@@ -3,11 +3,12 @@ from __future__ import annotations
 import mcp_types as types
 import pytest
 from logfire.testing import CaptureLogfire
-from opentelemetry.trace import StatusCode
+from opentelemetry.trace import SpanKind, StatusCode
 
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.shared._otel import extract_trace_context
 from mcp.shared.exceptions import MCPError
 
@@ -91,3 +92,52 @@ async def test_client_span_records_error_status_when_peer_answers_with_jsonrpc_e
     assert failed.attributes is not None
     assert failed.attributes["error.type"] == str(types.INVALID_PARAMS)
     assert failed.attributes["rpc.response.status_code"] == str(types.INVALID_PARAMS)
+
+
+async def test_client_and_server_spans_agree_on_tool_error(capfire: CaptureLogfire) -> None:
+    """A `tools/call` whose result has `isError: true` marks both client and server spans ERROR with
+    `error.type="tool_error"` and no `rpc.response.status_code` (OpenTelemetry GenAI MCP conventions);
+    a succeeding `tools/call` leaves both spans UNSET.
+    """
+    server = MCPServer("test")
+
+    @server.tool()
+    def ok() -> str:
+        return "fine"
+
+    @server.tool()
+    def fail() -> str:
+        raise ToolError("upstream unavailable")
+
+    async with Client(server, mode="legacy") as client:
+        ok_result = await client.call_tool("ok")
+        err_result = await client.call_tool("fail")
+
+    assert ok_result.is_error is False
+    assert err_result.is_error is True
+    assert isinstance(err_result.content[0], types.TextContent)
+    assert err_result.content[0].text == "Error executing tool fail: upstream unavailable"
+
+    spans = {
+        (span.name, span.kind): span
+        for span in capfire.exporter.exported_spans
+        if (span.attributes or {}).get("logfire.span_type") != "pending_span"
+    }
+
+    client_ok = spans[("MCP send tools/call ok", SpanKind.CLIENT)]
+    server_ok = spans[("tools/call ok", SpanKind.SERVER)]
+    assert client_ok.status.status_code == StatusCode.UNSET
+    assert server_ok.status.status_code == StatusCode.UNSET
+    assert client_ok.attributes is not None
+    assert "error.type" not in client_ok.attributes
+
+    client_fail = spans[("MCP send tools/call fail", SpanKind.CLIENT)]
+    server_fail = spans[("tools/call fail", SpanKind.SERVER)]
+    assert client_fail.context is not None and server_fail.context is not None
+    assert client_fail.context.trace_id == server_fail.context.trace_id
+    assert client_fail.status.status_code == StatusCode.ERROR
+    assert server_fail.status.status_code == StatusCode.ERROR
+    assert client_fail.attributes is not None and server_fail.attributes is not None
+    assert client_fail.attributes["error.type"] == "tool_error"
+    assert server_fail.attributes["error.type"] == "tool_error"
+    assert "rpc.response.status_code" not in client_fail.attributes
