@@ -1080,21 +1080,35 @@ def _scan_prefix(
 
         if atom.ifemp:
             # RFC §3.2.7 ifemp: ;name=val for non-empty, bare ;name for
-            # empty. Decide which form is present without falling through
-            # to the stop-char scan when the value is empty.
+            # empty. A '=' in the URI means both readings are plausible,
+            # so the value reading is tried first, bounded to the next
+            # literal, and the empty reading is the fallback. The bounded
+            # span matters: the stop-char span would take 'end=end' from
+            # ';a=end=end/x' (the ';' operator's stop set is ';/?#', so
+            # '=' does not end the value) and then fail the literal.
+            if pos < limit and uri[pos] == "=":
+                value_start = pos + 1
+                latest = value_start
+                while latest < limit and uri[latest] not in stops:
+                    latest += 1
+                end = uri.find(nxt.text, value_start, latest + len(nxt.text))
+                if end != -1:
+                    result[var.name] = unquote(uri[value_start:end])
+                    pos = end
+                    continue
+                if uri.startswith(nxt.text, pos):
+                    # Empty value: the following literal begins at '='.
+                    result[var.name] = ""
+                    continue
+                return None
             if uri.startswith(nxt.text, pos):
                 # Following literal begins immediately: value is empty.
-                # Checked before '=' so a literal that itself starts
-                # with '=' is not mistaken for the ifemp separator.
                 result[var.name] = ""
                 continue
-            if pos < limit and uri[pos] == "=":
-                pos += 1  # value follows; fall through to the scan
-            else:
-                # The following literal does not start here and there is
-                # no '=': the URI's name continued past the template's
-                # (e.g. ;keys vs ;key) — no parse.
-                return None
+            # No '=' and the following literal does not start here: the
+            # URI's name continued past the template's (e.g. ;keys vs
+            # ;key), so there is no parse.
+            return None
 
         # Latest valid end: the var stops at the first stop-char or
         # the scan limit, whichever comes first.

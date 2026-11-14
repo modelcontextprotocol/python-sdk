@@ -712,10 +712,32 @@ def test_match_greedy_rejection_paths(template: str, uri: str):
         # check runs first so '=' is not mistaken for the ifemp separator.
         ("api{;key}=base/{+path}", "api;key=base/a/b", {"key": "", "path": "a/b"}),
         ("api{;key}=base/{+path}", "api;key=v=base/x", {"key": "v", "path": "x"}),
+        # The value reading is tried before the empty one, bounded to the
+        # next literal, so a value equal to the literal's stem still parses.
+        ("{;a}=end{+rest}", ";a=end=end/x", {"a": "end", "rest": "/x"}),
+        ("{;a}=end{+rest}", ";a=x=end/x", {"a": "x", "rest": "/x"}),
+        # Empty value still detected when no value reading is possible.
+        ("{;a}=end{+rest}", ";a=end/x", {"a": "", "rest": "/x"}),
+        ("{;a}=end", ";a=end", {"a": ""}),
     ],
 )
 def test_match_prefix_scan_edge_cases(template: str, uri: str, expected: dict[str, str]):
     assert UriTemplate.parse(template).match(uri) == expected
+
+
+def test_ifemp_value_literal_prefix_is_ambiguous_by_construction():
+    """Documented ambiguity, not a bug.
+
+    For ``{;a}=end{+rest}`` on ``;a=end=end/x`` both ``{a: "end", rest:
+    "/x"}`` and ``{a: "", rest: "=end/x"}`` expand to the same URI. Match
+    returns the ``;name=value`` reading for consistency with the suffix
+    scan, which already prefers it for ``{;a}=end{/rest}``.
+    """
+    t = UriTemplate.parse("{;a}=end{+rest}")
+    value_reading = {"a": "end", "rest": "/x"}
+    empty_reading = {"a": "", "rest": "=end/x"}
+    assert t.expand(value_reading) == t.expand(empty_reading) == ";a=end=end/x"
+    assert t.match(";a=end=end/x") == value_reading
 
 
 @pytest.mark.parametrize(
@@ -860,6 +882,13 @@ def test_match_explode_encoded_separator_in_segment():
         ("logs://{service}{?since,level}", {"service": "api", "since": "1h"}),
         ("logs://{service}{?since,level}", {"service": "api", "since": "1h", "level": "error"}),
         ("api{;key}=base/{+path}", {"key": "", "path": "a/b"}),
+        # ifemp followed by a literal beginning with '=': a value equal to
+        # the literal's stem must round-trip (issue #3852).
+        ("{;a}=end{+rest}", {"a": "end", "rest": "/x"}),
+        ("{;a}=end{+rest}", {"a": "", "rest": "/x"}),
+        ("{;a}=end{+rest}", {"a": "x", "rest": "/x"}),
+        ("/api{;mode}=fast{/id}", {"mode": "fast", "id": "7"}),
+        ("/api{;mode}=fast{/id}", {"mode": "slow", "id": "7"}),
     ],
 )
 def test_roundtrip_expand_then_match(template: str, variables: dict[str, str | list[str]]):
