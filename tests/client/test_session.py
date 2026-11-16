@@ -9,7 +9,6 @@ import anyio.abc
 import anyio.streams.memory
 import mcp_types as types
 import pytest
-from inline_snapshot import snapshot
 from mcp_types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
@@ -710,26 +709,6 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
         result = CallToolResult(content=[TextContent(type="text", text="Called successfully")], is_error=False)
 
         # Send the tools/call result
-        await server_to_client_send.send(
-            SessionMessage(
-                JSONRPCResponse(
-                    jsonrpc="2.0",
-                    id=jsonrpc_request.id,
-                    result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                )
-            )
-        )
-
-        # Wait for the tools/list request from the client
-        # The client requires this step to validate the tool output schema
-        session_message = await client_to_server_receive.receive()
-        jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request, JSONRPCRequest)
-
-        assert jsonrpc_request.method == "tools/list"
-
-        result = types.ListToolsResult(tools=[mocked_tool])
-
         await server_to_client_send.send(
             SessionMessage(
                 JSONRPCResponse(
@@ -1857,40 +1836,26 @@ async def test_call_tool_accepts_a_null_structured_content_the_output_schema_per
 
 
 @pytest.mark.anyio
-async def test_call_tool_rejects_a_null_structured_content_the_output_schema_forbids() -> None:
-    """A null `structuredContent` is validated like any other value: against a schema that does
-    not permit null it fails as a schema mismatch, not as missing structured content."""
+@pytest.mark.parametrize(
+    "structured",
+    [{"structuredContent": {"x": "not an integer"}}, {}],
+    ids=["mismatched", "absent"],
+)
+async def test_call_tool_returns_structured_content_as_the_server_sent_it(structured: dict[str, Any]) -> None:
+    """SDK-defined: the client does not check results against the tool's output schema, so content
+    that breaks the schema, or no content at all, reaches the caller unchanged."""
     dispatcher = _ScriptedDispatcher(
         _discover_result_dict(),
-        _listing_with_output_schema({"type": "object"}),
-        {"resultType": "complete", "content": [], "structuredContent": None},
+        _listing_with_output_schema({"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]}),
+        {"resultType": "complete", "content": [], **structured},
     )
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
             await session.discover()
             await session.list_tools()
-            with pytest.raises(RuntimeError) as exc_info:
-                await session.call_tool("t", {})
-            # Stable SDK prefix only: the message tail is jsonschema text that shifts with the dependency.
-            assert str(exc_info.value).startswith("Invalid structured content returned by tool t")
-
-
-@pytest.mark.anyio
-async def test_call_tool_reports_an_absent_structured_content_as_missing_even_when_null_is_permitted() -> None:
-    """SDK-defined: only a result with no `structuredContent` field at all is reported as
-    missing structured content, and it is so even when the output schema would accept null."""
-    dispatcher = _ScriptedDispatcher(
-        _discover_result_dict(),
-        _listing_with_output_schema({"type": ["object", "null"]}),
-        {"resultType": "complete", "content": []},
-    )
-    with anyio.fail_after(5):
-        async with ClientSession(dispatcher=dispatcher) as session:
-            await session.discover()
-            await session.list_tools()
-            with pytest.raises(RuntimeError) as exc_info:
-                await session.call_tool("t", {})
-            assert str(exc_info.value) == snapshot("Tool t has an output schema but did not return structured content")
+            result = await session.call_tool("t", {})
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == structured.get("structuredContent")
 
 
 @pytest.mark.anyio
@@ -1920,12 +1885,7 @@ async def test_call_tool_threads_input_responses_and_request_state_into_params()
         captured.append(params)
         return CallToolResult(content=[])
 
-    async def on_list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[])
-
-    server = Server("test", on_call_tool=on_call_tool, on_list_tools=on_list_tools)
+    server = Server("test", on_call_tool=on_call_tool)
     with anyio.fail_after(5):
         async with Client(server, mode="2026-07-28") as client:
             await client.call_tool(

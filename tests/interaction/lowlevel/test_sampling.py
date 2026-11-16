@@ -43,11 +43,6 @@ async def test_create_message_round_trip(connect: Connect) -> None:
     """
     received: list[CreateMessageRequestParams] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
@@ -57,7 +52,7 @@ async def test_create_message_round_trip(connect: Connect) -> None:
         assert isinstance(result.content, TextContent)
         return CallToolResult(content=[TextContent(text=f"{result.model}/{result.stop_reason}: {result.content.text}")])
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams
@@ -97,11 +92,6 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
     """
     received: list[CreateMessageRequestParams] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
@@ -121,7 +111,7 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
         assert isinstance(result.content, TextContent)
         return CallToolResult(content=[TextContent(text=result.content.text)])
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams
@@ -162,11 +152,6 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
     """
     received: list[CreateMessageRequestParams] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="describe_image", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "describe_image"
         result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
@@ -176,7 +161,7 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
         assert isinstance(result.content, TextContent)
         return CallToolResult(content=[TextContent(text=result.content.text)])
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams
@@ -211,11 +196,6 @@ async def test_create_message_result_with_image_content_returns_to_handler(conne
     This is the client-to-server direction: the model's response is an image rather than text.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="draw", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "draw"
         result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
@@ -226,7 +206,7 @@ async def test_create_message_result_with_image_content_returns_to_handler(conne
         assert isinstance(image, ImageContent)
         return CallToolResult(content=[TextContent(text=f"{result.model}: {image.mime_type} {image.data}")])
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams
@@ -251,11 +231,6 @@ async def test_create_message_callback_error(connect: Connect) -> None:
     the callback's code and message reach the handler verbatim, whatever they are.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         try:
@@ -267,7 +242,7 @@ async def test_create_message_callback_error(connect: Connect) -> None:
             return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
         raise NotImplementedError  # the callback always answers with an error
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(context: ClientRequestContext, params: CreateMessageRequestParams) -> ErrorData:
         return ErrorData(code=-1, message="User rejected sampling request")
@@ -282,11 +257,6 @@ async def test_create_message_callback_error(connect: Connect) -> None:
 async def test_create_message_without_callback_is_error(connect: Connect) -> None:
     """A sampling request to a client with no sampling callback fails with the SDK's default error."""
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         try:
@@ -298,7 +268,7 @@ async def test_create_message_without_callback_is_error(connect: Connect) -> Non
             return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
         raise NotImplementedError  # create_message cannot succeed without a client callback
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("ask_model", {})
@@ -314,11 +284,6 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client(con
     expose it), so the server-side validator rejects the request before anything reaches the wire.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         try:
@@ -331,7 +296,7 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client(con
             return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
         raise NotImplementedError  # the validator rejects every tool-enabled request
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams
@@ -356,11 +321,6 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
     ValueError directly.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="summarise_tools", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "summarise_tools"
         try:
@@ -380,7 +340,7 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
             return CallToolResult(content=[TextContent(text=f"{type(exc).__name__}: {exc}")])
         raise NotImplementedError  # the validator rejects the malformed messages before sending
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams
@@ -409,18 +369,13 @@ async def test_a_client_with_a_sampling_callback_declares_the_sampling_capabilit
     """
     captured: list[SamplingCapability | None] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="capabilities", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "capabilities"
         assert ctx.session.client_params is not None
         captured.append(ctx.session.client_params.capabilities.sampling)
         return CallToolResult(content=[TextContent(text="ok")])
 
-    server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("introspector", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams
@@ -443,11 +398,6 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
     """
     received: list[CreateMessageRequestParams] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="transcribe", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "transcribe"
         result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
@@ -457,7 +407,7 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
         assert isinstance(result.content, TextContent)
         return CallToolResult(content=[TextContent(text=result.content.text)])
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams
@@ -492,11 +442,6 @@ async def test_create_message_result_with_audio_content_returns_to_handler(conne
     This is the client-to-server direction: the model's response is audio rather than text.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="speak", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "speak"
         result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
@@ -507,7 +452,7 @@ async def test_create_message_result_with_audio_content_returns_to_handler(conne
         assert isinstance(audio, AudioContent)
         return CallToolResult(content=[TextContent(text=f"{result.model}: {audio.mime_type} {audio.data}")])
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams
@@ -529,11 +474,6 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
     """A sampling message whose content is a list of blocks arrives at the client callback as a list."""
     received: list[CreateMessageRequestParams] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="caption", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "caption"
         result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
@@ -551,7 +491,7 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
         assert isinstance(result.content, TextContent)
         return CallToolResult(content=[TextContent(text=result.content.text)])
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams
@@ -594,11 +534,6 @@ async def test_create_message_with_mismatched_tool_use_and_result_ids_is_rejecte
     client-side -32602 check is tracked separately at sampling:tool-use:result-balance.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="continue_tools", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "continue_tools"
         try:
@@ -619,7 +554,7 @@ async def test_create_message_with_mismatched_tool_use_and_result_ids_is_rejecte
             return CallToolResult(content=[TextContent(text=f"{type(exc).__name__}: {exc}")])
         raise NotImplementedError  # the validator rejects the malformed messages before sending
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams
@@ -650,11 +585,6 @@ async def test_array_content_result_for_a_tool_free_request_surfaces_as_a_valida
     the result; instead the client accepts it and the server's response parsing raises.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         try:
@@ -666,7 +596,7 @@ async def test_array_content_result_for_a_tool_free_request_surfaces_as_a_valida
             return CallToolResult(content=[TextContent(text=type(exc).__name__)])
         raise NotImplementedError  # the array-content result fails server-side parsing every time
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("sampler", on_call_tool=call_tool)
 
     async def sampling_callback(
         context: ClientRequestContext, params: CreateMessageRequestParams

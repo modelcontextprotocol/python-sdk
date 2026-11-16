@@ -108,16 +108,16 @@ async def test_output_schema_and_structured_content_are_both_yours_to_build() ->
         )
 
 
-async def test_the_client_checks_the_schema_you_promised() -> None:
-    """The page's warning: a `structured_content` that violates your `output_schema` fails in `call_tool`."""
+async def test_the_client_does_not_check_the_schema_you_promised() -> None:
+    """The page's warning: a `structured_content` that violates your `output_schema` still reaches the caller."""
 
     async def promise_breaker(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         return CallToolResult(content=[TextContent(type="text", text="oops")], structured_content={"matches": "three"})
 
     lying = Server("Bookshop", on_list_tools=tutorial003.list_tools, on_call_tool=promise_breaker)
     async with Client(lying) as client:
-        with pytest.raises(RuntimeError, match="Invalid structured content returned by tool search_books"):
-            await client.call_tool("search_books", {"query": "dune", "limit": 5})
+        result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
+    assert result.structured_content == {"matches": "three"}
 
 
 async def test_meta_reaches_the_client_application() -> None:

@@ -6,8 +6,6 @@ a chain of elicitations inside one tool call; the full URL-elicitation-required 
 individual features are pinned by their own tests; these prove they compose.
 """
 
-from collections.abc import Awaitable, Callable
-
 import anyio
 import mcp_types as types
 import pytest
@@ -20,12 +18,10 @@ from mcp_types import (
     ElicitRequestURLParams,
     ElicitResult,
     EmptyResult,
-    ListToolsResult,
     ReadResourceResult,
     ResourceLink,
     TextContent,
     TextResourceContents,
-    Tool,
 )
 
 from mcp import MCPError, UrlElicitationRequiredError
@@ -37,19 +33,6 @@ from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
-
-ListToolsHandler = Callable[
-    [ServerRequestContext, types.PaginatedRequestParams | None], Awaitable[types.ListToolsResult]
-]
-
-
-def _list_tools(*names: str) -> ListToolsHandler:
-    """A list_tools handler advertising the named tools, so call_tool's implicit list succeeds."""
-
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name=name, input_schema={"type": "object"}) for name in names])
-
-    return list_tools
 
 
 @requirement("flow:tool-result:resource-link-follow")
@@ -70,9 +53,7 @@ async def test_a_resource_link_returned_by_a_tool_can_be_followed_with_read(
         assert str(params.uri) == "file:///report.txt"
         return ReadResourceResult(contents=[TextResourceContents(uri="file:///report.txt", text="generated")])
 
-    server = Server(
-        "linker", on_list_tools=_list_tools("generate"), on_call_tool=call_tool, on_read_resource=read_resource
-    )
+    server = Server("linker", on_call_tool=call_tool, on_read_resource=read_resource)
 
     async with connect(server) as client:
         called = await client.call_tool("generate", {})
@@ -115,7 +96,7 @@ async def test_a_tool_handler_chains_form_elicitations_feeding_each_answer_forwa
         assert second.action == "accept" and second.content is not None
         return CallToolResult(content=[TextContent(text=f"{first.content['name']} is {second.content['age']}")])
 
-    server = Server("onboarder", on_list_tools=_list_tools("onboard"), on_call_tool=call_tool)
+    server = Server("onboarder", on_call_tool=call_tool)
 
     async def answer(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
         assert isinstance(params, ElicitRequestFormParams)
@@ -179,7 +160,6 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
 
     server = Server(  # pyright: ignore[reportDeprecated]
         "gatekeeper",
-        on_list_tools=_list_tools("read_files"),
         on_call_tool=call_tool,
         on_set_logging_level=set_logging_level,
     )

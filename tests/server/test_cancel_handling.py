@@ -13,10 +13,7 @@ from mcp_types import (
     InitializeRequestParams,
     JSONRPCNotification,
     JSONRPCRequest,
-    ListToolsResult,
-    PaginatedRequestParams,
     TextContent,
-    Tool,
 )
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
@@ -35,17 +32,6 @@ async def test_server_remains_functional_after_cancel():
     ev_first_call_cancelled = anyio.Event()
     first_request_id = None
 
-    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="test_tool",
-                    description="Tool for testing",
-                    input_schema={"type": "object"},
-                )
-            ]
-        )
-
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         nonlocal call_count, first_request_id
         if params.name == "test_tool":
@@ -61,7 +47,7 @@ async def test_server_remains_functional_after_cancel():
             return CallToolResult(content=[TextContent(type="text", text=f"Call number: {call_count}")])
         raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
 
-    server = Server("test-server", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
+    server = Server("test-server", on_call_tool=handle_call_tool)
 
     async with Client(server, mode="legacy") as client:
         # First request (will be cancelled server-side, then abandoned here: a

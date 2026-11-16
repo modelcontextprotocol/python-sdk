@@ -114,7 +114,22 @@ That is why `main` narrows with `isinstance(block, TextContent)` before touching
 
 ### `structured_content`: what your application reads
 
-`structured_content` is the tool's return value as JSON, matching the tool's declared `output_schema`. No string parsing, no guessing.
+`structured_content` is the tool's return value as JSON, shaped by the tool's declared `output_schema`. No string parsing, no guessing.
+
+The client hands it to you exactly as the server sent it; it does not check it against the `output_schema`. The server writes both, so only a model you own says what your code can rely on:
+
+```python
+from pydantic import BaseModel
+
+
+class Book(BaseModel):
+    title: str
+    author: str
+    year: int
+
+
+book = Book.model_validate(result.structured_content)
+```
 
 When both are present they say the same thing twice on purpose: `content` is for a model, `structured_content` is for code. Where the structured half comes from, and how to control it, is the **[Structured Output](../servers/structured-output.md)** page.
 

@@ -18,14 +18,11 @@ from mcp_types import (
     Implementation,
     InitializeResult,
     JSONRPCResponse,
-    ListToolsResult,
-    PaginatedRequestParams,
     ReadResourceRequestParams,
     ReadResourceResult,
     ServerCapabilities,
     TextContent,
     TextResourceContents,
-    Tool,
 )
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -254,35 +251,11 @@ async def _handle_context_call_tool(ctx: ServerRequestContext, params: CallToolR
     return CallToolResult(content=[TextContent(type="text", text=json.dumps(context_data))])
 
 
-async def _handle_context_list_tools(
-    ctx: ServerRequestContext, params: PaginatedRequestParams | None
-) -> ListToolsResult:
-    return ListToolsResult(
-        tools=[
-            Tool(
-                name="echo_headers",
-                description="Echoes request headers",
-                input_schema={"type": "object", "properties": {}},
-            ),
-            Tool(
-                name="echo_context",
-                description="Echoes request context",
-                input_schema={
-                    "type": "object",
-                    "properties": {"request_id": {"type": "string"}},
-                    "required": ["request_id"],
-                },
-            ),
-        ]
-    )
-
-
 def make_context_server_app() -> Starlette:
     return make_app(
         Server(
             "request_context_server",
             on_call_tool=_handle_context_call_tool,
-            on_list_tools=_handle_context_list_tools,
         )
     )
 

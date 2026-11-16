@@ -33,19 +33,12 @@ async def test_server_ping_returns_empty_result(connect: Connect) -> None:
     the handler before the tool result was produced.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(
-            tools=[types.Tool(name="ping_back", description="Ping the client.", input_schema={"type": "object"})]
-        )
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ping_back"
         pong = await ctx.session.send_ping()
         return CallToolResult(content=[TextContent(text=type(pong).__name__)])
 
-    server = Server("pinger", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("pinger", on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("ping_back", {})

@@ -113,17 +113,12 @@ async def _observed_client_supports_apps(ui_settings: dict[str, Any] | None) -> 
     """
     observed: list[bool] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="probe", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "probe"
         observed.append(client_supports_apps(ctx))
         return CallToolResult(content=[TextContent(text="ok")])
 
-    server = Server("probe", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("probe", on_call_tool=call_tool)
     extensions = None if ui_settings is None else [advertise(EXTENSION_ID, ui_settings)]
     async with Client(server, extensions=extensions) as client:
         await client.call_tool("probe", {})

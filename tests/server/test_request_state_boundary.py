@@ -16,13 +16,10 @@ from mcp_types import (
     ElicitRequestFormParams,
     ElicitResult,
     InputRequiredResult,
-    ListToolsResult,
-    PaginatedRequestParams,
     ReadResourceResult,
     RequestParams,
     TextContent,
     TextResourceContents,
-    Tool,
 )
 
 import mcp.server.request_state as request_state_module
@@ -67,11 +64,6 @@ def _ask(message: str) -> ElicitRequest:
 
 def _accept() -> ElicitResult:
     return ElicitResult(action="accept", content={"confirm": True})
-
-
-async def _list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None) -> ListToolsResult:
-    """`ClientSession.call_tool` consults tools/list, so lowlevel fixtures must answer it."""
-    return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})])
 
 
 class _PassthroughCodec:
@@ -187,7 +179,7 @@ async def test_lowlevel_server_gets_identical_sealing_from_the_one_line_middlewa
         seen.append(params.request_state)
         return CallToolResult(content=[TextContent(text="done")])
 
-    server = Server("srv", on_call_tool=call_tool, on_list_tools=_list_tools)
+    server = Server("srv", on_call_tool=call_tool)
     server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY]), default_audience=server.name))
 
     with anyio.fail_after(5):
@@ -508,7 +500,7 @@ async def test_audience_presence_drift_is_rejected_in_both_directions() -> None:
                 return InputRequiredResult(input_requests={"confirm": _ask("Go?")}, request_state="round-1")
             return CallToolResult(content=[TextContent(text="done")])
 
-        server = Server("srv", on_call_tool=call_tool, on_list_tools=_list_tools)
+        server = Server("srv", on_call_tool=call_tool)
         server.middleware.append(boundary)
         return server
 
@@ -675,7 +667,7 @@ async def test_a_boundary_free_lowlevel_server_passes_request_state_through_verb
         seen.append(params.request_state)
         return CallToolResult(content=[TextContent(text="done")])
 
-    server = Server("srv", on_call_tool=call_tool, on_list_tools=_list_tools)
+    server = Server("srv", on_call_tool=call_tool)
 
     with anyio.fail_after(5):
         async with Client(server) as client:
@@ -751,7 +743,7 @@ async def test_inbound_request_state_on_a_non_carrier_method_passes_through_unve
         calls.append(params.request_state or "fresh")
         return {"resultType": "complete"}
 
-    server = Server("srv", on_list_tools=_list_tools)
+    server = Server("srv")
     server.add_request_handler("example/mrtr", _CustomMethodParams, custom)
     server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY]), default_audience=None))
 
@@ -770,7 +762,7 @@ async def test_outbound_request_state_on_a_non_carrier_method_is_not_sealed() ->
     async def custom(ctx: ServerRequestContext[Any], params: _CustomMethodParams) -> InputRequiredResult:
         return InputRequiredResult(input_requests={"confirm": _ask("?")}, request_state="ext-handler-plaintext")
 
-    server = Server("srv", on_list_tools=_list_tools)
+    server = Server("srv")
     server.add_request_handler("example/mrtr", _CustomMethodParams, custom)
     server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY]), default_audience=None))
 
@@ -787,7 +779,7 @@ async def test_an_off_set_input_required_result_without_state_passes_through_unt
     async def custom(ctx: ServerRequestContext[Any], params: _CustomMethodParams) -> InputRequiredResult:
         return InputRequiredResult(input_requests={"confirm": _ask("?")})
 
-    server = Server("srv", on_list_tools=_list_tools)
+    server = Server("srv")
     server.add_request_handler("example/mrtr", _CustomMethodParams, custom)
     server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY]), default_audience=None))
 

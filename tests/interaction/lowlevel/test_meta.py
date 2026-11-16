@@ -24,18 +24,13 @@ async def test_request_meta_reaches_handler(connect: Connect) -> None:
     request_meta: RequestParamsMeta = {"example.com/trace": "abc-123"}
     observed_metas: list[dict[str, object]] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="traced", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "traced"
         assert ctx.meta is not None
         observed_metas.append(dict(ctx.meta))
         return CallToolResult(content=[TextContent(text="traced")])
 
-    server = Server("observability", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("observability", on_call_tool=call_tool)
 
     async with connect(server) as client:
         await client.call_tool("traced", {}, meta=request_meta)
@@ -48,16 +43,11 @@ async def test_result_meta_reaches_client(connect: Connect, unstamped: Unstamp) 
     """The _meta object a handler attaches to its result is delivered to the client unchanged."""
     result_meta = {"example.com/cost": 3}
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="metered", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "metered"
         return CallToolResult(content=[TextContent(text="done")], _meta=result_meta)
 
-    server = Server("observability", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("observability", on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("metered", {})

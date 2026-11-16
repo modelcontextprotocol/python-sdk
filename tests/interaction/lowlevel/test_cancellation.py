@@ -21,11 +21,9 @@ from mcp_types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
-    ListToolsResult,
     PingRequest,
     ServerCapabilities,
     TextContent,
-    Tool,
 )
 
 from mcp import Client, MCPError
@@ -112,16 +110,6 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
     handler_cancelled = anyio.Event()
     request_ids: list[types.RequestId] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(
-            tools=[
-                types.Tool(name="block", input_schema={"type": "object"}),
-                types.Tool(name="echo", input_schema={"type": "object"}),
-            ]
-        )
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         if params.name == "echo":
             return CallToolResult(content=[TextContent(text="still alive")])
@@ -135,7 +123,7 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
             raise
         raise NotImplementedError  # unreachable
 
-    server = Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("blocker", on_call_tool=call_tool)
 
     async with connect(server) as client:
         with anyio.fail_after(5):
@@ -157,16 +145,11 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
 async def test_cancellation_for_unknown_request_is_ignored(connect: Connect, unstamped: Unstamp) -> None:
     """A cancellation referencing a request id that is not in flight is ignored without error."""
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="echo", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "echo"
         return CallToolResult(content=[TextContent(text="unbothered")])
 
-    server = Server("calm", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("calm", on_call_tool=call_tool)
 
     async with connect(server) as client:
         await client.session.send_notification(
@@ -194,11 +177,6 @@ async def test_abandoned_server_request_cancels_the_client_callback(connect: Con
             raise
         raise NotImplementedError  # unreachable
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="impatient", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "impatient"
         request = types.CreateMessageRequest(
@@ -221,7 +199,7 @@ async def test_abandoned_server_request_cancels_the_client_callback(connect: Con
             await callback_cancelled.wait()
         return CallToolResult(content=[TextContent(text="abandoned")])
 
-    server = Server("abandoner", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("abandoner", on_call_tool=call_tool)
 
     async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("impatient", {})
@@ -388,10 +366,7 @@ async def test_abandoning_a_call_stops_the_server_handler(connect: Connect, unst
         assert params.name == "echo"
         return CallToolResult(content=[TextContent(text="ok")])
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name=name, input_schema={"type": "object"}) for name in ("block", "echo")])
-
-    server = Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("blocker", on_call_tool=call_tool)
 
     async with connect(server) as client:
         abandon = anyio.CancelScope()
@@ -447,12 +422,7 @@ async def test_abandoning_one_call_leaves_a_concurrent_call_running(connect: Con
             await release_survivor.wait()
         return CallToolResult(content=[TextContent(text="survived")])
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[Tool(name=name, input_schema={"type": "object"}) for name in ("doomed", "survivor")]
-        )
-
-    server = Server("pair", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("pair", on_call_tool=call_tool)
 
     async with connect(server) as client:
         abandon = anyio.CancelScope()

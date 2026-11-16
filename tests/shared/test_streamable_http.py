@@ -1380,29 +1380,6 @@ async def test_streamablehttp_server_sampling(basic_app: Starlette) -> None:
 
 
 # Context-aware server implementation for testing request context propagation
-async def _handle_context_list_tools(
-    ctx: ServerRequestContext, params: PaginatedRequestParams | None
-) -> ListToolsResult:
-    return ListToolsResult(
-        tools=[
-            Tool(
-                name="echo_headers",
-                description="Echo request headers from context",
-                input_schema={"type": "object", "properties": {}},
-            ),
-            Tool(
-                name="echo_context",
-                description="Echo request context with custom data",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "request_id": {"type": "string"},
-                    },
-                    "required": ["request_id"],
-                },
-            ),
-        ]
-    )
 
 
 async def _handle_context_call_tool(
@@ -1430,7 +1407,6 @@ async def _handle_context_call_tool(
 async def _run_context_app(*, stateless: bool) -> AsyncIterator[Starlette]:
     server = Server(
         "ContextAwareServer",
-        on_list_tools=_handle_context_list_tools,
         on_call_tool=_handle_context_call_tool,
     )
     session_manager = StreamableHTTPSessionManager(

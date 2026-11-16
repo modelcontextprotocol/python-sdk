@@ -280,11 +280,6 @@ async def test_resource_updated_notification_reaches_client(connect: Connect) ->
         received.append(message)
         seen.set()
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="touch", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "touch"
         await ctx.session.send_resource_updated("file:///watched.txt")
@@ -302,7 +297,6 @@ async def test_resource_updated_notification_reaches_client(connect: Connect) ->
 
     server = Server(
         "library",
-        on_list_tools=list_tools,
         on_call_tool=call_tool,
         on_list_resources=list_resources,
         on_subscribe_resource=subscribe_resource,

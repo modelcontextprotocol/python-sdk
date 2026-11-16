@@ -93,15 +93,12 @@ def _list_changed_server() -> Server[Any]:
     """Server whose `touch` tool emits tools/list_changed; connect with `mode="legacy"`
     because the modern in-process path drops standalone server notifications."""
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[types.Tool(name="touch", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "touch"
         await ctx.session.send_tool_list_changed()
         return CallToolResult(content=[TextContent(text="touched")])
 
-    return Server("notifier", on_list_tools=list_tools, on_call_tool=call_tool)
+    return Server("notifier", on_call_tool=call_tool)
 
 
 async def _warm_tools_list_entry(client: Client) -> CacheKey:
@@ -754,67 +751,6 @@ async def test_a_refresh_that_resolves_to_input_required_purges_the_warm_entry()
     assert reads == 5
 
 
-def _output_schema_server(call_result: CallToolResult) -> tuple[Server[Any], list[str | None]]:
-    """One tool declaring an output schema; `call_tool` returns the canned `call_result`."""
-    fetches: list[str | None] = []
-    tool = Tool(
-        name="run",
-        input_schema={"type": "object"},
-        output_schema={"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]},
-    )
-
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        fetches.append(params.cursor if params is not None else None)
-        return ListToolsResult(tools=[tool])
-
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "run"
-        return call_result
-
-    server = Server(
-        "schemas",
-        on_list_tools=list_tools,
-        on_call_tool=call_tool,
-        cache_hints={"tools/list": CacheHint(ttl_ms=60_000)},
-    )
-    return server, fetches
-
-
-async def test_a_listing_served_from_a_shared_store_rebuilds_output_schemas() -> None:
-    """A served listing is absorbed into the session: output validation works without a wire fetch."""
-    call_result = CallToolResult(content=[TextContent(text="ok")], structured_content={"n": 1})
-    server, fetches = _output_schema_server(call_result)
-    config = CacheConfig(store=InMemoryResponseCacheStore(), partition="p", target_id="svc", clock=_ManualClock())
-
-    async with Client(server, cache=config) as warming:
-        listing = await warming.list_tools()
-
-    async with Client(server, cache=config) as fresh:
-        assert await fresh.list_tools() == listing  # served from the shared store
-        result = await fresh.call_tool("run", {})
-
-    assert result.structured_content == {"n": 1}
-    # A starved schema cache would have re-listed here.
-    assert fetches == [None]
-
-
-async def test_validation_from_a_served_listing_rejects_missing_structured_content() -> None:
-    """The schema absorbed from a served listing is enforced, not just present."""
-    server, fetches = _output_schema_server(CallToolResult(content=[TextContent(text="ok")]))
-    config = CacheConfig(store=InMemoryResponseCacheStore(), partition="p", target_id="svc", clock=_ManualClock())
-
-    async with Client(server, cache=config) as warming:
-        await warming.list_tools()
-
-    async with Client(server, cache=config) as fresh:
-        await fresh.list_tools()
-        with pytest.raises(RuntimeError) as exc_info:
-            await fresh.call_tool("run", {})
-
-    assert str(exc_info.value) == snapshot("Tool run has an output schema but did not return structured content")
-    assert fetches == [None]
-
-
 async def test_a_cache_hit_listing_still_mirrors_x_mcp_headers_on_tools_call() -> None:
     """The arg-to-header maps are rebuilt from a served listing. Asserted at the wire
     because the client never surfaces outgoing headers."""
@@ -941,15 +877,12 @@ async def test_a_resource_updated_notification_evicts_that_uris_read_entry() -> 
         reads.append(params.uri)
         return ReadResourceResult(contents=[TextResourceContents(uri=params.uri, text=f"v{len(reads)}")])
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="poke", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "poke"
         await ctx.session.send_resource_updated(uri)
         return CallToolResult(content=[TextContent(text="ok")])
 
-    server = Server("updates", on_read_resource=read, on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("updates", on_read_resource=read, on_call_tool=call_tool)
 
     delivered: list[str] = []
     seen = anyio.Event()

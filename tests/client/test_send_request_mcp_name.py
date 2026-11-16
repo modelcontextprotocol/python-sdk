@@ -13,11 +13,9 @@ from inline_snapshot import snapshot
 from mcp_types import (
     CallToolResult,
     Implementation,
-    ListToolsResult,
     Request,
     ServerCapabilities,
     TextContent,
-    Tool,
 )
 from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 
@@ -49,10 +47,6 @@ class _RecordingDispatcher:
         self.calls.append((method, opts or {}))
         if method == "tools/call":
             return CallToolResult(content=[TextContent(type="text", text="ok")]).model_dump(
-                by_alias=True, mode="json", exclude_none=True
-            )
-        if method == "tools/list":
-            return ListToolsResult(tools=[Tool(name="my-tool", input_schema={"type": "object"})]).model_dump(
                 by_alias=True, mode="json", exclude_none=True
             )
         return {}

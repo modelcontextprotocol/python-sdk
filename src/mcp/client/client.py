@@ -857,14 +857,10 @@ class Client:
             return result
         # Only claimed shapes reach this point, so the lookup is total.
         claim = self._folded_extensions.by_model[type(result)]
-        final = await claim.resolve(
+        return await claim.resolve(
             result,
             ClaimContext(session=self.session, tool_name=name, read_timeout_seconds=read_timeout_seconds),
         )
-        if not final.is_error:
-            # Match the direct path: revalidate the output schema, but never for isError results.
-            await self.session.validate_tool_result(name, final)
-        return final
 
     async def list_prompts(
         self,

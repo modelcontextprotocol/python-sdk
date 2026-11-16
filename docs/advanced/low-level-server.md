@@ -115,7 +115,7 @@ Call it and the result carries both representations:
 
 The `_meta` block is the server's identity stamp: the SDK adds it to every 2026-era result, with the `version` from the constructor (a server that sets none reports an empty string). A server that must not identify itself can strip the key with a middleware, which owns the results it returns.
 
-The server never compares the two fields. This SDK's `Client` does: return `structured_content` that doesn't satisfy the `output_schema` you declared and `call_tool` raises a `RuntimeError` that starts with `Invalid structured content returned by tool search_books` and goes on to quote the `jsonschema` failure. Promising a schema is cheap; keeping it is on you. The whole ladder of return types and schemas is in **[Structured Output](../servers/structured-output.md)**.
+The server never compares the two fields, and neither does this SDK's `Client`: `call_tool` hands back `structured_content` exactly as the server sent it. Promising a schema is cheap; keeping it is on you. The whole ladder of return types and schemas is in **[Structured Output](../servers/structured-output.md)**.
 
 ## The dialect is JSON Schema 2020-12
 
@@ -126,7 +126,7 @@ The server never compares the two fields. This SDK's `Client` does: return `stru
 ```
 
 * The root of `input_schema` must be `"type": "object"`. Beside it, `oneOf`, `additionalProperties`, `anyOf`, `if`/`then`/`else`, `prefixItems`, `$defs` with local `$ref`s and the rest of the 2020-12 keywords reach the client exactly as written.
-* No `$schema` key is needed. Add one only to opt into an older draft: this SDK's `Client`, which validates `structured_content` against a tool's `output_schema`, picks its validator from `$schema` and uses 2020-12 when there is none.
+* No `$schema` key is needed. Add one only to opt into an older draft.
 
 ## `_meta`: for the application, not the model
 
