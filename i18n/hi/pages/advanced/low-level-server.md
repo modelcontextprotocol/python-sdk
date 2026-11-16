@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # Low-level Server {#the-low-level-server}
@@ -25,9 +25,9 @@ translation:
 
 तीन चीज़ें बदलीं, और पूरा low-level API बस यही है:
 
-* **Handlers constructor parameters हैं।** `on_list_tools=` और `on_call_tool=` `Server(...)` में जाते हैं। यहाँ नीचे कोई decorator नहीं है, और हर handler का आकार एक ही है: `async (ctx, params) -> result`।
-* **Input schema आप लिखते हैं।** `Tool.input_schema` एक सादा JSON Schema `dict` है। कोई इसे type hints से नहीं निकालता, क्योंकि निकालने के लिए type hints हैं ही नहीं।
-* **Result आप बनाते हैं।** `CallToolResult(content=[TextContent(...)])`, हाथ से। न कुछ wrap होता है, न convert, न return annotation से अनुमान लगाया जाता है।
+* **handlers constructor parameters हैं।** `on_list_tools=` और `on_call_tool=` `Server(...)` में जाते हैं। यहाँ नीचे कोई decorator नहीं है, और हर handler का आकार एक ही है: `async (ctx, params) -> result`।
+* **input schema आप लिखते हैं।** `Tool.input_schema` एक सादा JSON Schema `dict` है। कोई इसे type hints से नहीं निकालता, क्योंकि निकालने के लिए type hints हैं ही नहीं।
+* **result आप बनाते हैं।** `CallToolResult(content=[TextContent(...)])`, हाथ से। न कुछ wrap होता है, न convert, न return annotation से अनुमान लगाया जाता है।
 
 `params` parse की हुई request है: `CallToolRequestParams` आपको `.name` और `.arguments` देता है। `ctx` एक `ServerRequestContext` है: client से वापस बात करने के लिए `ctx.session`, `ctx.lifespan_context`, `ctx.request_id`, और `ctx.meta`, यानी request का आने वाला `_meta`।
 
@@ -36,18 +36,22 @@ translation:
 
 ### इसे आज़माएँ {#try-it}
 
-इसके लिए कोई Inspector नहीं है: `mcp dev` और `mcp run` सिर्फ़ `MCPServer` स्वीकार करते हैं। In-memory `Client` को कोई फ़र्क नहीं पड़ता; वह low-level `Server` को ठीक वैसे ही लेता है जैसे `MCPServer` को:
+`mcp dev` और `mcp run` सिर्फ़ `MCPServer` स्वीकार करते हैं, इसलिए इसे serve आप खुद करते हैं। `server.py` की आख़िरी line इससे एक साधारण ASGI app बनाती है, और uvicorn उसे चलाता है:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Inspector को, या किसी भी client को, `http://localhost:8000/mcp` पर point करें:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -61,8 +65,10 @@ asyncio.run(main())
 
 वही text जो `@mcp.tool()` वाले version ने दिया था। दो असली अंतर:
 
-* `result.structured_content` `None` है। High-level server आपके लिए `-> str` को `{"result": ...}` में wrap कर देता है; यहाँ जो आपने नहीं बनाया, उसे कोई नहीं बनाता।
-* `list_tools` वही schema लौटाता है जो **आपने** type किया, अक्षर-दर-अक्षर। High-level version में हर property पर `"title": "Query"` था और root पर `"title": "search_booksArguments"`: Pydantic की देन। यहाँ नीचे, अगर कुछ wire पर है, तो उसे वहाँ आपने रखा है।
+* `result.structured_content` `None` है। high-level server आपके लिए `-> str` को `{"result": ...}` में wrap कर देता है; यहाँ जो आपने नहीं बनाया, उसे कोई नहीं बनाता।
+* `list_tools` वही schema लौटाता है जो **आपने** type किया, अक्षर-दर-अक्षर। high-level version में हर property पर `"title": "Query"` था और root पर `"title": "search_booksArguments"`: Pydantic की देन। यहाँ नीचे, अगर कुछ wire पर है, तो उसे वहाँ आपने रखा है।
+
+test में आप uvicorn और port दोनों छोड़ देते हैं: `Client(server)` low-level `Server` को in-process ठीक वैसे ही लेता है जैसे `MCPServer` को, और **[Testing](../get-started/testing.md)** यही pattern है।
 
 ## आपके लिए कुछ जाँचा नहीं जाता {#nothing-is-checked-for-you}
 
@@ -116,6 +122,17 @@ asyncio.run(main())
 
 Server इन दोनों fields की कभी तुलना नहीं करता। इस SDK का `Client` करता है: ऐसा `structured_content` लौटाएँ जो आपके declare किए `output_schema` पर खरा न उतरे, और `call_tool` एक `RuntimeError` raise करता है जो `Invalid structured content returned by tool search_books` से शुरू होता है और आगे `jsonschema` की failure उद्धृत करता है। Schema का वादा करना सस्ता है; उसे निभाना आपकी ज़िम्मेदारी है। Return types और schemas की पूरी सीढ़ी **[Structured Output](../servers/structured-output.md)** में है।
 
+## Dialect JSON Schema 2020-12 है {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` और `output_schema` JSON Schema हैं, और dialect [MCP specification](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) तय करती है: जिस schema में `$schema` key नहीं है वह **JSON Schema 2020-12** है। `MCPServer` जो schemas generate करता है वे इसी default पर टिके हैं (Pydantic 2020-12 लिखता है और key छोड़ देता है), और हाथ से लिखे dict पर भी यही लागू होता है, इसलिए 2020-12 की पूरी vocabulary उपलब्ध है:
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* `input_schema` का root `"type": "object"` होना ज़रूरी है। उसके साथ `oneOf`, `additionalProperties`, `anyOf`, `if`/`then`/`else`, `prefixItems`, local `$ref`s वाले `$defs` और बाकी 2020-12 keywords client तक ठीक वैसे ही पहुँचते हैं जैसे लिखे गए।
+* `$schema` key की ज़रूरत नहीं है। इसे सिर्फ़ किसी पुराने draft को चुनने के लिए जोड़ें: इस SDK का `Client`, जो `structured_content` को tool के `output_schema` से validate करता है, अपना validator `$schema` से चुनता है और कोई न होने पर 2020-12 इस्तेमाल करता है।
+
 ## `_meta`: application के लिए, model के लिए नहीं {#\_meta-for-the-application-not-the-model}
 
 `content` जवाब का वह हिस्सा है जिसे model पढ़ता है। `structured_content` वही जवाब typed data के रूप में है। `_meta` तीसरा channel है: ऐसा data जो result के साथ **client application** के लिए चलता है, जवाब का हिस्सा बने बिना।
@@ -167,7 +184,7 @@ Constructor उन methods को cover करता है जिन्हे�
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* पहला argument method string है। Notifications के लिए इसका जुड़वाँ है, `add_notification_handler`।
+* पहला argument method string है। Notifications के लिए इसका जुड़वाँ है, `add_notification_handler`। इसके handlers stdio पर और handshake पीढ़ी के HTTP connections पर चलते हैं; `2026-07-28` के streamable-HTTP रास्ते पर client की notification POST को `202` से acknowledge किया जाता है और dispatch नहीं किया जाता, क्योंकि वह revision HTTP पर client-से-server कोई notification define नहीं करता।
 * `params_type` वह model है जिससे आने वाले `params` आपका handler चलने से **पहले** validate होते हैं, इसलिए custom methods को वह validation **मिलती** है जो tools को नहीं मिलती। `RequestParams` को subclass करें ताकि `_meta` field हर दूसरे method की तरह parse हो।
 * Handler `BaseModel`, `dict`, या `None` लौटाता है। SDK इसे JSON-RPC result में serialise कर देता है।
 
@@ -192,16 +209,17 @@ Handshake runner का है। `server/discover`, `ping`, और बाकी
 * `on_call_tool`, `on_get_prompt`, और `on_read_resource` अपने सामान्य result के बजाय `InputRequiredResult` लौटा सकते हैं, ताकि call रुक जाए और client से input माँगा जाए; देखें **[Multi-round-trip requests](../handlers/multi-round-trip.md)**। इस tier के मुताबिक, आपके लिए कुछ install नहीं होता: जहाँ `MCPServer` default रूप से `requestState` को seal करता है, वहीं यहाँ आपका set किया `request_state` ठीक वैसे ही wire पार करता है जैसा लिखा गया, जब तक आप `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))` से opt in न करें: एक line (दोनों नाम `mcp.server.request_state` से import होते हैं) और ठीक वही sealing और verification मिलती है जो `MCPServer` करता है (**[`requestState` की सुरक्षा](../handlers/multi-round-trip.md#protecting-requeststate)**)।
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion` बाकी primitives के लिए वही `(ctx, params) -> result` आकार हैं।
 * `on_subscriptions_listen` 2026-07-28 की `subscriptions/listen` stream serve करता है। `SubscriptionBus` के ऊपर बना `ListenHandler` pass करें और अपने बाकी handlers से bus पर events publish करें; पूरी रचना के लिए देखें **[Subscriptions](../handlers/subscriptions.md)**।
+* `get_tool_input_schema` `on_list_tools` को call path से बाहर रखता है; देखें **[Header parameters](header-parameters.md#schemas-by-name)**।
 * `server.streamable_http_app()` वही Starlette app लौटाता है जो `MCPServer` का लौटाता है; इसे वैसे ही deploy करें जैसे **[अपना server चलाना](../run/index.md)** किसी भी दूसरे ASGI app को deploy करता है। यहाँ नीचे कोई `server.run(transport=...)` नहीं है: `server.run(read_stream, write_stream, server.create_initialization_options())` streams की एक जोड़ी पर एक connection चलाता है, और पूरी जानकारी बस वही एक line है।
 
 ## सारांश {#recap}
 
-* Low-level `Server` अपने handlers `on_*` **constructor parameters** के रूप में लेता है; हर handler `async (ctx, params) -> result` है।
+* low-level `Server` अपने handlers `on_*` **constructor parameters** के रूप में लेता है; हर handler `async (ctx, params) -> result` है।
 * `input_schema` dict आप लिखते हैं और `CallToolResult` आप बनाते हैं। आपके लिए न कुछ derive होता है, न wrap, न validate।
-* Handler में exception `-32603` protocol error है। जिस tool error को model पढ़ सके, वह `is_error=True` वाला `CallToolResult` है जिसे **आप** लौटाते हैं।
-* Result पर `_meta` client application के नाम है, model के नहीं।
+* handler में exception `-32603` protocol error है। जिस tool error को model पढ़ सके, वह `is_error=True` वाला `CallToolResult` है जिसे **आप** लौटाते हैं।
+* result पर `_meta` client application के नाम है, model के नहीं।
 * `Server[T]` उस चीज़ में generic है जो उसका lifespan yield करता है; `ctx.lifespan_context` एक typed `T` है।
 * `add_request_handler(method, params_type, handler)` कोई भी method serve करता है। `initialize` reserved है।
 * `Server` जो capabilities advertise करता है, वे इससे निकलती हैं कि आपने कौन से handlers register किए।
 
-`Client(server)` ने दोनों servers के साथ एक जैसा बर्ताव किया क्योंकि वे एक ही protocol **हैं**, और यही असली बात है। इससे नीचे की अगली layer कोई class है ही नहीं: वह **[Middleware](middleware.md)** है।
+client ने दोनों servers के साथ एक जैसा बर्ताव किया क्योंकि वे एक ही protocol **हैं**, और यही असली बात है। इससे नीचे की अगली layer कोई class है ही नहीं: वह **[Middleware](middleware.md)** है।

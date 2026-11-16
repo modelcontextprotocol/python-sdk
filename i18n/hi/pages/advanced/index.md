@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ca6988b7503cd2d3]
+  sections: [348f8697c6b12cd0]
   tool: 1
 ---
 # Advanced {#advanced}
@@ -14,6 +14,8 @@ layer आड़े आने लगे:
   methods।
 * **[Pagination](pagination.md)** और **[Middleware](middleware.md)**: दो चीज़ें जो आप
   **सिर्फ़** low-level `Server` पर ही कर सकते हैं।
+* **[Header parameters](header-parameters.md)**: gateway को tool call उसके किसी एक
+  argument के आधार पर route करने दें।
 * **[Extensions](extensions.md)** और **[MCP Apps](apps.md)**: protocol की
   extension surface। extension packages को server में जोड़ें, या अपना खुद का लिखें।
 

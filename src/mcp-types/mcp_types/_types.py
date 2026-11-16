@@ -8,7 +8,7 @@ the negotiated version. Per-field docstrings note version availability. The
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Final, Generic, Literal, TypeAlias, TypeVar, get_args
+from typing import Annotated, Any, ClassVar, Final, Generic, Literal, NotRequired, Self, TypeAlias, TypeVar, get_args
 
 from pydantic import (
     BaseModel,
@@ -19,7 +19,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic.alias_generators import to_camel
-from typing_extensions import NotRequired, Self, TypedDict
+from typing_extensions import TypedDict
 
 from mcp_types.jsonrpc import RequestId
 
@@ -393,6 +393,8 @@ class ClientCapabilities(MCPModel):
     `initialize` through 2025-11-25; per-request in `_meta` on 2026-07-28.
     """
 
+    model_config = ConfigDict(extra="allow")
+
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the client supports."""
     sampling: SamplingCapability | None = None
@@ -484,6 +486,8 @@ class ServerTasksCapability(MCPModel):
 
 class ServerCapabilities(MCPModel):
     """Capabilities that a server may support. Not a closed set."""
+
+    model_config = ConfigDict(extra="allow")
 
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the server supports."""

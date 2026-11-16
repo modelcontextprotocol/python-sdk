@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9e7b9a1710e5aeba, b74ca4c1d2ddddee, fa8714e61bf90c5a, 04db67a886b7271c, 857690fb8f876800]
+  sections: [9e7b9a1710e5aeba, 66a2e9acc9101d54, d3d25aa802f5145a, 04db67a886b7271c, 857690fb8f876800]
   tool: 1
 ---
 # Caching hints {#caching-hints}
@@ -30,7 +30,7 @@ server खुद कुछ भी cache नहीं करता। ये fiel
 
 low-level `Server` पर handlers अपने results खुद बनाते हैं, और `ttl_ms` / `cache_scope` result models पर बस fields हैं। जो handler इन्हें explicitly set करता है, वह constructor map पर हमेशा भारी पड़ता है, field दर field:
 
-```python title="server.py" hl_lines="10 16"
+```python title="server.py" hl_lines="11 17"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -44,9 +44,23 @@ paginated lists पर एक सावधानी: protocol की माँ�
 
 2026-07-28 session पर `Client` आपके लिए hints का पालन करता है: इसमें built-in response cache है, जो default रूप से चालू रहता है। जो result `ttlMs` के साथ आता है, वह store हो जाता है, और उस TTL के भीतर वैसा ही call cache से serve होता है, बिना round trip के। जिस result में **कोई** hint नहीं होता, वह cache नहीं होता: बिना hint वाले results को `CacheConfig.default_ttl_ms` मिलता है, जिसका default `0` है (तुरंत stale), इसलिए जो server कुछ भी declare नहीं करता, उसे ठीक वैसा ही call-दर-call traffic दिखता है जैसा हमेशा दिखता था।
 
-```python title="client.py" hl_lines="33 35 38"
+इसे होते हुए देखने के लिए, पिछले section की `server.py` को uvicorn से serve करें (उसकी आखिरी line ASGI app बनाती है)। handler जब भी सच में चलता है, एक line print करता है:
+
+```console
+uvicorn server:app --port 8000
+```
+
+```python title="client.py" hl_lines="20 23 28"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
+
+दूसरे terminal से `python client.py` चलाएँ। यह वे hints print करता है जो पहले result में आए थे, handler का `ttlMs` और उसके बगल में map का `cacheScope`:
+
+```text
+1000 public
+```
+
+बाकी कहानी server का terminal बताता है: uvicorn के request logs के बीच `tools/list served` तीन बार दिखता है।
 
 चार calls, तीन fetches। दूसरे call को fresh entry मिली और वह server तक पहुँचा ही नहीं; (inject की गई) clock को TTL से आगे बढ़ाने पर तीसरे ने फिर से fetch किया; चौथे ने `cache_mode="refresh"` कहा। यह kwarg पाँचों caching verbs पर मौजूद है (`list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, `read_resource`):
 
@@ -56,7 +70,7 @@ paginated lists पर एक सावधानी: protocol की माँ�
 
 एक नियम `"use"` से ऊपर है: **`meta` वाले calls हमेशा server तक पहुँचते हैं।** जिस request में `meta` set हो (progress token, tracing fields), उसे wire request की उम्मीद होती है, इसलिए `cache_mode="use"` में उसे `"refresh"` माना जाता है: cache read छोड़ दिया जाता है, और fetch किया गया result फिर भी cache की entry की जगह ले लेता है। `"bypass"` और explicit `"refresh"` हमेशा की तरह ही बर्ताव करते हैं।
 
-caching पूरी तरह बंद करने के लिए `Client(server, cache=None)` से construct करें: हर call फिर से round trip है, और `cache_mode`, भले ही अब भी स्वीकार होता है, कुछ नहीं करता।
+caching पूरी तरह बंद करने के लिए `Client` construct करते समय `cache=None` pass करें: हर call फिर से round trip है, और `cache_mode`, भले ही अब भी स्वीकार होता है, कुछ नहीं करता।
 
 scope का पालन भी अपने आप होता है: `"private"` entries cache के *partition* (नीचे देखें) से बँधी होती हैं, जबकि `"public"` वाली चाहें तो ज़्यादा व्यापक sharing चुन सकती हैं। और जिन entries का नाम notifications लेते हैं, ठीक उनके लिए **notifications TTL पर भारी पड़ते हैं**: `list_changed` notification मेल खाती cached listing को evict कर देता है, और `resources/updated` ठीक उसी URI के तहत store किए गए cached read को evict करता है, चाहे वे कितने भी fresh रहे हों। 2026-07-28 connection पर ये notifications `subscriptions/listen` stream पर आते हैं जिसे आप `client.listen(...)` से खोलते हैं, और eviction आपके watcher को event दिखने से पहले पूरा हो जाता है; **[Subscriptions](subscriptions.md)** वही page है।
 

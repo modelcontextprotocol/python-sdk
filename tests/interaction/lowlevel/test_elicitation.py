@@ -82,7 +82,6 @@ async def test_elicit_form_accepted_content_returns_to_handler(connect: Connect)
     assert received == snapshot(
         [
             ElicitRequestFormParams(
-                _meta={},
                 message="Choose a username.",
                 requested_schema={
                     "type": "object",
@@ -229,7 +228,6 @@ async def test_elicit_url_delivers_url_and_returns_accept_without_content(connec
     assert received == snapshot(
         [
             ElicitRequestURLParams(
-                _meta={},
                 message="Authorize access to your calendar.",
                 url="https://example.com/oauth/authorize",
                 elicitation_id="auth-001",

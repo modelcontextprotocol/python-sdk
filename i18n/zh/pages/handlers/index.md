@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [424930166c4bc6f3]
+  sections: [22ca41e50cc1b536]
   tool: 1
 ---
 # 在处理函数内部 {#inside-your-handler}
@@ -18,6 +18,7 @@ translation:
 * 用 **[征询（elicitation）](elicitation.md)** 向用户请求更多输入，以及承载它的 2026-07-28 模式 **[多轮往返请求](multi-round-trip.md)**（multi-round-trip）。
 * 用 **[采样（sampling）与根目录（roots）](sampling-and-roots.md)** 向客户端请求一次 LLM 补全或它的工作区文件夹——已弃用，但仍然提供。
 * 对耗时的操作报告 **[进度](progress.md)**。
+* 客户端放弃这次调用时，用 **[取消](cancellation.md)** 做清理，或者提前停止。
 * 用 **[日志](logging.md)** 写日志（写到标准错误，给运维服务器的人看）。
 * 用 **[订阅](subscriptions.md)** 告诉已订阅的客户端有东西变了。
 

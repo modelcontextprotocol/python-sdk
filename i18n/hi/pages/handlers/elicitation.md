@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
+  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 25b49f89c9e6f9d0, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
   tool: 1
 ---
 # Elicitation {#elicitation}
@@ -89,7 +89,8 @@ client को आपका message मिलता है और उसके �
 !!! warning
     elicitation schema tool के input schema जितना expressive नहीं होता। सिर्फ़ flat, primitive
     fields: `str`, `int`, `float`, `bool`, या strings का `Literal` (यह `enum` बन जाता है)।
-    model के अंदर model रखें और `ctx.elicit` client को कुछ भी भेजे जाने से पहले ही raise कर देता है:
+    model के अंदर model रखें और `ctx.elicit` client को कुछ भी भेजे जाने से पहले ही raise कर देता है।
+    tool call `Error executing tool <name>` के साथ fail हो जाता है, और वजह आपके server log में मिलती है:
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -112,8 +113,8 @@ client को आपका message मिलता है और उसके �
 
 !!! tip
     जवाब आपके code तक पहुँचने से पहले आपके model के विरुद्ध validate होता है। जो client
-    `bool` के लिए `"maybe"` भेजता है, वह आपकी booking को खराब नहीं करता: call
-    schema-mismatch error के साथ fail हो जाता है, आपका `if` कभी नहीं चलता।
+    `bool` के लिए `"maybe"` भेजता है, वह आपकी booking को खराब नहीं करता: `ctx.elicit`
+    `ValueError` raise करता है, call fail हो जाता है, और आपका `if` कभी नहीं चलता।
 
 ## user को URL पर भेजना {#send-the-user-to-a-url}
 

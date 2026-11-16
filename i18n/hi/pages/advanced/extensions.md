@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 7ffc91f5e38bdfe0, 717d3f235a8333a7, f471a13b2fe5d737, ed6af2df4b656dff]
+  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 6eba6ce094f4417e, 125f28588c85dd7b, ddd8969b698ca11c, ed6af2df4b656dff]
   tool: 1
 ---
 # Extensions {#extensions}
@@ -49,7 +49,7 @@ prefix के रूप में ऐसा domain इस्तेमाल क�
 
 सबसे छोटा काम का extension एक tool और एक settings map है:
 
-```python title="server.py" hl_lines="17 19-20 22-23 26"
+```python title="server.py" hl_lines="16 18-19 21-22 25"
 --8<-- "docs_src/extensions/tutorial003.py"
 ```
 
@@ -57,17 +57,23 @@ prefix के रूप में ऐसा domain इस्तेमाल क�
 * `settings()` वह value है जो `capabilities.extensions["com.example/stamps"]` पर advertise होती है। बिना settings के extension advertise करने के लिए `{}` (default) लौटाएँ।
 * extension को server कभी नहीं मिलता। यह अपने योगदान data के रूप में declare करता है; `MCPServer` उन्हें consume करता है। mutate करने के लिए कोई `self.server` नहीं है।
 
-और `main()` इसका सबूत है, सीधे `mcp` से जुड़ा एक in-memory client:
+इसे HTTP पर serve करें, और एक client इसका सबूत है:
 
-```python title="server.py" hl_lines="29-34"
---8<-- "docs_src/extensions/tutorial003.py"
+```console
+uv run mcp run server.py --transport streamable-http
 ```
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/extensions/tutorial003_client.py"
+```
+
+इस page की हर `server.py` इसी command से serve होती है, और हर `client.py` उसके साथ-साथ दूसरे terminal से `python client.py` से चलती है।
 
 ### अपने methods serve करना {#serving-your-own-methods}
 
 extension **नए request methods** register कर सकता है: उसके अपने verbs, जो spec के verbs के साथ-साथ serve होते हैं:
 
-```python title="server.py" hl_lines="16-22 31 40-48"
+```python title="server.py" hl_lines="14-20 24 33-41"
 --8<-- "docs_src/extensions/tutorial004.py"
 ```
 
@@ -83,14 +89,15 @@ methods **सख़्ती से additive** हैं। SDK इसे constr
 
 ### Client side {#the-client-side}
 
-उसी file का `main()` ही client की पूरी कहानी है, उसके दोनों हिस्से:
+client अपना अलग program है, और client की कहानी के दोनों हिस्से इसी में हैं:
 
-```python title="server.py" hl_lines="54-58"
---8<-- "docs_src/extensions/tutorial004.py"
+```python title="client.py" hl_lines="21-23 27-30"
+--8<-- "docs_src/extensions/tutorial004_client.py"
 ```
 
 * `Client(..., extensions=[advertise(EXTENSION_ID)])` extension declare करता है। ये declarations `ClientCapabilities.extensions` बन जाती हैं: 2026-07-28 connection पर यह map हर request के `_meta` envelope में जाता है, इसलिए server इसे **हर** request पर देखता है; legacy connection पर यह `initialize` handshake के साथ जाता है। server code को फ़र्क नहीं पड़ता कि कौन सा: `require_client_extension(ctx, ...)` और `ctx.session.check_client_capability(...)` दोनों रास्तों पर सही स्रोत पढ़ते हैं।
 * vendor methods एक परत नीचे `client.session.send_request(...)` पर उतरते हैं; `Client` सिर्फ़ spec verbs के लिए first-class methods जोड़ता है। `send_request` कोई भी `Request` subclass स्वीकार करता है, इसलिए vendor request जैसी है वैसी ही चली जाती है।
+* `SearchRequest` और उसके साथ जाने वाले दो models extension का wire contract हैं, इसलिए client उन्हें अपने लिए खुद declare करता है। published extension इन्हें ऐसे package में देगा जिसे दोनों पक्ष import करें।
 
 ### `tools/call` को intercept करना {#intercepting-toolscall}
 
@@ -109,10 +116,16 @@ hook `tools/call` को wrap करता है, और कुछ नहीं
 
 ## client extension इस्तेमाल करना {#using-a-client-extension}
 
-**client extension** वही contract है, इस्तेमाल करने वाले पक्ष से: एक identifier के पीछे client-side behaviour का bundle। instances को `Client(extensions=[...])` में पास करें और tools सामान्य तरीके से call करें:
+**client extension** वही contract है, इस्तेमाल करने वाले पक्ष से: एक identifier के पीछे client-side behaviour का bundle। यहाँ server `buy` का जवाब सामान के बजाय redeem करने लायक receipt से देता है, और सिर्फ़ उसी client को जिसने extension declare किया हो:
 
-```python title="client.py" hl_lines="66-68"
+```python title="server.py" hl_lines="22-25"
 --8<-- "docs_src/extensions/tutorial006.py"
+```
+
+client पर, instances को `Client(extensions=[...])` में पास करें और tools सामान्य तरीके से call करें:
+
+```python title="client.py" hl_lines="33-35"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 `call_tool("buy", ...)` हर दूसरे call की तरह सादा `CallToolResult` लौटाता है। extension ने जो बदला: server अब `buy` का जवाब final result के बजाय `receipt` **result shape** से दे सकता है, और `call_tool` के लौटने से पहले `Receipts` उसे पूरा कर देता है (यहाँ follow-up call से receipt redeem करके)। call site में कुछ नहीं हिलता।
@@ -124,15 +137,15 @@ extension हटा दें तो इनमें से कुछ भी म
 ```python
 from mcp.client import advertise
 
-client = Client(mcp, extensions=[advertise("com.example/search")])
+client = Client("http://localhost:8000/mcp", extensions=[advertise("com.example/search")])
 ```
 
 ## client extension लिखना {#writing-a-client-extension}
 
 `ClientExtension` को subclass करें और सिर्फ़ वही override करें जिसकी ज़रूरत हो। योगदान के तीन प्रकार, हर एक का default: `settings()`, `claims()` और `notifications()`।
 
-```python title="client.py" hl_lines="17-18 43-44 46-47"
---8<-- "docs_src/extensions/tutorial006.py"
+```python title="client.py" hl_lines="16-17 25-26 28-29"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 * identifier वही grammar मानता है जो server का, और class define होते ही validate होता है।
@@ -153,10 +166,16 @@ handler को validated params एक-एक करके, dispatch के क�
 
 ### Extension verbs {#extension-verbs}
 
-extension के अपने request methods को client-side registration की ज़रूरत नहीं। vendor request type `mcp.types.Request` को subclass करता है और `client.session.send_request` से जाता है, जैसा [अपने methods serve करना](#serving-your-own-methods) में है। एक बात और: जब किसी params key का `Mcp-Name` header में जाना ज़रूरी हो (tasks जैसे extension specs अपने verbs के लिए यह माँगते हैं), तो request type `name_param` declare करता है:
+extension के अपने request methods को client-side registration की ज़रूरत नहीं। vendor request type `mcp.types.Request` को subclass करता है और `client.session.send_request` से जाता है, जैसा [अपने methods serve करना](#serving-your-own-methods) में है। ऐसा server लें जिसका extension एक named job के बारे में एक verb serve करता है:
 
-```python title="client.py" hl_lines="22-25 46-47"
+```python title="server.py" hl_lines="12-13 30"
 --8<-- "docs_src/extensions/tutorial007.py"
+```
+
+client पर एक बात और जुड़ती है: जब किसी params key का `Mcp-Name` header में जाना ज़रूरी हो (tasks जैसे extension specs अपने verbs के लिए यह माँगते हैं), तो request type `name_param` declare करता है:
+
+```python title="client.py" hl_lines="20-23 28-29"
+--8<-- "docs_src/extensions/tutorial007_client.py"
 ```
 
 session हर send path पर `params["jobId"]` को `Mcp-Name` में mirror करता है, और value न होने पर ज़रूरी header चुपचाप छोड़ने के बजाय साफ़ तौर पर fail होता है।

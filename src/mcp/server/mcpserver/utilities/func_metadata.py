@@ -4,8 +4,7 @@ import json
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
-from types import GenericAlias
-from typing import Annotated, Any, Union, cast, get_args, get_origin
+from typing import Annotated, Any, NotRequired, Union, cast, get_args, get_origin
 
 import anyio
 import anyio.to_thread
@@ -23,7 +22,7 @@ from pydantic import (
 )
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
-from typing_extensions import NotRequired, ReadOnly, TypedDict, get_type_hints, is_typeddict
+from typing_extensions import ReadOnly, TypedDict, deprecated, get_type_hints, is_typeddict
 from typing_inspection.introspection import (
     UNKNOWN,
     AnnotationSource,
@@ -35,6 +34,7 @@ from typing_inspection.introspection import (
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 logger = get_logger(__name__)
 
@@ -62,7 +62,17 @@ def _returns_content(annotation: Any) -> bool:
     return False
 
 
-class StrictJsonSchema(GenerateJsonSchema):
+class UntitledJsonSchema(GenerateJsonSchema):
+    """A JSON schema generator that leaves out the titles pydantic derives from field names.
+
+    They only repeat the property key; titles set explicitly with `Field(title=...)` are kept.
+    """
+
+    def field_title_should_be_set(self, schema: Any) -> bool:
+        return False
+
+
+class StrictJsonSchema(UntitledJsonSchema):
     """A JSON schema generator that raises exceptions instead of emitting warnings.
 
     This is used to detect non-serializable types during schema generation.
@@ -71,6 +81,25 @@ class StrictJsonSchema(GenerateJsonSchema):
     def emit_warning(self, kind: JsonSchemaWarningKind, detail: str) -> None:
         # Raise an exception instead of emitting a warning
         raise ValueError(f"JSON schema warning: {kind} - {detail}")
+
+
+_LOCAL_DEFS_PREFIX = "#/$defs/"
+
+
+def _inline_root_ref(schema: dict[str, Any]) -> dict[str, Any]:
+    """Give a schema whose root is a bare `$ref` into `$defs` an inline root.
+
+    pydantic emits a self-referential model as `{"$defs": {...}, "$ref": "#/$defs/Model"}`, with no
+    `type` at the root; `Tool.outputSchema` needs an object root (required on the wire through
+    2025-11-25). The referenced definition is copied onto the root and `$defs` is kept, since nested
+    references still point into it. Root siblings of the `$ref` win over the definition's keys.
+    """
+    ref = schema.get("$ref")
+    if not isinstance(ref, str) or not ref.startswith(_LOCAL_DEFS_PREFIX):
+        return schema
+    definition = cast(dict[str, Any], schema["$defs"][ref.removeprefix(_LOCAL_DEFS_PREFIX)])
+    siblings = {key: value for key, value in schema.items() if key != "$ref"}
+    return {**definition, **siblings}
 
 
 class ArgModelBase(BaseModel):
@@ -94,22 +123,26 @@ class ArgModelBase(BaseModel):
 
 class FuncMetadata(BaseModel):
     """A tool function's argument model plus, for structured output, the published `output_schema` and the
-    `output_model` results are validated against. Constructing one with an `output_model` and no schema derives
-    the schema (and raises if pydantic can't); the fields are read live, so clearing or reassigning them later
+    `output_model` type annotation results are validated against. Constructing one with an `output_model` and no
+    schema derives the schema (and raises if pydantic can't); the fields are read live, so reassigning them later
     takes effect on the next call."""
 
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
     output_schema: dict[str, Any] | None = None
-    output_model: Annotated[type[Any], WithJsonSchema(None)] | None = None
+    output_model: Annotated[Any, WithJsonSchema(None)] = None
     wrap_output: bool = False
-    _adapter: tuple[type[Any], TypeAdapter[Any]] | None = PrivateAttr(default=None)
+    _adapter: tuple[Any, TypeAdapter[Any]] | None = PrivateAttr(default=None)
 
     def model_post_init(self, context: Any, /) -> None:
         if self.output_model is not None and self.output_schema is None:
             # StrictJsonSchema raises instead of warning, so an unserializable return type fails construction.
-            self.output_schema = self._output_adapter(self.output_model).json_schema(schema_generator=StrictJsonSchema)
+            schema = self._output_adapter(self.output_model).json_schema(schema_generator=StrictJsonSchema)
+            if self.wrap_output:
+                # The `{"result": ...}` wrapper is ours, so its class-name title says nothing.
+                schema.pop("title", None)
+            self.output_schema = _inline_root_ref(schema)
 
-    def _output_adapter(self, output_model: type[Any]) -> TypeAdapter[Any]:
+    def _output_adapter(self, output_model: Any) -> TypeAdapter[Any]:
         """The validator/serializer for `output_model`, built once and rebuilt only if the field is reassigned."""
         if self._adapter is None or self._adapter[0] is not output_model:
             self._adapter = (output_model, TypeAdapter(_pydantic_readable_typeddict(output_model)))
@@ -125,6 +158,28 @@ class FuncMetadata(BaseModel):
         arguments_parsed_model = self.arg_model.model_validate(arguments_pre_parsed)
         return arguments_parsed_model.model_dump_one_level()
 
+    async def call_fn(
+        self,
+        fn: Callable[..., Any | Awaitable[Any]],
+        fn_is_async: bool,
+        arguments: dict[str, Any],
+        arguments_to_pass_directly: dict[str, Any] | None = None,
+    ) -> Any:
+        """Call the function with already-validated `arguments` plus `arguments_to_pass_directly`.
+
+        `arguments` is the output of `validate_arguments`. A sync function runs on a
+        worker thread.
+        """
+        kwargs = arguments | (arguments_to_pass_directly or {})
+        if fn_is_async:
+            return await fn(**kwargs)
+        return await anyio.to_thread.run_sync(functools.partial(fn, **kwargs))
+
+    @deprecated(
+        "FuncMetadata.call_fn_with_arg_validation() is deprecated and will be removed in 3.0; "
+        "call validate_arguments() and then call_fn() instead.",
+        category=MCPDeprecationWarning,
+    )
     async def call_fn_with_arg_validation(
         self,
         fn: Callable[..., Any | Awaitable[Any]],
@@ -133,25 +188,12 @@ class FuncMetadata(BaseModel):
         arguments_to_pass_directly: dict[str, Any] | None,
         pre_validated: dict[str, Any] | None = None,
     ) -> Any:
-        """Call the given function with arguments validated and injected.
+        """Validate `arguments_to_validate` (unless `pre_validated` is given) and call the function.
 
-        Arguments are first attempted to be parsed from JSON, then validated against
-        the argument model, before being passed to the function. Pass `pre_validated`
-        (the output of `validate_arguments`) to reuse an earlier validation pass -
-        validating twice can re-run `default_factory`/stateful validators and hand the
-        function different values than a caller already observed.
+        Deprecated: call `validate_arguments` and then `call_fn`.
         """
-        # Copy so a caller-provided `pre_validated` dict is never mutated in place.
-        arguments_parsed_dict = dict(
-            pre_validated if pre_validated is not None else self.validate_arguments(arguments_to_validate)
-        )
-
-        arguments_parsed_dict |= arguments_to_pass_directly or {}
-
-        if fn_is_async:
-            return await fn(**arguments_parsed_dict)
-        else:
-            return await anyio.to_thread.run_sync(functools.partial(fn, **arguments_parsed_dict))
+        arguments = pre_validated if pre_validated is not None else self.validate_arguments(arguments_to_validate)
+        return await self.call_fn(fn, fn_is_async, arguments, arguments_to_pass_directly)
 
     def convert_result(self, result: Any) -> CallToolResult | InputRequiredResult:
         """Convert a function call result into a `CallToolResult`.
@@ -172,7 +214,7 @@ class FuncMetadata(BaseModel):
         # A schema published without a model (hand-built metadata) is advertised but not validated here.
         output_model = self.output_model if self.output_schema is not None else None
         if isinstance(result, CallToolResult):
-            if output_model is not None:
+            if output_model is not None and not result.is_error:
                 self._output_adapter(output_model).validate_python(result.structured_content)
             return result
 
@@ -224,8 +266,10 @@ class FuncMetadata(BaseModel):
             if isinstance(data_value, str) and field_info.annotation is not str:
                 try:
                     pre_parsed = json.loads(data_value)
-                except json.JSONDecodeError:
-                    continue  # Not JSON - skip
+                except (ValueError, RecursionError):
+                    # Not JSON, or JSON the parser refuses (over-long integers, deep
+                    # nesting): leave the string for validation to accept or reject.
+                    continue
                 if isinstance(pre_parsed, str | int | float):
                     # This is likely that the raw value is e.g. `"hello"` which we
                     # Should really be parsed as '"hello"' in Python - but if we parse
@@ -306,7 +350,7 @@ def func_metadata(
         field_metadata: list[Any] = []
 
         if param.annotation is inspect.Parameter.empty:
-            field_metadata.append(WithJsonSchema({"title": param.name, "type": "string"}))
+            field_metadata.append(WithJsonSchema({"type": "string"}))
         # Check if the parameter name conflicts with BaseModel attributes
         # This is necessary because Pydantic warns about shadowing parent attributes
         if hasattr(BaseModel, field_name) and callable(getattr(BaseModel, field_name)):
@@ -402,10 +446,11 @@ def func_metadata(
     else:
         original_annotation = effective_annotation
 
-    if structured_output is None and _returns_content(return_type_expr):
+    if structured_output is None and (return_type_expr in (list, tuple) or _returns_content(return_type_expr)):
         # Content blocks and the Image/Audio helpers are what the model reads, not data for the
         # application: a derived schema would advertise the block's own model as output_schema (and,
         # unless the tool builds its own CallToolResult, echo every block into structured_content).
+        # A bare list/tuple says nothing about its items, so it may hold blocks too.
         # structured_output=True still forces one.
         return FuncMetadata(arg_model=arguments_model)
 
@@ -445,7 +490,7 @@ def func_metadata(
     return FuncMetadata(arg_model=arguments_model)
 
 
-def _create_output_model(original_annotation: Any, type_expr: Any, func_name: str) -> tuple[type[Any] | None, bool]:
+def _create_output_model(original_annotation: Any, type_expr: Any, func_name: str) -> tuple[Any, bool]:
     """Pick the type structured output is validated against for the given return annotation.
 
     Args:
@@ -459,7 +504,7 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         Model is None if the type cannot carry structured output.
         wrap_output is True if the result needs to be wrapped in {"result": ...}
     """
-    model: type[Any] | None = None
+    model: Any = None
     wrap_output = False
 
     # First handle special case: None
@@ -467,17 +512,14 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         model = _create_wrapped_model(func_name, original_annotation)
         wrap_output = True
 
-    # Handle GenericAlias types (list[str], dict[str, int], Union[str, int], etc.)
-    elif isinstance(type_expr, GenericAlias):
-        origin = get_origin(type_expr)
-
-        # Special case: dict with string keys can use RootModel
+    # Handle parameterized generics (list[str], typing.Dict[str, int], Union[str, int], etc.)
+    elif (origin := get_origin(type_expr)) is not None:
         if origin is dict:
             args = get_args(type_expr)
             if len(args) == 2 and args[0] is str:
                 # TODO: should we use the original annotation? We are losing any potential `Annotated`
                 # metadata for Pydantic here:
-                model = _create_dict_model(func_name, type_expr)
+                model = type_expr
             else:
                 # dict with non-str keys needs wrapping
                 model = _create_wrapped_model(func_name, original_annotation)
@@ -499,12 +541,16 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         elif is_typeddict(type_annotation):
             model = type_annotation
 
-        # Case 3: Primitive types that need wrapping
-        elif type_annotation in (str, int, float, bool, bytes, type(None)):
+        # Case 3: A bare dict is a JSON object already, like dict[str, Any]
+        elif type_annotation is dict:
+            model = dict[str, Any]
+
+        # Case 4: Primitive types and bare collections that need wrapping
+        elif type_annotation in (str, int, float, bool, bytes, type(None), list, tuple, set, frozenset):
             model = _create_wrapped_model(func_name, original_annotation)
             wrap_output = True
 
-        # Case 4: Other class types (dataclasses, regular classes with annotations)
+        # Case 5: Other class types (dataclasses, regular classes with annotations)
         else:
             type_hints = get_type_hints(type_annotation)
             if type_hints:
@@ -514,8 +560,6 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
 
     # Handle any other types not covered above
     else:
-        # This includes typing constructs that aren't GenericAlias in Python 3.10
-        # (e.g., Union, Optional in some Python versions)
         model = _create_wrapped_model(func_name, original_annotation)
         wrap_output = True
 
@@ -588,21 +632,6 @@ def _create_wrapped_model(func_name: str, annotation: Any) -> type[BaseModel]:
     model_name = f"{func_name}Output"
 
     return create_model(model_name, result=annotation)
-
-
-def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
-    """Create a RootModel for dict[str, T] types."""
-    # TODO(Marcelo): We should not rely on RootModel for this.
-    from pydantic import RootModel  # noqa: TID251
-
-    class DictModel(RootModel[dict_annotation]):
-        pass
-
-    # Give it a meaningful name
-    DictModel.__name__ = f"{func_name}DictOutput"
-    DictModel.__qualname__ = f"{func_name}DictOutput"
-
-    return DictModel
 
 
 def _convert_to_content(result: Any) -> list[ContentBlock]:

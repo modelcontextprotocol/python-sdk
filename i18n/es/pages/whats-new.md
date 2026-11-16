@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 11d93f1fa09eadf5, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, bd42ee3a268f6ea4, 875eb2889263424e]
   tool: 1
 ---
 # Novedades de la v2 {#whats-new-in-v2}
@@ -43,13 +43,13 @@ No todo lo que una herramienta necesita debería venir del modelo. Novedad de la
 
 La v1 te entregaba tres capas anidadas: un gestor de contexto de transporte que producía flujos en crudo, una `ClientSession` envolviéndolos y un `await session.initialize()` llamado a mano. La v2 tiene un solo objeto:
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client` acepta un objeto servidor (en memoria, sin transporte: la historia de las pruebas), una URL (Streamable HTTP) o cualquier gestor de contexto de transporte como `stdio_client(...)`. Entrar en `async with` conecta y negocia la versión del protocolo, sea cual sea la generación que hable el servidor; `client.server_capabilities` y `client.protocol_version` simplemente están ahí después, y `client.server_info` también cuando el servidor se identifica (ahora es `Implementation | None`, porque la identidad en la generación 2026 es opcional). Los callbacks de muestreo y elicitación que registraste en la v1 siguen funcionando (sus cuerpos ven el mismo renombramiento de atributos a snake_case que todo lo demás en esta página), ahora también responden a las solicitudes dentro de resultados al estilo 2026 (más abajo) y se ejecutan concurrentemente en lugar de una a una. `ClientSession` sigue debajo para quien quiera la superficie de bajo nivel, y `client.session` te la entrega; también cambió (corre sobre el nuevo motor de despacho, y algunas de sus propias firmas cambiaron), así que lee la **[Guía de migración](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** antes de bajar a ese nivel.
+`Client` acepta una URL (Streamable HTTP), un `StdioServerParameters` (un subproceso stdio), cualquier otro gestor de contexto de transporte como `sse_client(...)` o, en las pruebas, el propio objeto servidor (en memoria, sin transporte). Entrar en `async with` conecta y negocia la versión del protocolo, sea cual sea la generación que hable el servidor; `client.server_capabilities` y `client.protocol_version` simplemente están ahí después, y `client.server_info` también cuando el servidor se identifica (ahora es `Implementation | None`, porque la identidad en la generación 2026 es opcional). Los callbacks de muestreo y elicitación que registraste en la v1 siguen funcionando (sus cuerpos ven el mismo renombramiento de atributos a snake_case que todo lo demás en esta página), ahora también responden a las solicitudes dentro de resultados al estilo 2026 (más abajo) y se ejecutan concurrentemente en lugar de una a una. `ClientSession` sigue debajo para quien quiera la superficie de bajo nivel, y `client.session` te la entrega; también cambió (se ejecuta sobre el nuevo motor de despacho, y algunas de sus propias firmas cambiaron), así que lee la **[Guía de migración](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** antes de bajar a ese nivel.
 
-**[El Client](client/index.md)** lo presenta, **[Transportes del cliente](client/transports.md)** cubre las tres formas de conexión, **[Callbacks del cliente](client/callbacks.md)** cubre los callbacks en sí y **[Pruebas](get-started/testing.md)** muestra el patrón en memoria que sustituye al helper `create_connected_server_and_client_session()` de la v1.
+**[El Client](client/index.md)** lo presenta, **[Transportes del cliente](client/transports.md)** cubre las cuatro formas de conexión, **[Callbacks del cliente](client/callbacks.md)** cubre los callbacks en sí y **[Pruebas](get-started/testing.md)** muestra el patrón en memoria que sustituye al helper `create_connected_server_and_client_session()` de la v1.
 
 ### El `Server` de bajo nivel se reconstruyó, no se renombró {#the-low-level-server-was-rebuilt-not-renamed}
 
@@ -135,7 +135,7 @@ En esos tipos, cada atributo de Python es ahora snake_case: `result.is_error`, `
 Los renombramientos se anuncian solos. Estos no:
 
 * **Las funciones síncronas se ejecutan en un hilo de trabajo.** Una herramienta `def` (o recurso, prompt o resolutor) ya no bloquea el bucle de eventos; la contrapartida es que su cuerpo ya no se ejecuta *en* el hilo del bucle de eventos, lo que importa para código afín a un hilo. Los handlers `async def` no cambian. **[Guía de migración](migration.md#sync-handler-functions-now-run-on-a-worker-thread)**.
-* **`MCPError` (el `McpError` de la v1) lanzado dentro de una herramienta es ahora un error de protocolo.** El modelo nunca lo ve. Cualquier otra excepción sigue convirtiéndose en un resultado `is_error=True` que el modelo puede leer y al que puede reaccionar. **[Manejo de errores](servers/handling-errors.md)** explica la división.
+* **`MCPError` (el `McpError` de la v1) lanzado dentro de una herramienta es ahora un error de protocolo.** El modelo nunca lo ve. Cualquier otra excepción sigue convirtiéndose en un resultado `is_error=True`, pero solo el mensaje de un `ToolError` llega al modelo: cualquier otra excepción se lee ahora como `Error executing tool <name>`, con el traceback en el log de tu servidor. **[Manejo de errores](servers/handling-errors.md)** explica la división.
 * **Los resultados se validan antes de salir.** Un `Tool` construido a mano cuyo `input_schema` sea `{}` ahora falla en `tools/list` (la especificación exige `"type": "object"`). Los servidores construidos sobre `@mcp.tool()` nunca ven esto; el SDK escribe sus esquemas.
 * **Tu cliente valida lo que recibe.** `list_tools()` y `call_tool()` comprueban la respuesta del servidor contra la versión del protocolo negociada, así que un servidor no del todo válido que el análisis permisivo de la v1 toleraba ahora lanza `pydantic.ValidationError`. Si te conectas a servidores que no controlas, cuenta con ser tú quien los descubra; la **[Guía de migración](migration.md#client-validates-inbound-traffic-against-the-protocol-schema)** tiene los detalles.
 * **Las plantillas de URI son ahora RFC 6570 de verdad.** `{+path}`, `{?query}` y compañía funcionan, la coincidencia es exacta en lugar de laxa por regex, y el path traversal en los valores extraídos se rechaza por defecto. Las plantillas más estrictas fallan al decorar, no en la primera solicitud. **[Plantillas de URI](servers/uri-templates.md)**.
@@ -168,15 +168,19 @@ Sobre Streamable HTTP no hay `Mcp-Session-Id` en el camino 2026, y ese es el tit
 
 ### El servidor no puede llamar al cliente: solicitudes de varias idas y vueltas {#the-server-cannot-call-the-client-multi-round-trip-requests}
 
-Toda solicitud iniciada por el servidor desaparece en 2026-07-28: elicitación por push, muestreo, `roots/list`. En una conexión 2026 no hay canal para ellas, así que `ctx.elicit()` y `ctx.session.create_message()` fallan ahí con `NoBackChannelError`, porque no hay canal de retorno (back-channel) (siguen funcionando para clientes heredados).
+Toda solicitud iniciada por el servidor desaparece en 2026-07-28: elicitación por push, muestreo, `roots/list`. En una conexión 2026 no hay canal para ellas, así que `ctx.elicit()` y `ctx.session.create_message()` fallan ahí con `NoBackChannelError` (siguen funcionando para clientes heredados).
 
 El reemplazo le da la vuelta a la llamada. Una herramienta que necesita algo del usuario *devuelve* la pregunta (`InputRequiredResult`), el cliente la responde con los mismos callbacks que siempre tuvo, y la llamada se reintenta con las respuestas adjuntas. `Client` dirige ese bucle por ti. En el servidor rara vez construyes tú el resultado, porque lo hace una **[dependencia](handlers/dependencies.md)**: anota un parámetro con `Resolve(ask_quantity)`, donde `ask_quantity` es una función ordinaria que escribes tú, y el SDK pregunta por el mecanismo que la conexión admita, una solicitud de elicitación en vivo en una sesión heredada o una solicitud de varias idas y vueltas en 2026. Un solo cuerpo de herramienta, ambas generaciones:
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-Ese archivo es la propuesta en un solo lugar: un servidor, una herramienta respaldada por `Resolve`, y un cliente heredado más un cliente moderno recibiendo ambos su respuesta, en memoria. **[Solicitudes de varias idas y vueltas](handlers/multi-round-trip.md)** explica el mecanismo (incluido `request_state`, que el SDK sella y verifica por ti); **[Elicitación](handlers/elicitation.md)** cubre cómo preguntar.
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+Esos dos archivos son toda la propuesta: un servidor, una herramienta respaldada por `Resolve`, y un cliente heredado más un cliente moderno recibiendo ambos su respuesta del mismo servidor en ejecución (**[Atender clientes heredados](run/legacy-clients.md)** los recorre). **[Solicitudes de varias idas y vueltas](handlers/multi-round-trip.md)** explica el mecanismo (incluido `request_state`, que el SDK sella y verifica por ti); **[Elicitación](handlers/elicitation.md)** cubre cómo preguntar.
 
 !!! warning "Este es el único lugar donde un servidor v1 portado cambia de comportamiento"
     Tus propias pruebas se lo encuentran primero: `Client(mcp)` negocia 2026-07-28 contra tu
@@ -187,7 +191,7 @@ Ese archivo es la propuesta en un solo lugar: un servidor, una herramienta respa
 
 ### Roots, muestreo y logging del protocolo quedan obsoletos; `ping` se elimina {#roots-sampling-and-protocol-logging-are-deprecated-ping-is-removed}
 
-[SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) declara obsoletas tres *capacidades* enteras, en todas las versiones del protocolo: roots, muestreo y logging a nivel MCP (`ctx.info()` y compañía). Es un eje distinto del canal de retorno ausente de arriba; obsoleto es solo un aviso, todo sigue funcionando contra sesiones de la generación 2025 y nada cambia en lo que se transmite. Lo que notas es `MCPDeprecationWarning`, que es un `UserWarning`, así que se imprime por defecto; cuenta con que tu primer `ctx.info(...)` tras la actualización lo diga.
+[SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) declara obsoletas tres *capacidades* enteras, en todas las versiones del protocolo: roots, muestreo y logging a nivel MCP (`ctx.info()` y compañía). Es un eje distinto del canal de retorno (back-channel) ausente de arriba; obsoleto es solo un aviso, todo sigue funcionando contra sesiones de la generación 2025 y nada cambia en lo que se transmite. Lo que notas es `MCPDeprecationWarning`, que es un `UserWarning`, así que se imprime por defecto; cuenta con que tu primer `ctx.info(...)` tras la actualización lo diga.
 
 `ping` es más estricto: eliminado del protocolo, no obsoleto. Dos de los métodos independientes de las funcionalidades obsoletas se eliminan en 2026-07-28 del mismo modo, `logging/setLevel` y el `notifications/roots/list_changed` del cliente, y las notificaciones de progreso son ahora solo de servidor a cliente.
 
@@ -202,7 +206,7 @@ En 2026-07-28 el flujo HTTP GET independiente y `resources/subscribe` se sustitu
 ### El resto, rápido {#the-rest-quickly}
 
 * **La identidad es opcional, metadatos por mensaje.** La clave `clientInfo` de `_meta` del lado de la solicitud es opcional (el par obligatorio es `protocolVersion` + `clientCapabilities`), y `serverInfo` salió del cuerpo del resultado de `server/discover`: los servidores la estampan en el `_meta` de cada resultado de la generación 2026 en su lugar ([spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). El SDK siempre la estampa; `client.server_info` es `None` cuando un servidor no se identifica (por ejemplo, un middleware quitó la clave). **[El Server de bajo nivel](advanced/low-level-server.md)** muestra la marca en lo que se transmite.
-* **Las solicitudes se pueden enrutar sin analizar cuerpos.** Las solicitudes HTTP modernas llevan `Mcp-Method` (y, para las tres llamadas de tipo herramienta, `Mcp-Name`); una propiedad del esquema de entrada de una herramienta anotada con `x-mcp-header` se refleja en una cabecera `Mcp-Param-*` y el servidor la contrasta ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Las pasarelas y los limitadores de tasa pueden enrutar solo con cabeceras; la **[Guía de migración](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)** tiene las reglas.
+* **Las solicitudes se pueden enrutar sin analizar cuerpos.** Las solicitudes HTTP modernas llevan `Mcp-Method` (y, para las tres llamadas de tipo herramienta, `Mcp-Name`); una propiedad del esquema de entrada de una herramienta anotada con `x-mcp-header` se refleja en una cabecera `Mcp-Param-*` y el servidor la contrasta ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Las pasarelas y los limitadores de tasa pueden enrutar solo con cabeceras. **[Parámetros de cabecera](advanced/header-parameters.md)** muestra cómo marcar un argumento.
 * **Los resultados llevan indicaciones de caché.** Los resultados de listado y lectura declaran `ttlMs` y `cacheScope` ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)); los fijas por método con `cache_hints=`, y `Client` los respeta con una caché de respuestas integrada. Un servidor que no envía indicaciones (todo servidor anterior a 2026) ve un tráfico idéntico, sin caché. **[Indicaciones de caché](client/caching.md)**.
 * **Las extensiones son de primera clase.** Servidores y clientes declaran paquetes de capacidades opcionales bajo identificadores DNS inversos ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)); la extensión integrada `Apps` (MCP Apps) es la referencia. **[Extensiones](advanced/extensions.md)** y **[MCP Apps](advanced/apps.md)**.
 * **Los códigos de error se estandarizaron.** Un recurso inexistente es `-32602` con la URI en `error.data`, y los nuevos códigos reservados por la especificación aparecen como `-32020` (cabecera no coincidente), `-32021` (falta una capacidad obligatoria) y `-32022` (versión de protocolo no admitida). **[Solución de problemas](troubleshooting.md)** está indexada por los mensajes exactos.

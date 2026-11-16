@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
+  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 25b49f89c9e6f9d0, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
   tool: 1
 ---
 # Elicitación {#elicitation}
@@ -90,7 +90,8 @@ Ese esquema es el formulario. `Field(description=...)` es la etiqueta; un valor 
     Un esquema de elicitación no es tan expresivo como el esquema de entrada de una herramienta.
     Solo campos planos y primitivos: `str`, `int`, `float`, `bool` o un `Literal` de cadenas (se
     convierte en un `enum`). Pon un modelo dentro del modelo y `ctx.elicit` lanza una excepción
-    antes de que se envíe nada al cliente:
+    antes de que se envíe nada al cliente. La llamada a la herramienta falla con
+    `Error executing tool <name>`, y el log de tu servidor tiene el motivo:
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -113,8 +114,8 @@ Una negativa no es un error. La herramienta decide qué significa rechazar (aqu�
 
 !!! tip
     La respuesta se valida contra tu modelo antes de que tu código la vea. Un cliente que envía
-    `"maybe"` para un `bool` no corrompe tu reserva: la llamada falla con un error de
-    discrepancia de esquema y tu `if` nunca se ejecuta.
+    `"maybe"` para un `bool` no corrompe tu reserva: `ctx.elicit` lanza `ValueError`, la llamada
+    falla y tu `if` nunca se ejecuta.
 
 ## Enviar al usuario a una URL {#send-the-user-to-a-url}
 

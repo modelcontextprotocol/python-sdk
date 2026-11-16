@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 7a53ead3e704a7f0, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 9fd2357154a5b7e7, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # Sunucunuzu çalıştırma {#running-your-server}
@@ -72,9 +72,14 @@ Her aktarımın kendi anahtar sözcük argümanları vardır ve hepsi `run()` ü
 * `streamable_http_path`: MCP endpoint'inin bulunduğu yol. Varsayılan `/mcp`.
 * `json_response=True`: her POST'a SSE akışı yerine tek bir JSON gövdesiyle yanıt verir. Bu gövdede yanıttan başka hiçbir şeye yer yoktur; bu yüzden istek sırasında istemciye geri çağrı yapan bir araç (`ctx.elicit()`, örnekleme (sampling)) bu ayakta `NoBackChannelError` fırlatır ve sürmekte olan çağrıya bağlı bildirimler (`ctx.report_progress()` ile bildirilen ilerleme, çağrıya özel log mesajları) düşürülür; bağımsız `GET` akışı ilgisiz olanları taşımaya devam eder.
 * `stateless_http=True`: istek başına yeni bir aktarım, oturum takibi yok.
-* `max_request_body_size`: bayt cinsinden kabul edilen en büyük POST gövdesi. Varsayılan olarak 4 MiB;
+* `max_request_body_size`: bayt cinsinden kabul edilen en büyük istek gövdesi. Varsayılan olarak 4 MiB;
   daha büyük istekler, ayrıştırma veya oturum oluşturma öncesinde HTTP 413 alır. Bunu yalnızca meşru
   MCP mesajları bu boyutu aştığında yükseltin.
+* `session_idle_timeout`: eski nesil bir oturumun, sunucu onu kapatmadan önce sürmekte olan hiçbir şey
+  olmadan bekleyebileceği saniye sayısı. Varsayılan 1800. `None` bunu devre dışı bırakır. Bkz.
+  [Oturum ömrü ve sınırlar](legacy-clients.md#session-lifetime-and-limits).
+* `max_sessions`: bir sürecin aynı anda kaç eski nesil oturum tuttuğu. Varsayılan 10 000. `None`
+  sınırı kaldırır. Aynı bölümde ele alınır.
 * `event_store`, `retry_interval`, `transport_security`: kaldığı yerden devam edebilme ve DNS rebinding koruması. localhost dışında bir yere dağıtım yapana kadar bekleyebilirler; `transport_security` konusunu **[Dağıtım ve ölçekleme](deploy.md)** ele alır.
 
 !!! warning

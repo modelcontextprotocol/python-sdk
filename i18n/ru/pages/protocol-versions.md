@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [478fd619e5f90ef8, aef094a00e44e248, bab8cbf3449fa7e9, df1809b15a58335b, 5f9d8c2336ed0239, f54974398e43ddef, b24443dd78584870]
+  sections: [d98e337bf28845e0, dd642acbba36f615, f547b3e76da19c94, 149513378588da5c, 4e149ed992046709, f54974398e43ddef, b24443dd78584870]
   tool: 1
 ---
 # Версии протокола {#protocol-versions}
@@ -11,9 +11,17 @@ translation:
 
 Заботиться об этом почти никогда не приходится: `Client` договаривается за вас. Эта страница — об одном аргументе конструктора, который этим управляет, `mode=`, и о трёх случаях, когда его меняют.
 
+Каждый фрагмент на этой странице — это `client.py`, который общается с сервером Bookshop `server.py` со страницы **[Клиент](client/index.md)**. Запустите этот сервер в одном терминале:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+Затем запускайте каждый фрагмент во втором терминале командой `python client.py`.
+
 ## `mode="auto"` {#modeauto}
 
-```python title="client.py" hl_lines="14-15"
+```python title="client.py" hl_lines="7-8"
 --8<-- "docs_src/protocol_versions/tutorial001.py"
 ```
 
@@ -31,13 +39,14 @@ translation:
 Вот и вся механика. Один `Client`, сервер любого поколения, никаких ветвлений в коде.
 
 !!! info
-    `MCPServer` отвечает на `server/discover` на любом транспорте — в памяти, stdio, Streamable
-    HTTP, — поэтому с собственным сервером `auto` всегда приходит к `2026-07-28`. Откат
-    срабатывает только с настоящим сервером до 2026 года — ровно тогда, когда он и нужен.
+    `MCPServer` отвечает на `server/discover` на любом транспорте — Streamable HTTP, stdio и
+    внутрипроцессном подключении, которое используют ваши тесты, — поэтому с собственным сервером
+    `auto` всегда приходит к `2026-07-28`. Откат срабатывает только с настоящим сервером до
+    2026 года — ровно тогда, когда он и нужен.
 
 ## `mode="legacy"` {#modelegacy}
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial002.py"
 ```
 
@@ -61,7 +70,7 @@ translation:
 
 `mode` принимает и строку современной версии протокола. Сегодня это множество ровно `["2026-07-28"]`.
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial003.py"
 ```
 
@@ -94,7 +103,7 @@ ValueError: mode must be 'legacy', 'auto', or one of ['2026-07-28']; got '2025-0
 
 Так что сохраните его. После подключения в режиме `auto` в `client.session.discover_result` лежит ровно тот `DiscoverResult`, который прислал сервер: его `supported_versions`, `capabilities`, `instructions` и идентификационные данные, которые сервер записал в `_meta` результата. В следующий раз передайте его обратно как `prior_discover=`:
 
-```python title="client.py" hl_lines="15 17"
+```python title="client.py" hl_lines="8 10"
 --8<-- "docs_src/protocol_versions/tutorial004.py"
 ```
 

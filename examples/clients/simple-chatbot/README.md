@@ -4,7 +4,7 @@ This example demonstrates how to integrate the Model Context Protocol (MCP) into
 
 ## Requirements
 
-- Python 3.10
+- Python 3.11
 - `python-dotenv`
 - `requests`
 - `mcp`

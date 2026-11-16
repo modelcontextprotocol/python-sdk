@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 70b9ece244ca1b0c, cba78e052898c3f6, f06bdb541cb0b469, fb82d526320b7cc3]
+  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 10394c6f16601638, cba78e052898c3f6, f06bdb541cb0b469, 6dc898ccc5a903f9]
   tool: 1
 ---
 # Añadir a una app existente {#add-to-an-existing-app}
@@ -100,7 +100,7 @@ Ese `/mcp` final es `streamable_http_path`. Ponlo en `"/"` y el prefijo de monta
 --8<-- "docs_src/asgi/tutorial004.py"
 ```
 
-Ahora los clientes se conectan a `/notes`, no a `/notes/mcp`.
+Ahora los clientes se conectan a `/notes/`, no a `/notes/mcp`.
 
 ## CORS para clientes de navegador {#cors-for-browser-clients}
 
@@ -143,4 +143,4 @@ Un cliente basado en navegador necesita dos permisos de tu parte: **enviar** sus
 * Los clientes de navegador necesitan CORS: `allow_headers` para los encabezados de solicitud `Mcp-*`, `expose_headers=["Mcp-Session-Id"]` para la respuesta.
 * `@mcp.custom_route()` añade endpoints HTTP simples, sin autenticación, junto a `/mcp`.
 
-Una vez que el servidor es accesible en una URL real, **[El cliente](../client/index.md)** se conecta a él con esa URL en lugar de con un objeto servidor.
+Una vez que el servidor es accesible en una URL real, **[El cliente](../client/index.md)** se conecta a él con esa URL.

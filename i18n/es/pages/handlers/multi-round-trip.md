@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, 8dd027377d46448b, f81491125dcbfe8b]
+  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, b47667184ca5b516, f81491125dcbfe8b]
   tool: 1
 ---
 # Solicitudes de varias idas y vueltas {#multi-round-trip-requests}
@@ -164,7 +164,7 @@ El `Server` de bajo nivel es el nivel sin pilas incluidas: a diferencia de `MCPS
 
 ## Un resultado de 2026-07-28 {#a-2026-07-28-result}
 
-`InputRequiredResult` solo existe en la versión del protocolo **2026-07-28**. El `Client(server)` en memoria la negocia por ti; a través del canal, `mode="auto"` la descubre. Tras conectar, `client.protocol_version` te dice qué obtuviste.
+`InputRequiredResult` solo existe en la versión del protocolo **2026-07-28**. El `mode="auto"` por defecto de `Client` la descubre en cualquier conexión. Tras conectar, `client.protocol_version` te dice qué obtuviste.
 
 !!! warning
     Una sesión anterior a 2026 no tiene dónde poner un `InputRequiredResult`. Devuelve uno desde tu

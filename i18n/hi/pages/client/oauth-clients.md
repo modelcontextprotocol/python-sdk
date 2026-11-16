@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, 63878d29e87c3e73, 13175843d3588af4, e7e2b9fd516f77de, 758f06399b513c1f, a05d7278487d610b]
+  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, c2dae1ebe2ebd543, 13175843d3588af4, df06056fb16b3846, 758f06399b513c1f, a05d7278487d610b]
   tool: 1
 ---
 # OAuth clients {#oauth-clients}
@@ -81,18 +81,20 @@ authorization code flow को इंसान की ज़रूरत ठी�
 
 जब `Client` पहली बार request भेजता है, server `401` लौटाता है। provider कमान संभाल लेता है:
 
-1. **Discovery.** यह `WWW-Authenticate` header पढ़ता है, `/.well-known/oauth-protected-resource` से server का Protected Resource Metadata लाता है, पता करता है कि कौन सा authorization server इस resource की रक्षा करता है, और **उस** server का metadata लाता है।
+1. **Discovery.** यह `WWW-Authenticate` header पढ़ता है, `/.well-known/oauth-protected-resource` से server का Protected Resource Metadata लाता है, पता करता है कि कौन सा authorization server इस resource की रक्षा करता है, और **उस** server का metadata लाता है। (कोई पुराना server जो resource metadata publish नहीं करता, उससे इसके बजाय उसके अपने origin पर authorization server metadata माँगा जाता है।) दोनों ही सूरतों में metadata को अपने `issuer` के रूप में उसी server का नाम देना होगा जिसके लिए उसे लाया गया था; इसके अलावा कुछ भी हो तो मना कर दिया जाता है।
 2. **Registration.** storage में कुछ नहीं है? यह आपके `OAuthClientMetadata` के साथ आपको dynamically register करता है और नतीजा store कर लेता है।
 3. **Authorization.** यह PKCE pair और `state` बनाता है, authorization URL तैयार करता है, आपके `redirect_handler` को await करता है, फिर code के लिए आपके `callback_handler` को await करता है।
 4. **Exchange.** यह code के बदले `OAuthToken` लेता है, उसे store करता है, और आपकी मूल request को `Authorization: Bearer ...` के साथ दोबारा भेजता है।
 
 उसके बाद यह शांत रहता है। tokens storage से आते हैं, expire हुआ access token refresh token से refresh हो जाता है, और सिर्फ़ तब जब इनमें से कुछ काम नहीं करता, यह flow फिर से चलाता है।
 
+इन सभी requests पर transport का एक नियम लागू होता है: जिस MCP request के अंदर ये चलती हैं उसी की तरह, ये किसी redirect को सिर्फ़ तभी follow करती हैं जब वह उसी origin पर रहे और method वही रखे (जैसे trailing-slash वाला 307/308), और किसी भी दूसरे redirect को ऐसे मानती हैं जैसे उस URL ने जवाब ही नहीं दिया।
+
 आपने इसमें से कुछ नहीं लिखा। दो keyword arguments बचते हैं (`client_metadata_url` और `validate_resource_url`), और इस file को दोनों में से किसी की ज़रूरत नहीं। `client_metadata_url` जानने लायक है; इसका अपना section नीचे है।
 
 ### इसे आज़माएँ {#try-it}
 
-इन docs के ज़्यादातर उदाहरण आप in-memory `Client(server)` से जाँच सकते हैं। यह नहीं: इस flow का पूरा मतलब ही HTTP `401` है, और in-memory client व उसके server के बीच कोई HTTP होता ही नहीं।
+in-memory `Client(server)`, जिसे आपके tests इस्तेमाल करते हैं, यहाँ किसी काम का नहीं: इस flow का पूरा मतलब ही HTTP `401` है, और in-memory client व उसके server के बीच कोई HTTP होता ही नहीं।
 
 repository में live version मौजूद है। `examples/servers/simple-auth/` एक standalone authorization server और एक protected MCP server चलाता है; `examples/clients/simple-auth-client/` इसी page का client है, छोटी CLI में बढ़ा हुआ। उसकी README में दो commands हैं: servers शुरू करें, client को उनके सामने चलाएँ, और चारों चरण अपनी आँखों के सामने होते देखें।
 
@@ -110,13 +112,14 @@ URL HTTPS होना चाहिए और उसका path root न हो;
 
 `ClientCredentialsOAuthProvider` वही `httpx2.Auth` है, बस इंसान के बिना:
 
-```python title="client.py" hl_lines="4 27-33"
+```python title="client.py" hl_lines="4 27-34"
 --8<-- "docs_src/oauth_clients/tutorial002.py"
 ```
 
 क्या बदला:
 
 * न `OAuthClientMetadata`, न handlers। आप `client_id` और `client_secret` देते हैं; provider उनके इर्द-गिर्द एक न्यूनतम `client_credentials` registration बनाता है और dynamic registration पूरी तरह छोड़ देता है।
+* `issuer` उस authorization server का नाम बताता है जिसने वे credentials जारी किए; वही `issuer` value इस्तेमाल करें जो उसका `/.well-known/oauth-authorization-server` document लौटाता है। discovery अब भी ऊपर बताए तरीके से चलती है, लेकिन token requests हमेशा सिर्फ़ **उसी** issuer के metadata से बनती हैं; अगर MCP server कहीं और इशारा करता है, तो flow इसके बजाय `OAuthFlowError` के साथ रुक जाता है। इसे छोड़ देना deprecated है और 3.0 में यह ज़रूरी हो जाएगा (**[Deprecated features](../deprecated.md#deprecated-sdk-helpers)** देखें); तब तक provider warning देता है और discovery को जो भी authorization server मिलता है, उसे इस्तेमाल करता है।
 * `scope` space से अलग की गई string है, OAuth का wire format।
 * आगे का सब कुछ बिल्कुल वही है: वही `TokenStorage`, वही `httpx2.AsyncClient(auth=...)`, वही `streamable_http_client`।
 
@@ -129,7 +132,7 @@ default रूप से secret token request पर HTTP Basic auth के र�
     एक और provider `mcp.client.auth.extensions.client_credentials` में रहता है:
     **`PrivateKeyJWTOAuthProvider`**, उन clients के लिए जो shared secret के बजाय JWT से
     authenticate करते हैं (`private_key_jwt`, key-pair और workload-identity वाला रूप)। यह उसी
-    pattern पर चलता है: एक बनाएँ, `auth=` पर लगाएँ। उसी module में
+    pattern पर चलता है: एक बनाएँ (यह भी वही optional `issuer` लेता है), `auth=` पर लगाएँ। उसी module में
     `SignedJWTParameters` और `static_assertion_provider` भी हैं, दो helpers जो इसका assertion बनाते हैं।
 
 बिना इंसान वाली एक और स्थिति है: client किसी enterprise का है जिसका identity provider, न कि user, तय करता है कि वह किन MCP servers तक पहुँच सकता है। वह अलग grant है, अपने trust model और अपने page के साथ, **[Identity assertion](identity-assertion.md)**।

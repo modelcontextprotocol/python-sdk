@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a9aba7a026c7bd85, ed32bda7ba9ae33a, 7e64cc5646abb91f, 22a0129ee78b3c63, d875373c06d8d2f9]
+  sections: [a9aba7a026c7bd85, 83e2a08b9d46a398, 9fd8a0aa384b3257, 22a0129ee78b3c63, d875373c06d8d2f9]
   tool: 1
 ---
 # Paginierung {#pagination}
@@ -19,21 +19,25 @@ Paginierung ist für den Server gedacht, dessen Ressourcenliste in Wahrheit eine
 --8<-- "docs_src/pagination/tutorial001.py"
 ```
 
-* Auf einem Low-Level-`Server` sind Handler Konstruktorargumente, keine Dekoratoren. `on_list_resources` beantwortet jeden `resources/list`-Request; mehr Verkabelung gibt es nicht.
-* Jeder paginierte Handler ist als `params: PaginatedRequestParams | None` typisiert, und das Beispiel akzeptiert beides. Über eine Verbindung übergibt dir das SDK jedoch nie `None` (ein Request ohne `params`-Member erreicht den Handler als Modell mit seinen Standardwerten). Das Signal, auf das es ankommt, ist daher `params.cursor is None`: **von vorne beginnen**.
+* Auf einem Low-Level-`Server` sind Handler Konstruktorargumente, keine Dekoratoren. `on_list_resources` beantwortet jeden `resources/list`-Request; das ist schon die ganze Anbindung.
+* Jeder paginierte Handler ist als `params: PaginatedRequestParams | None` typisiert, und das Beispiel akzeptiert beides. Über eine Verbindung übergibt dir das SDK allerdings nie `None` (ein Request ohne `params`-Member erreicht den Handler als Modell mit seinen Standardwerten). Das Signal, auf das es ankommt, ist daher `params.cursor is None`: **von vorne beginnen**.
 * Du entscheidest, was ein Cursor *ist*. Hier ist es ein Offset, als String dargestellt. Ein Zeitstempel, ein Primärschlüssel, ein Base64-Blob: alles, was du beim Herausgeben erzeugen und beim Zurückkommen wiedererkennen kannst.
 * Mit `next_cursor=None` sagst du „das war die letzte Seite“. Es gibt keine Anzahl, keine Gesamtsumme, kein `has_more`. `None` ist das ganze Signal.
 
 !!! tip
     Eine `PAGE_SIZE` von 10 macht das Beispiel lesbar. Wähle deine pro Endpunkt: Eine Liste
-    einzeiliger Ressourcen verträgt eine Seite mit 500 Einträgen; eine Liste fetter Prompt-Templates nicht.
+    einzeiliger Ressourcen verträgt eine Seite mit 500 Einträgen; eine Liste üppiger Prompt-Templates nicht.
     Der Client hat dabei nichts mitzureden, und das ist Absicht.
 
 ### Ausprobieren {#try-it}
 
-`Client(server)` verbindet sich im Speicher mit einem Low-Level-`Server` genau so, wie er sich mit einem `MCPServer` verbindet.
+`mcp run` akzeptiert nur einen `MCPServer`, diesen hier stellst du also selbst bereit. Die letzte Zeile von `server.py` baut aus dem `Server` eine gewöhnliche ASGI-App, und uvicorn führt sie aus:
 
-Rufe `list_resources()` ohne Argumente auf. Du bekommst zehn Ressourcen, `book-1` bis `book-10`, und `next_cursor` ist der String `"10"`.
+```console
+uvicorn server:app --port 8000
+```
+
+Richte einen beliebigen Client (**[Der Client](../client/index.md)** oder den Inspector) auf `http://localhost:8000/mcp` und rufe `list_resources()` ohne Argumente auf. Du bekommst zehn Ressourcen, `book-1` bis `book-10`, und `next_cursor` ist der String `"10"`.
 
 Gib ihn mit `list_resources(cursor="10")` zurück, und die erste Ressource ist `book-11`, der neue `next_cursor` ist `"20"`.
 
@@ -43,7 +47,7 @@ Die zehnte Seite kommt mit `next_cursor` auf `None` zurück. Fertig.
 
 Jede `list_*`-Methode auf `Client` (`list_tools`, `list_resources`, `list_resource_templates`, `list_prompts`) nimmt ein Keyword-Argument `cursor=`. Eine paginierte Liste leerzulesen ist ein einziges `while True`:
 
-```python title="client.py" hl_lines="26-32"
+```python title="client.py" hl_lines="9-15"
 --8<-- "docs_src/pagination/tutorial002.py"
 ```
 
@@ -51,7 +55,7 @@ Jede `list_*`-Methode auf `Client` (`list_tools`, `list_resources`, `list_resour
 * Erweitere die Liste, **bevor** du auf `next_cursor` schaust: Auch die letzte Seite enthält Ressourcen.
 * `next_cursor is None` ist der Ausstieg. Alles andere geht unverändert direkt zurück in `cursor=`.
 
-Führe sein `main()` aus, und es gibt `100 resources` aus: zehn Seiten zu je zehn, zusammengefügt von einer Schleife, die nie wusste, dass es zehn Seiten waren.
+Während uvicorn weiterhin `server.py` ausliefert, starte in einem zweiten Terminal `python client.py`. Es gibt `100 resources` aus: zehn Seiten zu je zehn, zusammengefügt von einer Schleife, die nie wusste, dass es zehn Seiten waren.
 
 Das ist dieselbe Schleife, die **[Der Client](../client/index.md)** für jedes `list_*`-Verb zeigt, und sie kostet nichts gegenüber einem Server, der nicht paginiert: `next_cursor` ist schon in der ersten Response `None`, und die Schleife läuft genau einmal.
 

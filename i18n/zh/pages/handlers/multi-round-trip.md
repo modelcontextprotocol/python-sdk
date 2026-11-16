@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, 8dd027377d46448b, f81491125dcbfe8b]
+  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, b47667184ca5b516, f81491125dcbfe8b]
   tool: 1
 ---
 # 多轮往返（multi-round-trip）请求 {#multi-round-trip-requests}
@@ -162,7 +162,7 @@ TTL、主体绑定和请求绑定**不是** codec 的工作：对每个 codec，
 
 ## 一个 2026-07-28 的结果 {#a-2026-07-28-result}
 
-`InputRequiredResult` 只存在于协议版本 **2026-07-28**。内存中的 `Client(server)` 替你协商它；走线路时，`mode="auto"` 会发现它。连接之后，`client.protocol_version` 告诉你拿到的是什么。
+`InputRequiredResult` 只存在于协议版本 **2026-07-28**。`Client` 默认的 `mode="auto"` 在任何连接上都会发现它。连接之后，`client.protocol_version` 告诉你拿到的是什么。
 
 !!! warning
     2026 之前的会话没有地方放 `InputRequiredResult`。在 `mode="legacy"` 连接上从处理函数返回一个，运行器无法把它序列化到协商好的版本；客户端收到的是 `-32603`“Handler returned an invalid result”错误。同时服务两个时代的服务器在用它之前必须检查 `ctx.protocol_version`。

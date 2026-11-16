@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # O Server de baixo nível {#the-low-level-server}
@@ -36,18 +36,22 @@ Três coisas mudaram, e elas são a API de baixo nível inteira:
 
 ### Experimente {#try-it}
 
-Não existe Inspector para este aqui: `mcp dev` e `mcp run` só aceitam um `MCPServer`. O `Client` em memória não se importa; ele recebe um `Server` de baixo nível exatamente como recebe um `MCPServer`:
+`mcp dev` e `mcp run` só aceitam um `MCPServer`, então este aqui você serve por conta própria. A última linha de `server.py` monta um app ASGI comum a partir dele, e o uvicorn o executa:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Aponte o Inspector, ou qualquer cliente, para `http://localhost:8000/mcp`:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ O mesmo texto que a versão com `@mcp.tool()` produziu. Duas diferenças honesta
 
 * `result.structured_content` é `None`. O servidor de alto nível encapsula um `-> str` em `{"result": ...}` para você; aqui ninguém monta o que você não montou.
 * `list_tools` retorna o schema que **você** digitou, caractere por caractere. A versão de alto nível tinha `"title": "Query"` em cada propriedade e um `"title": "search_booksArguments"` na raiz: artefatos do Pydantic. Aqui embaixo, se está no fio, foi você quem colocou lá.
+
+Em um teste você dispensa o uvicorn e a porta: `Client(server)` recebe um `Server` de baixo nível no mesmo processo exatamente como recebe um `MCPServer`, e **[Testes](../get-started/testing.md)** é esse padrão.
 
 ## Nada é verificado por você {#nothing-is-checked-for-you}
 
@@ -116,6 +122,17 @@ O bloco `_meta` é o carimbo de identidade do servidor: o SDK o adiciona a todo 
 
 O servidor nunca compara os dois campos. O `Client` deste SDK compara: retorne um `structured_content` que não satisfaz o `output_schema` que você declarou e `call_tool` levanta um `RuntimeError` que começa com `Invalid structured content returned by tool search_books` e segue citando a falha do `jsonschema`. Prometer um schema é barato; cumprir a promessa é com você. A escada inteira de tipos de retorno e schemas está em **[Saída estruturada](../servers/structured-output.md)**.
 
+## O dialeto é JSON Schema 2020-12 {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` e `output_schema` são JSON Schema, e a [especificação do MCP](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) fixa o dialeto: um schema sem a chave `$schema` é **JSON Schema 2020-12**. Os schemas que o `MCPServer` gera dependem desse padrão (o Pydantic escreve 2020-12 e omite a chave), e um dict escrito à mão também é cobrado por ele, então o vocabulário completo de 2020-12 está disponível:
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* A raiz do `input_schema` precisa ser `"type": "object"`. Ao lado dela, `oneOf`, `additionalProperties`, `anyOf`, `if`/`then`/`else`, `prefixItems`, `$defs` com `$ref`s locais e o resto das palavras-chave de 2020-12 chegam ao cliente exatamente como foram escritas.
+* Nenhuma chave `$schema` é necessária. Adicione uma só para optar por um draft mais antigo: o `Client` deste SDK, que valida o `structured_content` contra o `output_schema` de uma ferramenta, escolhe o validador a partir de `$schema` e usa 2020-12 quando não há nenhuma.
+
 ## `_meta`: para a aplicação, não para o modelo {#\_meta-for-the-application-not-the-model}
 
 `content` é a parte da resposta que o modelo lê. `structured_content` é a mesma resposta como dados tipados. `_meta` é o terceiro canal: dados que viajam junto com o resultado para a **aplicação cliente**, sem fazer parte da resposta de forma alguma.
@@ -167,7 +184,7 @@ O construtor cobre os métodos que o MCP define. `add_request_handler` cobre tod
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* O primeiro argumento é a string do método. Notificações têm um irmão gêmeo, `add_notification_handler`.
+* O primeiro argumento é a string do método. Notificações têm um irmão gêmeo, `add_notification_handler`. Os handlers dele disparam em stdio e em conexões HTTP da era do handshake; no caminho streamable-HTTP de `2026-07-28`, o POST de notificação de um cliente é confirmado com `202` e não é despachado, porque essa revisão não define notificações de cliente para servidor sobre HTTP.
 * `params_type` é o modelo contra o qual os `params` recebidos são validados **antes** de o seu handler executar, então métodos personalizados *recebem* a validação que as ferramentas não recebem. Faça subclasse de `RequestParams` para que o campo `_meta` seja parseado como o de qualquer outro método.
 * O handler retorna um `BaseModel`, um `dict` ou `None`. O SDK serializa isso no resultado JSON-RPC.
 
@@ -192,16 +209,17 @@ Cada um destes é uma ideia para a qual você já tem o vocabulário; cada um te
 * `on_call_tool`, `on_get_prompt` e `on_read_resource` podem retornar um `InputRequiredResult` em vez do resultado normal para pausar a chamada e pedir entrada ao cliente; veja **[Requisições de múltiplas idas e voltas](../handlers/multi-round-trip.md)**. Fiel a este nível, nada é instalado para você: enquanto o `MCPServer` sela o `requestState` por padrão, aqui o `request_state` que você define atravessa o fio exatamente como foi escrito até você optar com `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))`: uma linha (os dois nomes são importados de `mcp.server.request_state`) para a mesma selagem e verificação que o `MCPServer` faz (**[Protegendo o `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion` têm o mesmo formato `(ctx, params) -> result` para as outras primitivas.
 * `on_subscriptions_listen` serve o stream `subscriptions/listen` de 2026-07-28. Passe um `ListenHandler` construído sobre um `SubscriptionBus` e publique eventos no bus a partir dos seus outros handlers; veja **[Assinaturas](../handlers/subscriptions.md)** para a composição completa.
+* `get_tool_input_schema` mantém `on_list_tools` fora do caminho de chamada; veja **[Parâmetros de cabeçalho](header-parameters.md#schemas-by-name)**.
 * `server.streamable_http_app()` retorna o mesmo app Starlette que o do `MCPServer`; faça o deploy dele do jeito que **[Executando o seu servidor](../run/index.md)** faz o deploy de qualquer outro app ASGI. Não existe `server.run(transport=...)` aqui embaixo: `server.run(read_stream, write_stream, server.create_initialization_options())` conduz uma conexão sobre um par de streams, e essa única linha é a história completa.
 
 ## Recapitulando {#recap}
 
 * O `Server` de baixo nível recebe os seus handlers como **parâmetros do construtor** `on_*`; todo handler é `async (ctx, params) -> result`.
-* Você escreve o dict `input_schema` e você monta o `CallToolResult`. Nada é derivado, encapsulado ou validado por você.
+* Você escreve o dict `input_schema` e você monta o `CallToolResult`. Nada é derivado, encapsulado ou validado para você.
 * Uma exceção em um handler é um erro de protocolo `-32603`. Um erro de ferramenta que o modelo consegue ler é um `CallToolResult` com `is_error=True` que **você** retorna.
 * O `_meta` no resultado é endereçado à aplicação cliente, não ao modelo.
 * `Server[T]` é genérico no que o seu lifespan produz; `ctx.lifespan_context` é um `T` tipado.
 * `add_request_handler(method, params_type, handler)` serve qualquer método. `initialize` é reservado.
 * As capacidades que um `Server` anuncia são derivadas de quais handlers você registrou.
 
-`Client(server)` tratou os dois servidores de forma idêntica porque eles *são* o mesmo protocolo, e essa é justamente a ideia. A próxima camada abaixo nem é uma classe: é **[Middleware](middleware.md)**.
+O cliente tratou os dois servidores de forma idêntica porque eles *são* o mesmo protocolo, e essa é justamente a ideia. A próxima camada abaixo nem é uma classe: é **[Middleware](middleware.md)**.

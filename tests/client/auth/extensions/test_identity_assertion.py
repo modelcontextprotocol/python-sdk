@@ -11,6 +11,7 @@ import urllib.parse
 
 import httpx2
 import pytest
+from inline_snapshot import snapshot
 
 from mcp.client.auth import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider, _origin
@@ -377,7 +378,7 @@ def test_empty_client_secret_is_rejected() -> None:
     async def assertion_provider(audience: str, resource: str) -> str:
         raise NotImplementedError
 
-    with pytest.raises(ValueError, match="client_secret is required"):
+    with pytest.raises(ValueError) as exc_info:
         IdentityAssertionOAuthProvider(
             server_url=f"{RS}/mcp",
             storage=InMemoryStorage(),
@@ -386,6 +387,10 @@ def test_empty_client_secret_is_rejected() -> None:
             issuer=ISSUER,
             assertion_provider=assertion_provider,
         )
+
+    assert str(exc_info.value) == snapshot(
+        "client_secret is required: this provider supports confidential clients only"
+    )
 
 
 def test_empty_issuer_is_rejected() -> None:

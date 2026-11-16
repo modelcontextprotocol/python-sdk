@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [478fd619e5f90ef8, aef094a00e44e248, bab8cbf3449fa7e9, df1809b15a58335b, 5f9d8c2336ed0239, f54974398e43ddef, b24443dd78584870]
+  sections: [d98e337bf28845e0, dd642acbba36f615, f547b3e76da19c94, 149513378588da5c, 4e149ed992046709, f54974398e43ddef, b24443dd78584870]
   tool: 1
 ---
 # Protokol sürümleri {#protocol-versions}
@@ -11,9 +11,17 @@ MCP'nin iki nesli var.
 
 Bununla neredeyse hiç ilgilenmeniz gerekmez, çünkü anlaşmayı sizin yerinize `Client` yapar. Bu sayfa, bunu denetleyen tek yapıcı argümanı, yani `mode=` parametresini ve onu değiştireceğiniz üç durumu anlatır.
 
+Bu sayfadaki her kod parçası, **[İstemci](client/index.md)** sayfasındaki Bookshop `server.py` sunucusuyla konuşan bir `client.py` dosyasıdır. O sunucuyu bir terminalde başlatın:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+Ardından her kod parçasını ikinci bir terminalde `python client.py` ile çalıştırın.
+
 ## `mode="auto"` {#modeauto}
 
-```python title="client.py" hl_lines="14-15"
+```python title="client.py" hl_lines="7-8"
 --8<-- "docs_src/protocol_versions/tutorial001.py"
 ```
 
@@ -31,13 +39,14 @@ Her iki durumda da bağlanmış olarak çıkarsınız ve hangisinin gerçekleşt
 Özelliğin tamamı bu. Tek bir `Client`, her nesilden sunucu, kodunuzda dallanma yok.
 
 !!! info
-    `MCPServer`, `server/discover` isteğini her aktarımda yanıtlar (bellek içi, stdio, Streamable
-    HTTP); bu yüzden kendi sunucunuza karşı `auto` her zaman `2026-07-28`'e ulaşır. Geri dönüş
-    yalnızca gerçek bir 2026 öncesi sunucuya karşı devreye girer, ki tam da o zaman bunu istersiniz.
+    `MCPServer`, `server/discover` isteğini her aktarımda yanıtlar (Streamable HTTP, stdio ve
+    testlerinizin kullandığı süreç içi bağlantı); bu yüzden kendi sunucunuza karşı `auto` her zaman
+    `2026-07-28`'e ulaşır. Geri dönüş yalnızca gerçek bir 2026 öncesi sunucuya karşı devreye girer,
+    ki tam da o zaman bunu istersiniz.
 
 ## `mode="legacy"` {#modelegacy}
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial002.py"
 ```
 
@@ -61,7 +70,7 @@ Sunucunun başlattığı bir istek, sunucunun *sizi* çağırmasıdır: `ctx.eli
 
 `mode`, modern bir protokol sürümü dizgesini de kabul eder. Bugün bu küme tam olarak `["2026-07-28"]`.
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial003.py"
 ```
 
@@ -94,7 +103,7 @@ Sorgu ucuzdur, ancak yine de her yeniden bağlanmada ödediğiniz bir turdur ve 
 
 Öyleyse saklayın. Bir `auto` bağlantısından sonra `client.session.discover_result`, sunucunun gönderdiği `DiscoverResult`'ı olduğu gibi tutar: `supported_versions`, `capabilities`, `instructions` ve sunucunun sonucun `_meta` alanına işlediği kimlik. Bir sonraki sefer bunu `prior_discover=` olarak geri verin:
 
-```python title="client.py" hl_lines="15 17"
+```python title="client.py" hl_lines="8 10"
 --8<-- "docs_src/protocol_versions/tutorial004.py"
 ```
 

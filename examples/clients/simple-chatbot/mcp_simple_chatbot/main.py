@@ -68,7 +68,6 @@ class Server:
     def __init__(self, name: str, config: dict[str, Any]) -> None:
         self.name: str = name
         self.config: dict[str, Any] = config
-        self.stdio_context: Any | None = None
         self.session: ClientSession | None = None
         self._cleanup_lock: asyncio.Lock = asyncio.Lock()
         self.exit_stack: AsyncExitStack = AsyncExitStack()
@@ -165,7 +164,6 @@ class Server:
             try:
                 await self.exit_stack.aclose()
                 self.session = None
-                self.stdio_context = None
             except Exception as e:
                 logging.error(f"Error during cleanup of server {self.name}: {e}")
 

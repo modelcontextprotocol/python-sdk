@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: [e33d441f12d50535, 7099694c603e0f5f, c1df4cf9673433e6, c9cd294541422e6e, 6cec073617bfd037, efa92b8f99e908c8, 6a22a29e27fb4601]
+  sections: [7be05607887e6853, e7375894888d9750, c36f73fc7e3af13b, 2fec2d7e129e62fe, 809b0e0a7c27295a, b4395a04d2a5d906, 1a436007f5f54779, c6b2078ed1e63ba5]
   tool: 1
 ---
 # Hataları ele alma {#handling-errors}
 
-Bir araç iki şekilde başarısız olabilir ve SDK bu ikisini çok farklı ele alır.
+Bir araç üç şekilde başarısız olabilir ve SDK her birini farklı ele alır.
 
-Sıradan bir istisna fırlatırsanız bunu **model** görür. `MCPError` fırlatırsanız bunu **protokol** görür.
+`ToolError` fırlatırsanız mesajınızı **model** görür. `MCPError` fırlatırsanız bunu **protokol** görür. Başka herhangi bir şey fırlatırsanız bu bir çökmedir: model yalnızca çağrının başarısız olduğunu öğrenir, traceback ise log'unuza düşer.
 
 Bu sayfa, hangisini seçeceğinizle ilgili.
 
@@ -15,11 +15,11 @@ Bu sayfa, hangisini seçeceğinizle ilgili.
 
 Bir şeyi arayıp bulan bir araç düşünün; arama sonuçsuz kalsın:
 
-```python title="server.py" hl_lines="11-12"
+```python title="server.py" hl_lines="2 12-13"
 --8<-- "docs_src/handling_errors/tutorial001.py"
 ```
 
-Bu iki satırda MCP'ye özgü hiçbir şey yok. `get_author`, herhangi bir Python fonksiyonunun yapacağı gibi düz bir `ValueError` fırlatır.
+`mcp.server.mcpserver.exceptions` içindeki `ToolError`, bir aracın modele bir şeylerin ters gittiğini söyleme yoludur.
 
 Katalogda olmayan bir başlıkla çağırın ve sonuca bakın:
 
@@ -30,12 +30,14 @@ result.structured_content  # None
 ```
 
 * İstek **başarılı oldu**. Ortada bir sonuç var; çağıran tarafta hiçbir şey fırlatılmadı.
-* `is_error` değeri `True`; istisnanızın mesajı (başına araç adı eklenmiş olarak) `content`'te, tam da modelin okuduğu yerde.
+* `is_error` değeri `True`; mesajınız (başına araç adı eklenmiş olarak) `content`'te, tam da modelin okuduğu yerde.
 * `structured_content` değeri `None`. Başarısız bir çağrının yapılandırılacak bir dönüş değeri yoktur.
 
-Bu bir **araç hatasıdır** ve aracınızın fırlattığı *her* istisna için varsayılan davranış budur. Neredeyse her zaman istediğiniz şey de budur.
+Bu bir **araç hatasıdır** ve neredeyse her zaman istediğiniz şey de budur.
 
 Aracınızı çağıran modeldir. Argümanları o seçti. Bu yüzden araç hatası, konuşmada bir tur demektir: model *"No book titled 'Nothing' in the catalog."* mesajını okur, başlığı yanlış tahmin ettiğini anlar ve daha iyi bir başlıkla tekrar çağırır. Tek bir `raise` yazdınız ve kendi kendini düzelten bir ajan elde ettiniz.
+
+Sunucuda bir `ToolError`, log'da tek bir `INFO` satırıdır; traceback yoktur. Bunu zaten bekliyordunuz, bu yüzden araştırılacak bir şey yok.
 
 !!! tip
     Bir araçtan hata mesajını asla `return` ile döndürmeyin. Döndürülen bir dizenin `is_error=False`
@@ -44,7 +46,7 @@ Aracınızı çağıran modeldir. Argümanları o seçti. Bu yüzden araç hatas
 
 ## Modelin düzeltemeyeceği bir hata {#an-error-the-model-cannot-fix}
 
-Şimdi `ValueError` yerine `MCPError` koyun.
+Şimdi `ToolError` yerine `MCPError` koyun.
 
 ```python title="server.py" hl_lines="1 3 14"
 --8<-- "docs_src/handling_errors/tutorial002.py"
@@ -77,10 +79,10 @@ Aracınızı çağıran modeldir. Argümanları o seçti. Bu yüzden araç hatas
 
 İki yol, iki farklı soruyu yanıtlar.
 
-* *Yürütme* başarısızlığı için **herhangi bir istisna fırlatın**: aracınızın yapmaya çalıştığı şey işe yaramadı. Çağrıyı model seçti, bu yüzden sonucunu da model görmeli ve toparlanma şansı bulmalı. Yanlış yazılmış bir başlık, zaman aşımına uğrayan bir dış API, var olmayan bir satır: hepsi araç hatası.
+* *Yürütme* başarısızlığı için **`ToolError` fırlatın**: aracınızın yapmaya çalıştığı şey işe yaramadı. Çağrıyı model seçti, bu yüzden sonucunu da model görmeli ve toparlanma şansı bulmalı. Yanlış yazılmış bir başlık, zaman aşımına uğrayan bir dış API, var olmayan bir satır: hepsi araç hatası.
 * *İsteğin kendisi* reddedilmesi gerektiğinde **`MCPError` fırlatın**: istemcide aracınızın bağımlı olduğu bir yetenek eksik, sunucu kimseye hizmet verecek durumda değil, çağıran taraf zorunlu bir adımı atlamış. Modelin hiçbir yeniden denemesi bunları düzeltmez; bu yüzden mesajı ona vermenin bir kazancı yok.
 
-Kararı tek bir soru verir: **daha akıllı bir model bundan kaçınabilir miydi?** Evet -> sıradan istisna. Hayır -> `MCPError`.
+Kararı tek bir soru verir: **daha akıllı bir model bundan kaçınabilir miydi?** Evet -> `ToolError`. Hayır -> `MCPError`.
 
 Bu ölçüte göre `get_author`'ın ikinci sürümü yanlış seçim yaptı: daha iyi bir başlık sorunu çözer, yani model mesajı görmeyi hak ediyordu. O sürüm size mekanizmayı göstermek için orada, onu önermek için değil.
 
@@ -88,6 +90,25 @@ Bu ölçüte göre `get_author`'ın ikinci sürümü yanlış seçim yaptı: dah
     `MCPError`, `from mcp import MCPError` ile içe aktarılır ve `code`, `message` ile isteğe bağlı
     bir `data` yükü alır. Bunlara ne koyarsanız istemci onu alır: SDK, fırlatılan bir
     `MCPError`'ı temizlemek yerine olduğu gibi iletir.
+
+## Başka herhangi bir istisna {#any-other-exception}
+
+Şimdi denetimi çıkarın ve sözlük aramasının kendi kendine başarısız olmasına izin verin:
+
+```python title="server.py" hl_lines="11"
+--8<-- "docs_src/handling_errors/tutorial004.py"
+```
+
+`CATALOG[title]`, `KeyError` fırlatır. Bunu planlamadınız, bu yüzden SDK onu bir çökme olarak ele alır:
+
+```python
+result.is_error  # True
+result.content   # [TextContent(text="Error executing tool get_author")]
+```
+
+Çağrı yine `is_error=True` döndürür; yani model başarısız olduğunu bilir ve yoluna devam edebilir. Almadığı şey istisnanın metnidir: kodunuzdan gelen bir `KeyError` ya da üç kütüphane alttaki bir sürücüden gelen bir yığın SQL, sunucunuzun iç yapısını ele verebilir; bu yüzden sunucudan asla çıkmaz.
+
+Onu siz alırsınız. Sunucu çökmeyi tam traceback ile `ERROR` düzeyinde, `Tool 'get_author' raised an unexpected exception` olarak log'a yazar. Bu yüzden `WARNING` düzeyindeki bir üretim log'u her `ToolError` boyunca sessiz kalır ve bir şey gerçekten bozulduğu anda sesini çıkarır.
 
 ## Var olmayan bir kaynak {#a-resource-that-doesnt-exist}
 
@@ -109,7 +130,7 @@ Yanıtlayamadığında `ResourceNotFoundError` fırlatın. SDK bunu, spesifikasy
 }
 ```
 
-Burada `is_error=True` taşıyan yarım bir sonuç olmadığına dikkat edin. Bir kaynak okuması ya içerik döndürür ya da başarısız olur: kaynakların yalnızca protokol yolu vardır. Şablonlar ve kaynaklarla ilgili diğer her şey **[Kaynaklar](resources.md)** sayfasında.
+Burada `is_error=True` taşıyan yarım bir sonuç olmadığına dikkat edin. Bir kaynak okuması ya içerik döndürür ya da başarısız olur: kaynakların yalnızca protokol yolu vardır. `ResourceError`, "bulunamadı" olmayan bir başarısızlık için aynı şeydir (`-32603`, sizin mesajınız); ikisi de log'unuzda tek bir `INFO` satırıdır. `MCPError` dışındaki diğer her istisna bir çökmedir: istemci yalnızca URI'yi belirten `-32603` alır, traceback ise `ERROR` düzeyinde log'unuza gider. Şablonlar ve kaynaklarla ilgili diğer her şey **[Kaynaklar](resources.md)** sayfasında.
 
 ## Hiç fırlatmadığınız hatalar {#errors-you-never-raise}
 
@@ -120,19 +141,21 @@ Hatalı bir argüman fonksiyonunuza asla ulaşmaz.
 Bu, yazmadığınız koca bir `raise` ifadesi sınıfı demektir: kendi tür ipuçlarınızı yeniden doğrulamayın.
 
 !!! info
-    Bu sayfadaki her şey bir **istemcinin** gördüğüdür; testleri yazarken kullanacağınız bellek içi
-    `Client` da tam olarak aynı şeyi görür. `raise_exceptions=True` bile bir araç hatasını tekrar
-    traceback'e çevirmez: o bayrak devreye girebilecek noktaya geldiğinde istisnanız çoktan
-    `is_error=True` sonucuna dönüşmüştür. Doğrulamayı sonuç üzerinde yapın. **[Test etme](../get-started/testing.md)** sayfası bu kalıbı anlatır.
+    Bu sayfada bir **istemcinin** gördüğü her şeyi, testleri yazarken kullanacağınız bellek içi
+    `Client` da görür. `raise_exceptions=True` bile başarısız olan bir
+    aracın istisnasını çağırana geri vermez: o bayrak devreye girebilecek noktaya geldiğinde istisnanız çoktan
+    `is_error=True` sonucuna dönüşmüştür. Doğrulamayı sonuç üzerinde yapın. Bir çökmenin traceback'ine ihtiyacınız varsa o
+    sunucunun log'undadır ve pytest'in `caplog`'u onu yakalar. **[Test etme](../get-started/testing.md)** sayfası bu kalıbı anlatır.
 
 ## Özet {#recap}
 
-* Bir araçta **herhangi bir istisna** fırlatın -> çağrı, mesajınız `content`'te olacak şekilde `is_error=True` döndürür. Model bunu okur ve yeniden deneyebilir. Varsayılan budur.
+* Bir araçta **`ToolError`** fırlatın -> çağrı, mesajınız `content`'te olacak şekilde `is_error=True` döndürür. Model bunu okur ve yeniden deneyebilir.
 * **`MCPError`** fırlatın -> çağrının kendisi bir JSON-RPC hatasıyla başarısız olur. Model hiçbir şey görmez; bununla host ilgilenir. `code`, `message` ve `data` bozulmadan ulaşır.
-* Belirleyici soru: *daha akıllı bir model bundan kaçınabilir miydi?* Evet -> istisna. Hayır -> `MCPError`.
+* Belirleyici soru: *daha akıllı bir model bundan kaçınabilir miydi?* Evet -> `ToolError`. Hayır -> `MCPError`.
+* Diğer **her istisna** bir çökmedir -> model için yalnızca `Error executing tool <name>` içeren `is_error=True`, sizin için ise traceback'li bir `ERROR` kaydı.
 * Bir kaynak işleyicisinden `ResourceNotFoundError` -> protokolün `-32602` kodu, URI `data`'da.
 * Hatalı argümanlar, fonksiyonunuz çalışmadan önce şemaya göre reddedilir; bunlar için `raise` yazmazsınız.
-* `from mcp import MCPError`; hata kodu sabitleri `mcp.types`'tan gelir.
+* İçe aktarmalar: `from mcp import MCPError`, `from mcp.server.mcpserver.exceptions import ToolError, ResourceError, ResourceNotFoundError` ve `mcp.types`'tan hata kodu sabitleri.
 
 Hatalar halloldu. Bir sunucunun *sunduğu* her şey bu kadar. Her işleyicinin çalışırken neleri okuyabildiği ve istemciye geri neler yapabildiği bir sonraki bölümde: **[İşleyicinin içinde](../handlers/index.md)**.
 

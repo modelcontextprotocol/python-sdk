@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [424930166c4bc6f3]
+  sections: [22ca41e50cc1b536]
   tool: 1
 ---
 # Dentro do seu handler {#inside-your-handler}
@@ -28,6 +28,8 @@ O que ele pode fazer enquanto executa:
   **[Amostragem (sampling) e roots](sampling-and-roots.md)**, obsoletos, mas
   ainda atendidos.
 * Informar o **[Progresso](progress.md)** de algo demorado.
+* Fazer a limpeza, ou parar mais cedo, quando o cliente desiste da chamada,
+  com **[Cancelamento](cancellation.md)**.
 * Escrever logs (na saída de erro padrão, para quem opera o servidor) com
   **[Logging](logging.md)**.
 * Avisar os clientes assinantes de que algo mudou com

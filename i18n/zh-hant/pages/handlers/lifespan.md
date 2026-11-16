@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f3ca8ac5f90f2dfa, 85a1ef3588ba0736, 563346d4d5804933, 9e3528340d0bab53]
+  sections: [f3ca8ac5f90f2dfa, 48e478ef7bd688b1, 563346d4d5804933, 52ac6a7734d6f581]
   tool: 1
 ---
 # 生命週期 {#lifespan}
@@ -46,7 +46,7 @@ translation:
 
 `genre` 是模型唯一能傳入的引數。生命週期是伺服器自己的事。
 
-`@mcp.resource()` 和 `@mcp.prompt()` 函式也可以接收 `ctx` 參數，寫成不帶型別參數的 `Context`，原因下一節會說明。`ctx` 所攜帶的一切，請見 **[Context](context.md)**。
+`@mcp.resource()` 和 `@mcp.prompt()` 函式也可以接收 `ctx` 參數。`ctx` 所攜帶的一切，請見 **[Context](context.md)**。
 
 ### 它真的有型別 {#it-really-is-typed}
 
@@ -55,15 +55,6 @@ translation:
 就是這一個型別參數，讓型別檢查器把 `ctx.request_context.lifespan_context` **當作** `AppContext`。`.db` 會自動完成；`.dbb` 在你執行伺服器之前就是錯誤。
 
 如果改寫成不帶型別參數的 `Context`，`lifespan_context` 的型別就是 `dict[str, Any]`：型別檢查器無從得知你的生命週期 yield 了什麼。執行時物件還在；你失去的是協助。
-
-!!! warning
-    `Context[AppContext]` 是**只限工具**的寫法。把它放在 `@mcp.resource()` 或 `@mcp.prompt()` 函式上，對該處理函式的每次呼叫都會失敗。用戶端會收到錯誤，伺服器記錄會顯示原因：
-
-    ```text
-    Context is not available outside of a request
-    ```
-
-    在資源和提示詞裡，寫不帶型別參數的 `ctx: Context`。生命週期 yield 出來的物件在執行時仍然是 `ctx.request_context.lifespan_context`；放棄的只是型別參數，不是物件。
 
 !!! tip
     生命週期永遠存在。如果不傳入，SDK 的預設會 yield 一個空的 `dict`，所以 `ctx.request_context.lifespan_context` 是 `{}`，永遠不會是 `None`。這個預設也是為什麼不帶型別參數的 `Context` 會把它的型別定為 `dict[str, Any]`。
@@ -95,7 +86,7 @@ translation:
 * `yield` 之前的程式碼是啟動。之後的 `finally` 是關閉。
 * 它只執行一次，涵蓋伺服器的整個生命，而不是每個請求一次。
 * 不論 `yield` 什麼，在每個工具、資源和提示詞裡都是 `ctx.request_context.lifespan_context`。
-* `ctx: Context[AppContext]` 讓工具裡的這種存取完全有型別。資源和提示詞則用不帶型別參數的 `Context`。
+* `ctx: Context[AppContext]` 讓這種存取完全有型別。
 * 沒有 `lifespan=` 代表一個空的 `dict`，永遠不會是 `None`。
 
 在呼叫途中停下來、向使用者詢問只有他們才知道的事的處理函式，就是 **[徵詢（elicitation）](elicitation.md)**。

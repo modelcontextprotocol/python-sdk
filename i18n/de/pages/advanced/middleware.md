@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [58e1103d9a323ccf, 46056f318ef205e4, 812b414557fb0c35, 4df162eea2518d38, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -16,7 +16,7 @@ Du schreibst sie als `async (ctx, call_next)` und hängst sie an `server.middlew
 
 `MCPServer` nimmt die Liste bei der Konstruktion entgegen (`MCPServer(name, middleware=[...])`) und stellt
 sie als `mcp.middleware` bereit; der Low-Level-`Server` stellt dieselbe Liste als `server.middleware`
-bereit. Das Beispiel unten verwendet den Low-Level-`Server`; wenn `Server(name, on_call_tool=...)` neu
+bereit. Die Beispiele unten verwenden den Low-Level-`Server`; wenn `Server(name, on_call_tool=...)` neu
 für dich ist, lies zuerst **[Der Low-Level-Server](low-level-server.md)**.
 
 ## Eine Timing-Middleware {#a-timing-middleware}
@@ -53,19 +53,46 @@ Genau darum geht es. Middleware umschließt **jede** eingehende Nachricht:
 
 * Den Verbindungsaufbau: `server/discover`, oder `initialize` und `notifications/initialized`
   in einer Legacy-Session.
-* Jeden Request und jede Benachrichtigung. Bei einer Benachrichtigung gilt `ctx.request_id is None`,
-  `call_next(ctx)` gibt `None` zurück, und was immer du zurückgibst, wird verworfen.
+* Jeden Request und jede Benachrichtigung, die den Server erreichen. Bei einer Benachrichtigung gilt
+  `ctx.request_id is None`, `call_next(ctx)` gibt `None` zurück, und was immer du zurückgibst, wird
+  verworfen. (Auf dem Streamable-HTTP-Pfad der Revision `2026-07-28` wird der Benachrichtigungs-POST
+  eines Clients schon im Transport mit `202` quittiert und nie weitergeleitet, erreicht die Middleware
+  also ebenfalls nicht; diese Revision definiert keine Client-zu-Server-Benachrichtigungen über HTTP.)
 * Sogar eine Methode, für die der Server keinen Handler hat: `call_next` wirft den
   `MCPError(-32601, "Method not found")` *durch* deine Middleware hindurch auf dem Weg zum Client.
+
+## Eine Obergrenze für gleichzeitige Aufrufe {#a-concurrency-cap}
+
+Eine Middleware muss `call_next(ctx)` nicht aufrufen. Wirf stattdessen einen `MCPError`, und diese eine
+Nachricht wird **abgelehnt**: Die Verbindung bleibt bestehen, und die nächste Nachricht geht durch.
+
+Angenommen, jede Suche belegt eine Verbindung aus einem Pool von vier. Diese Middleware lässt vier
+Tool-Aufrufe gleichzeitig laufen und lehnt den fünften ab:
+
+```python title="server.py" hl_lines="15-16 40-55 59"
+--8<-- "docs_src/middleware/tutorial002.py"
+```
+
+* Gezählt wird nur `tools/call`. Der Server beantwortet `server/discover` und `tools/list` also
+  weiter, während er Tool-Aufrufe ablehnt.
+* MCP definiert keinen Fehlercode für „Server ausgelastet“, also ist `SERVER_BUSY` ein eigener Code
+  dieses Servers.
+* Das Ablehnen sagt dem Client sofort, dass der Server überlastet ist. Wenn du Aufrufer lieber warten
+  lässt, umschließe stattdessen `call_next(ctx)` mit einem `anyio.CapacityLimiter`.
+
+Ein geworfener `MCPError` geht an die Client-Anwendung, nicht an das Modell. Soll das Modell die
+Meldung lesen, gib stattdessen ein Tool-Ergebnis mit `is_error=True` zurück: Das ist **Antworten**,
+weiter unten.
 
 ## Was du in einer Middleware tun kannst {#what-you-can-do-inside-one}
 
 In aufsteigender Reihenfolge danach, wie sehr du zögern solltest:
 
-* **Beobachten.** Miss es, zähle es, logge es. Das Beispiel oben.
+* **Beobachten.** Miss es, zähle es, logge es. Die Timing-Middleware oben.
 * **Ablehnen.** Wirf einen `MCPError` *statt* `call_next(ctx)` aufzurufen, und diese eine Nachricht
   wird mit einem JSON-RPC-Fehler beantwortet. Die Verbindung bleibt bestehen; die nächste Nachricht
-  geht durch. So beschränkt ein Server `subscriptions/listen` pro Aufrufer:
+  geht durch. Die Obergrenze für gleichzeitige Aufrufe oben. So beschränkt ein Server auch
+  `subscriptions/listen` pro Aufrufer:
   **[Entscheiden, wer zusehen darf](../handlers/subscriptions.md#deciding-who-may-watch)** auf der
   Seite Abonnements führt es Schritt für Schritt vor.
 * **Umschreiben.** `ctx` ist eine Dataclass: `await call_next(dataclasses.replace(ctx, params=...))`
@@ -114,8 +141,8 @@ du gar nicht an sie. Sie tut nichts, bis du einen Exporter installierst, und sie
 
 * Eine Middleware ist `async (ctx, call_next) -> result`, übergeben als `MCPServer(middleware=[...])`
   (oder an `mcp.middleware` angehängt) und beim Low-Level-`Server` an `server.middleware` angehängt.
-* Sie umschließt **jede** eingehende Nachricht (`server/discover`, `initialize`, Requests,
-  Benachrichtigungen, unbekannte Methoden) und läuft von außen nach innen.
+* Sie umschließt **jede** eingehende Nachricht, die den Server erreicht (`server/discover`,
+  `initialize`, Requests, Benachrichtigungen, unbekannte Methoden), und läuft von außen nach innen.
 * An `ctx.request_id is None` unterscheidest du eine Benachrichtigung von einem Request.
 * Wirf eine Exception, statt `call_next` aufzurufen, um eine einzelne Nachricht abzulehnen; die
   Verbindung überlebt.

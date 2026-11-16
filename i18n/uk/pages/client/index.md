@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 7e16449f66e7dfd6, eeb0682f7d2a1079, 5713f0196a34e6e7, 0e844597859e4248, 3a97d9195ddcc92e, 1da08c483e59c141, 84702cc6e0a1fd42, 8dee7a31c86ffc5c, 83a5bce168ef23d7]
   tool: 1
 ---
 # Клієнт {#the-client}
@@ -11,13 +11,23 @@ translation:
 
 ## Перший клієнт {#your-first-client}
 
-```python title="client.py" hl_lines="14-18"
+Клієнтові потрібен сервер, з яким говорити. До цього Bookshop під'єднується кожен приклад на цій сторінці. Збережіть його як `server.py` і залиште працювати через HTTP:
+
+```python title="server.py"
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-Сервер угорі потрібен лише для того, щоб було до чого під'єднатися. Клієнт — це п'ять виділених рядків.
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-* `Client(mcp)` отримує **сам об'єкт сервера**. Це транспорт у пам'яті: без підпроцесу, без порту, без HTTP. Саме так під'єднується кожен приклад на цій сторінці й кожен тест, який ви напишете.
+Тепер сервер доступний за адресою `http://localhost:8000/mcp`. Клієнт — окрема програма. Збережіть його як `client.py` і запустіть `python client.py` у другому терміналі:
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
+```
+
+* `Client("http://localhost:8000/mcp")` отримує **URL**, тож під'єднується через Streamable HTTP до сервера, який ви щойно запустили.
 * `async with` — це **життєвий цикл**. Вхід у блок під'єднує й узгоджує параметри; вихід — від'єднує. Пари `connect()` / `close()` немає, а `Client` не можна використати повторно після завершення блоку.
 * Усередині блоку відомості про з'єднання вже доступні як звичайні властивості.
 
@@ -25,11 +35,12 @@ translation:
 
 `Client` приймає один позиційний аргумент і визначає транспорт за його типом:
 
-* Екземпляр `MCPServer` (або низькорівневого `Server`): під'єднання **в межах процесу**.
-* Рядок з URL (`Client("http://localhost:8000/mcp")`): Streamable HTTP, шлях для робочого розгортання.
-* **Транспорт**: будь-що, що можна використати як `async with ... as (read, write)`, наприклад `stdio_client(...)`, що обгортає підпроцес.
+* Рядок з URL (`Client("http://localhost:8000/mcp")`): Streamable HTTP, транспорт для робочого розгортання.
+* `StdioServerParameters`: команда, яку буде запущено як локальний **підпроцес**; спілкування з ним іде через його stdin і stdout.
+* **Транспорт**: будь-що, що можна використати як `async with ... as (read, write)`, наприклад `streamable_http_client(url, http_client=...)` навколо вашого власного HTTP-клієнта.
+* Екземпляр `MCPServer` (або низькорівневого `Server`): під'єднання **в межах процесу**, без підпроцесу й без порту. Це для тестів, і на ньому побудована сторінка **[Тестування](../get-started/testing.md)**.
 
-Усе інше на цій сторінці однакове для всіх трьох. Заголовки, підпроцеси, тайм-аути та протокол `Transport` мають власну сторінку: **[Транспорти клієнта](transports.md)**.
+Усе інше на цій сторінці однакове для всіх чотирьох. Заголовки, підпроцеси, тайм-аути та протокол `Transport` мають власну сторінку: **[Транспорти клієнта](transports.md)**.
 
 ### Що є в під'єднаного клієнта {#whats-on-a-connected-client}
 
@@ -48,11 +59,11 @@ translation:
 
 ## Перелік інструментів {#listing-tools}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial002.py"
 ```
 
-`list_tools()` повертає `ListToolsResult`; інструменти лежать у `.tools`. Кожен із них — повне означення, яке хост передав би моделі:
+`list_tools()` повертає `ListToolsResult`; інструменти лежать у `.tools`. Кожен із них — повне означення, яке хост передав би моделі. Ось перший:
 
 ```python
 tool.name          # 'search_books'
@@ -76,6 +87,8 @@ tool.description   # 'Search the catalog by title or author.'
 
 Ця схема — усе, що потрібно UI, щоб показати форму аргументів, і все, що потрібно моделі, щоб сформувати коректні аргументи.
 
+Другий інструмент, `lookup_book`, зареєстровано без `title=`, тож його `tool.title` дорівнює `None`.
+
 !!! tip
     `title` необов'язковий, тож UI, що показує інструменти людині, має обирати: `title`, якщо він є,
     і `name`, якщо немає. `from mcp.shared.metadata_utils import get_display_name` робить саме це —
@@ -85,7 +98,7 @@ tool.description   # 'Search the catalog by title or author.'
 
 `call_tool(name, arguments)` запускає інструмент і повертає `CallToolResult`.
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="9-16"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -117,7 +130,7 @@ result.is_error            # False
 
 !!! check
     Попросіть у `lookup_book` `"Solaris"` (назву, якої немає в каталозі) — і функція викине
-    `ValueError`. Виклик усе одно повернеться нормально:
+    `ToolError`. Виклик усе одно повернеться нормально:
 
     ```python
     result.is_error            # True
@@ -125,9 +138,10 @@ result.is_error            # False
     result.structured_content  # None
     ```
 
-    Повідомлення винятку потрапило в `content`, де його може прочитати **модель** і спробувати ще раз. Це
-    навмисно: помилка інструмента — частина розмови, а не аварія. Завжди дивіться на `is_error`,
-    перш ніж довіряти `structured_content`.
+    Повідомлення `ToolError` потрапило в `content`, де його може прочитати **модель** і спробувати ще раз. Це
+    навмисно: помилка інструмента — частина розмови, а не аварія. (Якби інструмент упав
+    з якимось іншим винятком, у `content` було б лише `Error executing tool lookup_book`.) Завжди дивіться на
+    `is_error`, перш ніж довіряти `structured_content`.
 
 !!! warning
     `is_error=True` охоплює більше, ніж ваш власний `raise`. Попросіть інструмент, якого в сервера
@@ -140,7 +154,7 @@ result.is_error            # False
 
 Дії з ресурсами йдуть парами: два способи перелічити, один спосіб прочитати.
 
-```python title="client.py" hl_lines="22-31"
+```python title="client.py" hl_lines="9-18"
 --8<-- "docs_src/client/tutorial004.py"
 ```
 
@@ -154,7 +168,7 @@ result.is_error            # False
 
 ## Промпти {#prompts}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial005.py"
 ```
 
@@ -179,7 +193,7 @@ message.content  # TextContent(type='text', text='Recommend one poetry book from
 
 Сервер з обробником автодоповнення може доповнювати аргументи промптів і шаблонів ресурсів, поки користувач друкує.
 
-```python title="client.py" hl_lines="27-31"
+```python title="client.py" hl_lines="9-13"
 --8<-- "docs_src/client/tutorial006.py"
 ```
 
@@ -192,21 +206,21 @@ message.content  # TextContent(type='text', text='Recommend one poetry book from
 
 Кожен метод `list_*` приймає іменований аргумент `cursor=`, а кожен результат містить `next_cursor`. Коли `next_cursor` дорівнює `None`, у вас є все.
 
-```python title="client.py" hl_lines="22-30"
+```python title="client.py" hl_lines="7-15"
 --8<-- "docs_src/client/tutorial007.py"
 ```
 
-Цей цикл коректний для будь-якого сервера. `MCPServer` повертає все однією сторінкою, тож `next_cursor` дорівнює `None` і цикл виконується один раз — саме тому більшість коду його ніколи не пише. Сервери, що справді розбивають результати на сторінки, і правила, яким підкоряються курсори, — на сторінці **[Пагінація](../advanced/pagination.md)**.
+`list_all_tools` коректна для будь-якого сервера. `MCPServer` повертає все однією сторінкою, тож `next_cursor` дорівнює `None` і цикл виконується один раз — саме тому більшість коду його ніколи не пише. Сервери, що справді розбивають результати на сторінки, і правила, яким підкоряються курсори, — на сторінці **[Пагінація](../advanced/pagination.md)**.
 
 ## У тестах {#in-tests}
 
-`Client(mcp)` без процесу й без порту — це вже тестова обв'язка для вашого сервера.
+Кожен `client.py` на цій сторінці звертався до `server.py` через HTTP. У тесті мережу оминають і передають у `Client` сам об'єкт сервера: `from server import mcp`, потім `Client(mcp)`. Без процесу, без порту, а всі методи вище працюють так само.
 
-Саме для цього є один прапорець конструктора: `Client(mcp, raise_exceptions=True)`. Він діє лише на з'єднаннях у пам'яті, а пояснює його й будує навколо нього весь підхід сторінка **[Тестування](../get-started/testing.md)**.
+Саме для цього є один прапорець конструктора: `Client(mcp, raise_exceptions=True)`. Він діє лише на з'єднаннях у межах процесу, а пояснює його й будує навколо нього весь підхід сторінка **[Тестування](../get-started/testing.md)**.
 
 ## Підсумки {#recap}
 
-* `Client(x)` під'єднується в пам'яті до об'єкта сервера, через Streamable HTTP — до рядка з URL і через транспорт — до всього іншого.
+* `Client(x)` під'єднується через Streamable HTTP до рядка з URL, запускає підпроцес для `StdioServerParameters`, входить у транспорт напряму, а в тестах приймає сам об'єкт сервера.
 * `async with` — це весь життєвий цикл. Усередині нього `server_capabilities` і `protocol_version` уже заповнені; `server_info` та `instructions` — теж, якщо сервер їх надає.
 * `list_tools()` дає `name`, `title`, `description` та `input_schema` кожного інструмента.
 * `call_tool()` повертає `content` для моделі, `structured_content` для вашого коду та `is_error`. Інструмент, що викидає виняток, — це результат, а не виняток.

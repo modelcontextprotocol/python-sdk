@@ -107,23 +107,15 @@ async def test_delete_terminates_the_session_and_subsequent_requests_return_404(
         delete = await http.delete("/mcp", headers=base_headers(session_id=session_id))
         assert delete.status_code == 200
 
-        # The manager keeps the terminated transport registered, so the next request reaches the
-        # transport's own _terminated check rather than the manager's unknown-session path.
-        assert session_id in manager._server_instances
+        # The manager forgets a terminated session, so from then on the ID is simply unknown.
+        assert session_id not in manager._server_instances
         post = await http.post(
             "/mcp",
             json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
             headers=base_headers(session_id=session_id),
         )
         assert (post.status_code, post.json()) == snapshot(
-            (
-                404,
-                {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {"code": -32600, "message": "Not Found: Session has been terminated"},
-                },
-            )
+            (404, {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Session not found"}})
         )
 
 

@@ -18,7 +18,6 @@ from pydantic import Field, validate_call
 
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.shared._callable_inspection import is_async_callable
-from mcp.shared.exceptions import MCPError
 
 # `application/*` types that are textual but predate the `+json`/`+xml`
 # structured-syntax suffixes, so the suffix rule below can't catch them.
@@ -80,33 +79,28 @@ class FunctionResource(Resource):
 
     async def read(self) -> str | bytes:
         """Read the resource by calling the wrapped function."""
-        try:
-            fn = self.fn
-            if is_async_callable(fn):
-                result = await fn()
-            else:
-                result = await anyio.to_thread.run_sync(self.fn)
+        fn = self.fn
+        if is_async_callable(fn):
+            result = await fn()
+        else:
+            result = await anyio.to_thread.run_sync(self.fn)
 
-            if isinstance(result, InputRequiredResult):
-                # A static resource function can never read the retry's
-                # input_responses (it takes no Context), so this can only be a
-                # mistake — reject it instead of JSON-dumping it as content.
-                raise ValueError(
-                    "static resources cannot return InputRequiredResult; only resource "
-                    "template functions participate in the multi-round-trip flow"
-                )
-            if isinstance(result, Resource):  # pragma: no cover
-                return await result.read()
-            elif isinstance(result, bytes):
-                return result
-            elif isinstance(result, str):
-                return result
-            else:
-                return pydantic_core.to_json(result, fallback=str, indent=2).decode()
-        except MCPError:
-            raise
-        except Exception as e:
-            raise ValueError(f"Error reading resource {self.uri}: {e}")
+        if isinstance(result, InputRequiredResult):
+            # A static resource function can never read the retry's
+            # input_responses (it takes no Context), so this can only be a
+            # mistake — reject it instead of JSON-dumping it as content.
+            raise ValueError(
+                "static resources cannot return InputRequiredResult; only resource "
+                "template functions participate in the multi-round-trip flow"
+            )
+        if isinstance(result, Resource):  # pragma: no cover
+            return await result.read()
+        elif isinstance(result, bytes):
+            return result
+        elif isinstance(result, str):
+            return result
+        else:
+            return pydantic_core.to_json(result, fallback=str, indent=2).decode()
 
     @classmethod
     def from_function(
@@ -183,12 +177,9 @@ class FileResource(Resource):
 
     async def read(self) -> str | bytes:
         """Read the file content."""
-        try:
-            if self.encoding is None:
-                return await anyio.to_thread.run_sync(self.path.read_bytes)
-            return await anyio.to_thread.run_sync(partial(self.path.read_text, encoding=self.encoding))
-        except Exception as e:
-            raise ValueError(f"Error reading file {self.path}: {e}")
+        if self.encoding is None:
+            return await anyio.to_thread.run_sync(self.path.read_bytes)
+        return await anyio.to_thread.run_sync(partial(self.path.read_text, encoding=self.encoding))
 
 
 class HttpResource(Resource):
@@ -228,18 +219,12 @@ class DirectoryResource(Resource):
         if not self.path.is_dir():
             raise NotADirectoryError(f"Not a directory: {self.path}")
 
-        try:
-            if self.pattern:
-                return list(self.path.glob(self.pattern)) if not self.recursive else list(self.path.rglob(self.pattern))
-            return list(self.path.glob("*")) if not self.recursive else list(self.path.rglob("*"))
-        except Exception as e:
-            raise ValueError(f"Error listing directory {self.path}: {e}")
+        if self.pattern:
+            return list(self.path.glob(self.pattern)) if not self.recursive else list(self.path.rglob(self.pattern))
+        return list(self.path.glob("*")) if not self.recursive else list(self.path.rglob("*"))
 
     async def read(self) -> str:  # Always returns JSON string  # pragma: no cover
         """Read the directory listing."""
-        try:
-            files = await anyio.to_thread.run_sync(self.list_files)
-            file_list = [str(f.relative_to(self.path)) for f in files if f.is_file()]
-            return json.dumps({"files": file_list}, indent=2)
-        except Exception as e:
-            raise ValueError(f"Error reading directory {self.path}: {e}")
+        files = await anyio.to_thread.run_sync(self.list_files)
+        file_list = [str(f.relative_to(self.path)) for f in files if f.is_file()]
+        return json.dumps({"files": file_list}, indent=2)

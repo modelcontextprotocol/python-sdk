@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 043f526230dd243d, 6ee3e9bcfd24047a]
+  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 864137b5e9c61e91, 043f526230dd243d, db1ef91db7d6b3f3]
   tool: 1
 ---
 # Медіа {#media}
@@ -86,6 +86,24 @@ result.structured_content  # None
     так `Audio` з байтів MP3 — і клієнту повідомлять `mime_type="audio/wav"`, після чого
     він сумлінно не зможе це декодувати. Передаєте `data=` — передавайте й `format=`.
 
+## Вбудовування ресурсу {#embedding-a-resource}
+
+Інструмент може повернути й документ: текст або байти разом з URI, за яким він доступний, і MIME-типом. Це **`EmbeddedResource`**, ще один різновид блока вмісту. На відміну від звичайного `str`, він повідомляє клієнту, що саме це за вміст, тож клієнт може показати його як вкладення або впізнати ресурс, який уже знає.
+
+```python title="server.py" hl_lines="7 14 16-18"
+--8<-- "docs_src/media/tutorial005.py"
+```
+
+* `brand://guidelines` — звичайний ресурс (про них — на сторінці **[Ресурси](resources.md)**). Інструмент на запит передає моделі той самий документ, а прямий виклик `guidelines()` зберігає єдине джерело істини.
+* `EmbeddedResource` і `TextResourceContents` беруться з `mcp.types`. Допоміжного класу, як для зображень, немає: побудований блок потрапляє в результат без змін, і `structured_content` теж немає.
+* Використовуйте URI, під яким ресурс зареєстровано, щоб клієнт міг зрозуміти, що вкладення й `brand://guidelines` — той самий документ. Дозволений будь-який URI, зареєстрований чи ні.
+
+```python
+result.content  # [EmbeddedResource(type="resource", resource=TextResourceContents(uri="brand://guidelines", mime_type="text/markdown", text="# Brand guidelines\n\n..."))]
+```
+
+Для двійкового вмісту замість `TextResourceContents` використовуйте `BlobResourceContents(uri=..., mime_type=..., blob=...)` з байтами в кодуванні base64 у полі `blob`. Щоб надіслати лише вказівник, за яким клієнт зможе пізніше виконати `resources/read`, поверніть натомість `ResourceLink(name=..., uri=...)` — це теж блок вмісту.
+
 ## Іконки {#icons}
 
 `Icon` — це метадані, а не вміст. Він не містить зображення, а вказує на нього через URI, і клієнт може завантажити його й показати поруч із назвою сервера, інструментом, ресурсом чи промптом.
@@ -115,6 +133,7 @@ client.server_info.icons  # [Icon(src="https://example.com/brand-kit.png", mime_
 
 * Поверніть з інструмента `Image` або `Audio` — і клієнт отримає блок `ImageContent` / `AudioContent`: ваші байти в кодуванні base64 з MIME-типом.
 * Створюйте їх із `path=`, і тоді MIME-тип визначить розширення, або з `data=` у пам'яті плюс явний `format=`.
+* Поверніть `EmbeddedResource`, щоб покласти в результат документ (текст або blob у base64 з його URI та MIME-типом), або `ResourceLink`, щоб надіслати лише вказівник.
 * Медіарезультати не мають ні `structured_content`, ні схеми виводу.
 * `Icon` — це вказівник: URI `src` плюс необов'язкові `mime_type`, `sizes` і `theme`.
 * `icons=[...]` працює на сервері, інструментах, ресурсах і промптах, а клієнти знаходять їх у відповідних об'єктах.

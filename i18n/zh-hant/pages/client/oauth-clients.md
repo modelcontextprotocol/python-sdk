@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, 63878d29e87c3e73, 13175843d3588af4, e7e2b9fd516f77de, 758f06399b513c1f, a05d7278487d610b]
+  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, c2dae1ebe2ebd543, 13175843d3588af4, df06056fb16b3846, 758f06399b513c1f, a05d7278487d610b]
   tool: 1
 ---
 # OAuth 用戶端 {#oauth-clients}
@@ -76,18 +76,20 @@ translation:
 
 `Client` 第一次送出請求時，伺服器回應 `401`。provider 接手：
 
-1. **探索。** 讀取 `WWW-Authenticate` 標頭，從 `/.well-known/oauth-protected-resource` 抓取伺服器的 Protected Resource Metadata，得知是哪個授權伺服器在保護這個資源，再去抓取**那個**伺服器的中繼資料。
+1. **探索。** 讀取 `WWW-Authenticate` 標頭，從 `/.well-known/oauth-protected-resource` 抓取伺服器的 Protected Resource Metadata，得知是哪個授權伺服器在保護這個資源，再去抓取**那個**伺服器的中繼資料。（較舊、沒有發布資源中繼資料的伺服器，則改向它自己的 origin 索取授權伺服器中繼資料。）無論哪種情況，中繼資料列出的 `issuer` 都必須就是它所屬的那個伺服器；不是的話一律拒絕。
 2. **註冊。** 儲存庫裡什麼都沒有？它會用你的 `OAuthClientMetadata` 動態註冊，並把結果存起來。
 3. **授權。** 產生 PKCE 配對和一個 `state`，組出授權 URL，await 你的 `redirect_handler`，接著 await 你的 `callback_handler` 取得授權碼。
 4. **交換。** 拿授權碼換得 `OAuthToken`，存起來，然後帶著 `Authorization: Bearer ...` 重送你原本的請求。
 
 之後它就很安靜。權杖從儲存庫拿出來用，過期的存取權杖用重新整理權杖更新，只有這些都行不通時才會重跑整個流程。
 
+有一條傳輸規則適用於所有這些請求：和它們所在的那個 MCP 請求一樣，重新導向只有在留在同一個 origin 且保持相同方法時才會跟隨（例如補上結尾斜線的 307/308），其他任何重新導向都視為那個 URL 沒有回應。
+
 這些你一行都沒寫。還剩兩個關鍵字引數（`client_metadata_url` 和 `validate_resource_url`），這個檔案兩個都用不到。值得認識的是 `client_metadata_url`，下面有它專屬的一節。
 
 ### 試試看 {#try-it}
 
-這份文件裡的大多數範例都能用記憶體內的 `Client(server)` 檢驗。這個不行：整個流程的重點就是一個 HTTP `401`，而記憶體內的用戶端和它的伺服器之間根本沒有 HTTP。
+測試裡用的記憶體內 `Client(server)` 在這裡幫不上忙：整個流程的重點就是一個 HTTP `401`，而記憶體內的用戶端和它的伺服器之間根本沒有 HTTP。
 
 儲存庫裡附有實際運作的版本。`examples/servers/simple-auth/` 會執行一個獨立的授權伺服器和一個受保護的 MCP 伺服器；`examples/clients/simple-auth-client/` 則是這一頁的用戶端長成的一個小型 CLI。它的 README 有那兩個指令：啟動伺服器、對著它們執行用戶端，就能看著上面四個步驟依序發生。
 
@@ -105,13 +107,14 @@ URL 必須是 HTTPS 且路徑不能是根路徑；否則在建構時就會引發
 
 `ClientCredentialsOAuthProvider` 是同一個 `httpx2.Auth`，只是少了人：
 
-```python title="client.py" hl_lines="4 27-33"
+```python title="client.py" hl_lines="4 27-34"
 --8<-- "docs_src/oauth_clients/tutorial002.py"
 ```
 
 改變的地方：
 
 * 沒有 `OAuthClientMetadata`，沒有處理函式。傳入 `client_id` 和 `client_secret`；provider 會圍繞它們建出一筆最精簡的 `client_credentials` 註冊，並完全跳過動態註冊。
+* `issuer` 指明發出這組憑證的授權伺服器；用它的 `/.well-known/oauth-authorization-server` 文件回傳的 `issuer` 值。探索仍照上面那樣執行，但權杖請求永遠只會用**那個** issuer 的中繼資料來組裝；如果 MCP 伺服器指向別的地方，流程會停下並引發 `OAuthFlowError`。省略它已棄用，3.0 起會變成必填（見 **[已棄用的功能](../deprecated.md#deprecated-sdk-helpers)**）；在那之前，provider 會發出警告，並使用探索找到的那個授權伺服器。
 * `scope` 是以空格分隔的字串，也就是 OAuth 的線路格式。
 * 下游的一切完全相同：同樣的 `TokenStorage`、同樣的 `httpx2.AsyncClient(auth=...)`、同樣的 `streamable_http_client`。
 
@@ -121,7 +124,7 @@ URL 必須是 HTTPS 且路徑不能是根路徑；否則在建構時就會引發
     `client_secret` 要從環境變數或祕密管理工具讀取，絕對不要放進版本控制。
 
 !!! info
-    `mcp.client.auth.extensions.client_credentials` 裡還有一個 provider：**`PrivateKeyJWTOAuthProvider`**，給用 JWT 而非共用 secret 來驗證的用戶端使用（`private_key_jwt`，也就是金鑰對與工作負載身分那一類）。它遵循同樣的模式：建構一個，放到 `auth=` 上。同一個模組還附了 `SignedJWTParameters` 和 `static_assertion_provider`，兩個用來建出其 assertion 的輔助工具。
+    `mcp.client.auth.extensions.client_credentials` 裡還有一個 provider：**`PrivateKeyJWTOAuthProvider`**，給用 JWT 而非共用 secret 來驗證的用戶端使用（`private_key_jwt`，也就是金鑰對與工作負載身分那一類）。它遵循同樣的模式：建構一個（它接受同樣選用的 `issuer`），放到 `auth=` 上。同一個模組還附了 `SignedJWTParameters` 和 `static_assertion_provider`，兩個用來建出其 assertion 的輔助工具。
 
 還有一種無人介入的情境：用戶端屬於某個企業，由企業的身分提供者（而非使用者）決定它可以連到哪些 MCP 伺服器。那是另一種授權類型，有自己的信任模型，也有自己的頁面：**[身分斷言](identity-assertion.md)**。
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, 8dd027377d46448b, f81491125dcbfe8b]
+  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, b47667184ca5b516, f81491125dcbfe8b]
   tool: 1
 ---
 # Multi-round-trip requests {#multi-round-trip-requests}
@@ -164,7 +164,7 @@ low-level `Server` बिना-batteries वाला स्तर है: `MCP
 
 ## एक 2026-07-28 result {#a-2026-07-28-result}
 
-`InputRequiredResult` सिर्फ़ protocol version **2026-07-28** पर मौजूद है। in-memory `Client(server)` इसे आपके लिए negotiate करता है; wire पर, `mode="auto"` इसे खोज लेता है। connect करने के बाद `client.protocol_version` बताता है कि आपको क्या मिला।
+`InputRequiredResult` सिर्फ़ protocol version **2026-07-28** पर मौजूद है। `Client` का default `mode="auto"` इसे किसी भी connection पर खोज लेता है। connect करने के बाद `client.protocol_version` बताता है कि आपको क्या मिला।
 
 !!! warning
     pre-2026 session के पास `InputRequiredResult` रखने की कोई जगह नहीं है। `mode="legacy"` connection पर

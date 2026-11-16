@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
+  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, 4cc0a00347c3f534, 4a0391691a674ae4, 2df5cd279eabf9f5]
   tool: 1
 ---
 # ロギング {#logging}
@@ -48,6 +48,8 @@ MCP にはプロトコルレベルの**ロギングのケイパビリティ**が
 デフォルトは `"INFO"` です。
 
 `logging.basicConfig()` は、すでに存在するハンドラーを置き換えることはありません。サーバーを作成する前に自分でロギングを設定していれば、その設定が優先されます。
+
+失敗を記録するためだけに、すべてのハンドラーに `try`/`except` を書く必要もありません。ツールやリソースの関数が例外を送出すると、SDK が代わりにログを出力します。何がどのレベルで記録されるかは、**[エラーの処理](../servers/handling-errors.md#any-other-exception)** で説明しています。
 
 ## 試してみる {#try-it}
 

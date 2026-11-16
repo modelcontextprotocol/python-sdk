@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [478fd619e5f90ef8, aef094a00e44e248, bab8cbf3449fa7e9, df1809b15a58335b, 5f9d8c2336ed0239, f54974398e43ddef, b24443dd78584870]
+  sections: [d98e337bf28845e0, dd642acbba36f615, f547b3e76da19c94, 149513378588da5c, 4e149ed992046709, f54974398e43ddef, b24443dd78584870]
   tool: 1
 ---
 # Protokollversionen {#protocol-versions}
@@ -11,9 +11,17 @@ Server, die vor 2026-07-28 veröffentlicht wurden, eröffnen jede Verbindung mit
 
 Darum musst du dich fast nie kümmern, denn `Client` handelt das für dich aus. Diese Seite behandelt das eine Konstruktorargument, das es steuert, `mode=`, und die drei Fälle, in denen du es änderst.
 
+Jedes Snippet auf dieser Seite ist eine `client.py`, die mit der Bookshop-`server.py` aus **[Der Client](client/index.md)** spricht. Starte diesen Server in einem Terminal:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+Führe dann jedes Snippet in einem zweiten Terminal mit `python client.py` aus.
+
 ## `mode="auto"` {#modeauto}
 
-```python title="client.py" hl_lines="14-15"
+```python title="client.py" hl_lines="7-8"
 --8<-- "docs_src/protocol_versions/tutorial001.py"
 ```
 
@@ -31,13 +39,14 @@ So oder so bist du am Ende verbunden, und `client.protocol_version` sagt dir, we
 Das ist das ganze Feature. Ein `Client`, Server jeder Generation, keine Verzweigung in deinem Code.
 
 !!! info
-    `MCPServer` beantwortet `server/discover` auf jedem Transport – In-Memory, stdio, Streamable
-    HTTP –, sodass `auto` gegen deinen eigenen Server immer bei `2026-07-28` landet. Der Fallback
-    greift nur gegen einen echten Server von vor 2026, und genau dann willst du ihn auch.
+    `MCPServer` beantwortet `server/discover` auf jedem Transport – Streamable HTTP, stdio und die
+    In-Process-Verbindung, die deine Tests verwenden –, sodass `auto` gegen deinen eigenen Server
+    immer bei `2026-07-28` landet. Der Fallback greift nur gegen einen echten Server von vor 2026,
+    und genau dann willst du ihn auch.
 
 ## `mode="legacy"` {#modelegacy}
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial002.py"
 ```
 
@@ -61,7 +70,7 @@ Bei 2026-07-28 ist er weg. Der Server *gibt* seine Fragen *zurück*, und du wied
 
 `mode` akzeptiert auch den String einer modernen Protokollversion. Heute ist diese Menge genau `["2026-07-28"]`.
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial003.py"
 ```
 
@@ -94,7 +103,7 @@ Die Sondierung ist billig, aber sie bleibt ein Roundtrip, den du bei jedem Neuve
 
 Also heb sie auf. Nach einer `auto`-Verbindung enthält `client.session.discover_result` genau das `DiscoverResult`, das der Server gesendet hat: seine `supported_versions`, seine `capabilities`, seine `instructions` und die Identität, die der Server in das `_meta` des Ergebnisses gestempelt hat. Gib es beim nächsten Mal als `prior_discover=` zurück:
 
-```python title="client.py" hl_lines="15 17"
+```python title="client.py" hl_lines="8 10"
 --8<-- "docs_src/protocol_versions/tutorial004.py"
 ```
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, e9be7a8d0eb0a456, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 90c6043be435fcb0]
+  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, 32ef568335dd95a7, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 0abc5ea5cb7ff6b3]
   tool: 1
 ---
 # 用戶端回呼 {#client-callbacks}
@@ -58,7 +58,7 @@ result.content  # [TextContent(type='text', text='Card issued to Ada Lovelace.')
 你送出一個 `tools/call`，伺服器回送一個 `elicitation/create`，由你的函式回答，全都發生在同一次工具呼叫之內。
 
 !!! info
-    `Client(...)` 呼叫上的 `mode="legacy"` 是真的有作用。預設情況下 `Client(...)` 會協商出現代的協定路徑，而這條路徑沒有讓伺服器向用戶端發請求的反向通道（back-channel）：`ctx.elicit` 在你的回呼有機會執行之前就失敗了。決定這件事的不是傳輸方式，而是協商出來的協定，記憶體內和透過 URL 連線都一樣。只要用戶端必須回應這類請求，就固定用 `mode="legacy"`；這一頁背後的每個測試都是這樣做的。完整說明請見 **[協定版本](../protocol-versions.md)**。
+    `Client(...)` 呼叫上的 `mode="legacy"` 是真的有作用。預設情況下 `Client(...)` 會協商出現代的協定路徑，而這條路徑沒有讓伺服器向用戶端發請求的反向通道（back-channel）：`ctx.elicit` 在你的回呼有機會執行之前就失敗了。決定這件事的不是傳輸方式，而是協商出來的協定。只要用戶端必須回應這類請求，就固定用 `mode="legacy"`；這一頁背後的每個測試都是這樣做的。完整說明請見 **[協定版本](../protocol-versions.md)**。
 
     在 2026-07-28 的工作階段（session）上，回呼並沒有失效，只是餵給它的方式不同：當工具回傳帶有 `ElicitRequest` 的 `InputRequiredResult` 時，`Client` 會把那個項目分派給同一個 `elicitation_callback`，並替你重試這次呼叫。這個流程就是 **[多輪往返（multi-round-trip）請求](../handlers/multi-round-trip.md)**。
 
@@ -139,4 +139,4 @@ result.structured_content  # {'result': ['elicitation']}
 * `sampling_callback` 和 `list_roots_callback` 的運作方式相同，但服務的是已棄用的功能；現代的伺服器改用多輪往返請求。
 * `logging_callback` 和 `message_handler` 接收通知。它們不宣告任何東西。
 
-`Client(...)` 的第一個引數是一個傳輸物件。**[用戶端傳輸方式](transports.md)** 涵蓋了每一種。
+`Client(...)` 的第一個引數決定傳輸方式。**[用戶端傳輸方式](transports.md)** 涵蓋了每一種。

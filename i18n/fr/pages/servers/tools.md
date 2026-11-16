@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, 8566e2b68594e9ad, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, c1115cd005b81e8f, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # Outils {#tools}
@@ -38,6 +38,8 @@ Regardez ce que vous avez écrit. Pas de schémas, pas de JSON, pas de protocole
 ```
 
 Les deux arguments figurent dans `required` parce qu’aucun n’a de valeur par défaut. Vous allez corriger cela dans un instant. (Les clés `title` sont des artefacts de Pydantic ; les propriétés, leurs types et `required` constituent le contrat.)
+
+Il n’y a pas non plus de clé `$schema` : MCP traite un schéma qui en est dépourvu comme du **JSON Schema 2020-12**, ce qui est justement ce que génère Pydantic. Il n’y a donc rien à choisir tant que vous n’écrivez pas vos schémas à la main avec le **[Server de bas niveau](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)**.
 
 !!! tip
     Ici, les annotations de type ne sont pas de la documentation. Elles sont **le contrat**. Si un client envoie `"limit": "ten"`,
@@ -139,7 +141,7 @@ Vous pouvez combiner librement : des paramètres simples à côté de paramètre
 
 Si un outil fait des E/S (appelle une API, lit un fichier, interroge une base de données), déclarez-le en `async def` et utilisez `await` à l’intérieur. Le SDK se charge de l’attendre.
 
-Un outil en simple `def` fonctionne aussi : le SDK l’exécute dans un thread, si bien qu’il ne bloque jamais le serveur.
+Un outil en simple `def` fonctionne aussi : le SDK l’exécute dans un thread, si bien qu’il ne bloque jamais le serveur. Un outil long peut vérifier si le client attend toujours ; consultez **[Annulation](../handlers/cancellation.md)**.
 
 Il n’y a rien d’autre à configurer.
 

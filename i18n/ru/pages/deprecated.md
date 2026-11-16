@@ -1,11 +1,11 @@
 ---
 translation:
-  sections: [20541a40dbdd5980, 01262a123ad9501d, 429db5b574a2ac08, 56b2d49da412cb28, 6a1717123fe4513c]
+  sections: [4c1dea378b2b1bf7, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, c3d1099701156881, e185a1b8e53669f6]
   tool: 1
 ---
 # Устаревшие возможности {#deprecated-features}
 
-Спецификация 2026-07-28 выводит из обращения пять возможностей. SDK по-прежнему реализует каждую из них, и каждая теперь выдаёт **предупреждение об устаревании**.
+Спецификация 2026-07-28 выводит из обращения пять возможностей. SDK по-прежнему реализует каждую из них, и каждая теперь выдаёт **предупреждение об устаревании**. Несколько устареваний на уровне самого SDK стоят особняком и перечислены [в конце страницы](#deprecated-sdk-helpers).
 
 В таблице ниже перечислены все устаревшие возможности, причина, по которой каждая уходит, и замена, на которую стоит опираться.
 
@@ -57,6 +57,55 @@ MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SE
     только на подключении с `mode="legacy"`, клиент которого зарегистрировал
     соответствующий колбэк.
 
+## `ping` в сессии старого поколения {#ping-on-a-legacy-session}
+
+**Ping** — это пустой запрос, который любая из сторон может отправить, чтобы проверить, что другая всё ещё отвечает. Спецификация 2026-07-28 его удаляет ([SEP-2575](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575)): каждый запрос современного клиента и так доказывает, что сервер на месте, а у современного сервера нет канала, чтобы отправить свой. Оба метода SDK по-прежнему работают в сессии поколения с рукопожатием. Со стороны клиента:
+
+```python
+async def main() -> None:
+    async with Client("http://localhost:8000/mcp", mode="legacy") as client:
+        await client.send_ping()  # warns; returns an EmptyResult
+```
+
+А со стороны сервера, внутри любого обработчика:
+
+```python
+@mcp.tool()
+async def check_client(ctx: Context) -> str:
+    """A tool that still pings the client mid-call."""
+    await ctx.session.send_ping()  # no warning; an EmptyResult while the client is connected
+    return "client answered"
+```
+
+* `client.send_ping()` при каждом вызове выдаёт `MCPDeprecationWarning`. На подключении по умолчанию (`2026-07-28`) сервер вместо этого отвечает `MCPError: Method not found`.
+* `ctx.session.send_ping()` предупреждения не выдаёт. На современном подключении он выбрасывает ту же ошибку об отсутствии обратного канала (back-channel), что и любой другой запрос по инициативе сервера.
+* Чтобы отвечать на ping, ни одной из сторон ничего регистрировать не нужно.
+
+## Уведомления об изменении корневых каталогов {#roots-change-notifications}
+
+Клиент поколения 2025, объявивший возможность корневых каталогов, может сообщить серверу, что папки его рабочей области изменились, отправив `notifications/roots/list_changed`; в ответ сервер заново запрашивает `roots/list`. Спецификация 2026-07-28 удаляет это уведомление вместе со всей остальной push-схемой работы с корневыми каталогами. На клиенте именно передача `list_roots_callback=` (**[Колбэки клиента](client/callbacks.md)**) объявляет `"roots": {"listChanged": true}`, а выполняет это обещание один вызов:
+
+```python
+async def open_folder(client: Client, uri: str, name: str) -> None:
+    """The user opened another folder: expose it through the roots callback, then tell the server."""
+    workspace.append(Root(uri=FileUrl(uri), name=name))
+    await client.send_roots_list_changed()
+```
+
+На стороне сервера принимающий обработчик регистрируется в низкоуровневом классе `Server`:
+
+```python
+async def roots_changed(ctx: ServerRequestContext, params: NotificationParams | None) -> None:
+    """The client's roots changed: ask for the new list."""
+    roots = (await ctx.session.list_roots()).roots
+
+
+server = Server("Bookshop", on_roots_list_changed=roots_changed)
+```
+
+* `workspace` — это список, который возвращает ваш `list_roots_callback`. `client.send_roots_list_changed()` выдаёт предупреждение, и ему нужен клиент с `mode="legacy"`: на современном подключении уведомление молча отбрасывается. После этого держите сессию открытой: последующий запрос `roots/list` от сервера придёт именно по ней.
+* У `MCPServer` нет точки подключения для этого уведомления. В низкоуровневом `Server` обработчик регистрируется параметром `on_roots_list_changed=` (он тоже устаревший и предупреждает при создании объекта). Полезной нагрузки уведомление не несёт, поэтому за новым списком обработчик вызывает `ctx.session.list_roots()`.
+
 ## Отключение предупреждения {#silencing-the-warning}
 
 В новом коде — не отключайте.
@@ -77,23 +126,35 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
     Разверните фильтр в обратную сторону — и получите бесплатный регрессионный тест.
     Добавьте `"error::mcp.MCPDeprecationWarning"` в параметр `filterwarnings` конфигурации
     pytest, и устаревший вызов будет **выбрасывать исключение**, а не предупреждать.
-    Инструмент `old_log`, который всё ещё вызывает `ctx.info()`, перестаёт проходить тест
-    и начинает сообщать:
+    Инструмент с именем `old_log`, который всё ещё вызывает `ctx.info()`, перестаёт проходить
+    тест: вызов возвращается с `is_error=True` и текстом `Error executing tool old_log`, а
+    перехваченный лог сервера называет виновника:
 
     ```text
-    Error executing tool old_log: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
+    mcp.shared.exceptions.MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
     ```
 
     Одна строка в конфигурации pytest — и устаревший вызов уже не сможет незаметно
     вернуться в кодовую базу, не провалив тест.
+
+## Устаревшие вспомогательные средства SDK {#deprecated-sdk-helpers}
+
+Это не изменения спецификации, а лишь способы использования SDK, у которых появилась лучшая замена. Они выдают то же предупреждение `MCPDeprecationWarning`, а в версии 3.0 прежняя форма будет удалена.
+
+| Устарело | Что делать вместо этого |
+|---|---|
+| `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()`, а затем `FuncMetadata.call_fn()`. Его вызывал только код, работающий с `FuncMetadata` напрямую (скажем, собственный подкласс `Tool`). |
+| `AuthSettings(resource_server_url=...)` без `validate_token_resource=` | Задайте его: при `True` сервер отклоняет bearer-токены, которые ваш верификатор не признаёт выпущенными для `resource_server_url`; `False` означает, что верификатор сам проверяет аудиторию токена (см. **[Авторизация](run/authorization.md#a-token-verifier)**). Незаданное значение ведёт себя как `False`; в версии 3.0 `True` станет значением по умолчанию всякий раз, когда задан `resource_server_url`. |
+| `ClientCredentialsOAuthProvider(...)` или `PrivateKeyJWTOAuthProvider(...)` без `issuer=` | Передайте `issuer=` с указанием сервера авторизации, который выдал учётные данные (см. **[Написание OAuth-клиентов](client/oauth-clients.md#machine-to-machine)**). Без него MCP-сервер сам решает, какой сервер авторизации их получит; в версии 3.0 этот именованный аргумент станет обязательным. |
 
 ## Итоги {#recap}
 
 * Спецификация 2026-07-28 объявляет устаревшими **корневые каталоги**, **сэмплирование** по инициативе сервера и протокольное **логирование** (всё — [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577)), ограничивает **прогресс** направлением от сервера к клиенту и удаляет **`ping`**.
 * Столбец с заменами указывает, куда идти дальше: **[Многораундовые запросы](handlers/multi-round-trip.md)** — для сэмплирования и корневых каталогов, **[Логирование](handlers/logging.md)** — для логирования, **[Прогресс](handlers/progress.md)** — для прогресса. `ping` не требует вообще ничего.
 * Устаревание носит рекомендательный характер: в передаваемых данных ничего не меняется, всё продолжает работать в сессиях до 2026 года, и появляется заметное предупреждение `MCPDeprecationWarning` (это `UserWarning`, поэтому оно включено по умолчанию).
-* Сэмплированию и корневым каталогам дополнительно нужен обратный канал (back-channel), которого в сессии 2026-07-28 нет. На современном подключении они выдают предупреждение, а затем выбрасывают исключение.
+* Сэмплированию и корневым каталогам дополнительно нужен обратный канал, которого в сессии 2026-07-28 нет. На современном подключении они выдают предупреждение, а затем выбрасывают исключение.
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` заглушает всю категорию; `"error::mcp.MCPDeprecationWarning"` в pytest превращает её в провал теста.
+* [Устаревания на уровне SDK](#deprecated-sdk-helpers) подчиняются тому же правилу: сейчас они предупреждают, а в версии 3.0 прежняя форма будет удалена.
 * Новый код не следует строить ни на одной из этих возможностей.
 
 Все остальные страницы этой документации описывают актуальный API.

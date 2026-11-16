@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, d18adbdbb835ea73]
+  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, ed4d17e894864056]
   tool: 1
 ---
 # 会话组 {#session-groups}
@@ -76,7 +76,7 @@ translation:
 ## 回顾 {#recap}
 
 * `ClientSessionGroup` 持有多条服务器连接，并把它们的工具、资源和提示词各自合并成一个 `dict`。
-* 每个服务器调用一次 `connect_to_server(params)`。它接受传输参数，从不接受 `Client` 所接受的服务器对象或 URL。
+* 每个服务器调用一次 `connect_to_server(params)`。它接受的是传输参数，从不接受 `Client` 所接受的 URL 或 `Transport`。
 * `group.call_tool(name, arguments)` 替你路由到拥有该工具的服务器。
 * 名称必须在整个组内唯一；两个都有 `search` 工具的服务器无法直接共存。
 * `component_name_hook=` 改写每个注册的名称。改变的是 dict 的键，线路上的名称不变。

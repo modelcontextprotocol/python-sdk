@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 043f526230dd243d, 6ee3e9bcfd24047a]
+  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 864137b5e9c61e91, 043f526230dd243d, db1ef91db7d6b3f3]
   tool: 1
 ---
 # メディア {#media}
@@ -81,6 +81,24 @@ result.structured_content  # None
 !!! check
     `data=` の場合はファイル名がないので、推測する材料がありません。`format=` を忘れると、SDK はデフォルトにフォールバックします。画像なら `image/png`、音声なら `audio/wav` です。この方法で MP3 のバイト列から `Audio` を作ると、クライアントには `mime_type="audio/wav"` と伝えられ、それを忠実に信じてデコードに失敗します。`data=` を渡すときは `format=` も渡してください。
 
+## リソースを埋め込む {#embedding-a-resource}
+
+ツールはドキュメントを返すこともできます。テキストまたはバイト列に、それが置かれている URI と MIME タイプを添えたものです。これが **`EmbeddedResource`** で、コンテンツブロックのもう 1 つの種類です。単純な `str` と違い、コンテンツが何であるかをクライアントに伝えるので、クライアントはそれを添付ファイルとして表示したり、すでに知っているリソースだと認識したりできます。
+
+```python title="server.py" hl_lines="7 14 16-18"
+--8<-- "docs_src/media/tutorial005.py"
+```
+
+* `brand://guidelines` は普通のリソースです（リソースについては **[リソース](resources.md)** で扱います）。このツールはリクエストに応じて同じドキュメントをモデルに渡します。`guidelines()` を直接呼び出すことで、情報源を 1 つに保っています。
+* `EmbeddedResource` と `TextResourceContents` は `mcp.types` にあります。画像のようなヘルパーはありません。組み立てたブロックはそのまま結果に入り、`structured_content` はありません。
+* リソースを登録したときの URI を使ってください。そうすれば、添付ファイルと `brand://guidelines` が同じドキュメントだとクライアントが判断できます。登録されているかどうかにかかわらず、どんな URI でも有効です。
+
+```python
+result.content  # [EmbeddedResource(type="resource", resource=TextResourceContents(uri="brand://guidelines", mime_type="text/markdown", text="# Brand guidelines\n\n..."))]
+```
+
+バイナリのコンテンツには、`TextResourceContents` の代わりに `BlobResourceContents(uri=..., mime_type=..., blob=...)` を使い、バイト列を base64 エンコードして `blob` に入れます。クライアントが後で `resources/read` できるポインターだけを送りたい場合は、代わりに `ResourceLink(name=..., uri=...)` を返してください。これもコンテンツブロックです。
+
 ## アイコン {#icons}
 
 `Icon` はメタデータであって、コンテンツではありません。画像そのものは運ばず、URI で画像を指し示します。クライアントはそれを取得して、サーバーの名前やツール、リソース、プロンプトの横に表示することがあります。
@@ -110,6 +128,7 @@ client.server_info.icons  # [Icon(src="https://example.com/brand-kit.png", mime_
 
 * ツールから `Image` または `Audio` を返すと、クライアントは `ImageContent` / `AudioContent` ブロックを受け取ります。バイト列が base64 エンコードされ、MIME タイプが付きます。
 * `path=` から作って拡張子に MIME タイプを決めさせるか、メモリ上の `data=` に明示的な `format=` を添えて作ります。
+* `EmbeddedResource` を返すとドキュメント（テキストまたは base64 の blob に、その URI と MIME タイプを添えたもの）を結果に入れられ、`ResourceLink` を返すとポインターだけを送れます。
 * メディアの結果には `structured_content` も出力スキーマもありません。
 * `Icon` はポインターです。`src` URI に、省略可能な `mime_type`、`sizes`、`theme` を加えたものです。
 * `icons=[...]` はサーバー、ツール、リソース、プロンプトのどれにも使え、クライアントは対応するオブジェクト上でそれらを見つけます。

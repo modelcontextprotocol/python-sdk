@@ -8,12 +8,13 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any, Literal, TypeVar, cast
+from typing import Any, Final, Literal, TypeVar, cast
 
 import anyio
 import anyio.lowlevel
 import mcp_types as types
 from mcp_types import (
+    HEADER_MISMATCH,
     INVALID_PARAMS,
     CacheableResult,
     CallToolResult,
@@ -40,6 +41,7 @@ from mcp_types import (
     ServerCapabilities,
 )
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+from pydantic import ValidationError
 from typing_extensions import deprecated
 
 from mcp.client._input_required import DEFAULT_INPUT_REQUIRED_MAX_ROUNDS, run_input_required_driver
@@ -47,7 +49,7 @@ from mcp.client._memory import InMemoryTransport
 from mcp.client._probe import negotiate_auto
 from mcp.client._transport import Transport
 from mcp.client.caching import CacheConfig, CacheMode, ClientResponseCache, InMemoryResponseCacheStore
-from mcp.client.extension import ClaimContext, ClientExtension, NotificationBinding, ResultClaim
+from mcp.client.extension import ClaimContext, ClientExtension, ClientExtensionBinding, NotificationBinding, ResultClaim
 from mcp.client.session import (
     ClientRequestContext,
     ClientSession,
@@ -79,9 +81,13 @@ ConnectMode = Literal["legacy", "auto"] | str
 initialize), or a modern protocol-version string (adopt directly). The ``str`` arm is for
 forward-compat; ``Client.__post_init__`` rejects anything outside that set at construction."""
 
+_RELIST_PAGE_CAP: Final = 100
+"""Page cap for the tools/list walk that follows a `HEADER_MISMATCH`: a paginator that never ends cannot hang a call."""
+
 _T = TypeVar("_T")
 _ResultT = TypeVar("_ResultT")
 _CacheableT = TypeVar("_CacheableT", bound=CacheableResult)
+_BoundT = TypeVar("_BoundT")
 
 _Connector = Callable[[AsyncExitStack, ConnectMode, bool], Awaitable["Dispatcher[Any]"]]
 """Resolved at ``__post_init__`` from the shape of ``server`` alone: enter whatever resources
@@ -268,17 +274,12 @@ class Client:
 
     Example:
         ```python
-        from mcp.client import Client
-        from mcp.server.mcpserver import MCPServer
+        import asyncio
 
-        server = MCPServer("test")
-
-        @server.tool()
-        def add(a: int, b: int) -> int:
-            return a + b
+        from mcp import Client
 
         async def main():
-            async with Client(server) as client:
+            async with Client("http://localhost:8000/mcp") as client:
                 result = await client.call_tool("add", {"a": 1, "b": 2})
 
         asyncio.run(main())
@@ -376,6 +377,7 @@ class Client:
     _connect: _Connector = field(init=False, repr=False, compare=False)
     _response_cache: ClientResponseCache | None = field(init=False, default=None, repr=False, compare=False)
     _folded_extensions: _FoldedExtensions = field(init=False, repr=False, compare=False)
+    _registered_extensions: tuple[ClientExtension, ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.mode not in ("legacy", "auto") and self.mode not in MODERN_PROTOCOL_VERSIONS:
@@ -389,6 +391,7 @@ class Client:
             )
 
         self._folded_extensions = _fold_extensions(self.extensions)
+        self._registered_extensions = tuple(self.extensions or ())
 
         srv = self.server
         if isinstance(srv, MCPServer):
@@ -492,6 +495,19 @@ class Client:
         if self._session is None:
             raise RuntimeError("Client must be used within an async context manager")
         return self._session
+
+    def extension(self, extension_type: type[ClientExtensionBinding[_BoundT]]) -> _BoundT:
+        """Return the typed API of a registered extension for this connection.
+
+        Raises:
+            RuntimeError: If the client is not connected.
+            ValueError: If no extension of this type was registered.
+        """
+        session = self.session
+        for extension in self._registered_extensions:
+            if isinstance(extension, extension_type):
+                return cast(ClientExtensionBinding[_BoundT], extension).bind(session)
+        raise ValueError(f"client extension {extension_type.__name__!r} is not registered")
 
     # TODO(maxisbey): the by-construction shape is for __aenter__ to return a connected-view
     # type whose protocol_version/server_capabilities are non-Optional fields,
@@ -780,10 +796,17 @@ class Client:
         exceptions propagate as-is. To receive the claimed shape yourself, use
         `client.session.call_tool(..., allow_claimed=True)`.
 
+        On a 2026-07-28 connection, a call the server rejects with `HEADER_MISMATCH`
+        (this client has not listed the tool, or its input schema changed since) is
+        resent once after refetching the tool listing. A second rejection is raised,
+        and so is the first when the listing cannot be refetched.
+
         Args:
             name: The name of the tool to call.
             arguments: Arguments to pass to the tool.
-            read_timeout_seconds: Timeout for each underlying `tools/call` round.
+            read_timeout_seconds: Timeout for each underlying `tools/call` round, and
+                for the whole re-list after a `HEADER_MISMATCH`. Defaults to this
+                client's `read_timeout_seconds`.
             progress_callback: Callback for progress updates.
             input_responses: Responses to seed the first call with (e.g. when
                 resuming from a persisted `InputRequiredResult`).
@@ -800,7 +823,7 @@ class Client:
                 conform to the negotiated protocol version.
         """
 
-        async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult | Result:
+        async def send(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult | Result:
             return await self.session.call_tool(
                 name,
                 arguments,
@@ -813,6 +836,21 @@ class Client:
                 # Input rounds resolve before a claimed result, so a claim may end any round.
                 allow_claimed=True,
             )
+
+        async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult | Result:
+            try:
+                return await send(r, s)
+            except MCPError as mismatch:
+                if mismatch.code != HEADER_MISMATCH or self.protocol_version not in MODERN_PROTOCOL_VERSIONS:
+                    raise
+                # The spec's recovery: the tool's listed schema is missing or stale, so re-list and resend once.
+                timeout = read_timeout_seconds if read_timeout_seconds is not None else self.read_timeout_seconds
+                try:
+                    with anyio.fail_after(timeout):
+                        await self._relist_tool(name)
+                except (MCPError, TimeoutError, ValidationError) as relist_error:
+                    raise mismatch from relist_error
+                return await send(r, s)
 
         result = await self._drive_input_required(await retry(input_responses, request_state), retry)
         if isinstance(result, CallToolResult):
@@ -947,6 +985,15 @@ class Client:
                 hit, complete=hit.next_cursor is None
             ),
         )
+
+    async def _relist_tool(self, name: str) -> None:
+        """Refetch the tool listing from the server, page by page, until a page lists `name`."""
+        cursor: str | None = None
+        for _ in range(_RELIST_PAGE_CAP):
+            page = await self.list_tools(cursor=cursor, cache_mode="refresh")
+            cursor = page.next_cursor
+            if cursor is None or any(tool.name == name for tool in page.tools):
+                return
 
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:

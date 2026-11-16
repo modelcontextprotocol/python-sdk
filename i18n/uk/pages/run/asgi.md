@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 70b9ece244ca1b0c, cba78e052898c3f6, f06bdb541cb0b469, fb82d526320b7cc3]
+  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 10394c6f16601638, cba78e052898c3f6, f06bdb541cb0b469, 6dc898ccc5a903f9]
   tool: 1
 ---
 # Додавання до наявного застосунку {#add-to-an-existing-app}
@@ -99,7 +99,7 @@ uvicorn server:app
 --8<-- "docs_src/asgi/tutorial004.py"
 ```
 
-Тепер клієнти під'єднуються до `/notes`, а не до `/notes/mcp`.
+Тепер клієнти під'єднуються до `/notes/`, а не до `/notes/mcp`.
 
 ## CORS для браузерних клієнтів {#cors-for-browser-clients}
 
@@ -142,4 +142,4 @@ uvicorn server:app
 * Браузерним клієнтам потрібен CORS: `allow_headers` для заголовків запиту `Mcp-*`, `expose_headers=["Mcp-Session-Id"]` для відповіді.
 * `@mcp.custom_route()` додає звичайні HTTP-кінцеві точки без автентифікації поруч із `/mcp`.
 
-Щойно сервер стане досяжним за справжньою URL-адресою, **[Клієнт](../client/index.md)** під'єднається до нього за цією URL-адресою, а не через об'єкт сервера.
+Щойно сервер стане досяжним за справжньою URL-адресою, **[Клієнт](../client/index.md)** під'єднається до нього за цією URL-адресою.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ca6988b7503cd2d3]
+  sections: [348f8697c6b12cd0]
   tool: 1
 ---
 # Avanzado {#advanced}
@@ -14,6 +14,8 @@ te estorba:
   personalizados propios.
 * **[Paginación](pagination.md)** y **[Middleware](middleware.md)**: dos cosas que
   *solo* puedes hacer en el `Server` de bajo nivel.
+* **[Parámetros de cabecera](header-parameters.md)**: permiten que un gateway enrute una llamada a una
+  herramienta según uno de sus argumentos.
 * **[Extensiones](extensions.md)** y **[MCP Apps](apps.md)**: la superficie de
   extensión del protocolo. Compón paquetes de extensión en un servidor o escribe los tuyos.
 

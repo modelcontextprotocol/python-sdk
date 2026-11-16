@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, e758745df6fb7b0a]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # Bereitstellen und skalieren {#deploy-scale}
@@ -46,6 +46,22 @@ Hinter einem echten Hostnamen bereitgestellt, weist genau dieser Standard **jede
     ihm nicht gefiel, taucht nur im Log des **Servers** auf, als einzelne Warnung. Ein frisch
     bereitgestellter Server, der jede Verbindung ablehnt, ist bis zum Beweis des Gegenteils eine Host-Allowlist.
     Auch **[Fehlerbehebung](../troubleshooting.md)** fängt hier an.
+
+## Hinter einem TLS-terminierenden Proxy {#behind-a-tls-terminating-proxy}
+
+Wenn TLS an einem Proxy endet (einem Ingress, einem Load Balancer, Caddy, nginx) und uvicorn dahinter unverschlüsseltes HTTP ausliefert, weise uvicorn an, den `X-Forwarded-*`-Headern des Proxys zu vertrauen:
+
+```console
+uvicorn server:app --proxy-headers --forwarded-allow-ips='<proxy address>'
+```
+
+Ohne das glaubt die App, sie werde über `http://` ausgeliefert, und jeder Redirect, den sie auslöst (der übliche ist `/mcp` → `/mcp/`), zeigt auf `http://…`. Der Python-Client weigert sich, von einem HTTPS-Endpunkt zu unverschlüsseltem HTTP zu folgen, und sagt das auch:
+
+```text
+MCPError: Redirect to http://mcp.example.com/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+```
+
+Die clientseitige Notlösung ist, genau die URL zu konfigurieren, die der Server ausliefert (`https://mcp.example.com/mcp/`, Schrägstrich inklusive), sodass kein Redirect passiert. Die eigentliche Lösung ist das Flag oben. `FORWARDED_ALLOW_IPS` ist die Schreibweise als Umgebungsvariable; `*` vertraut jedem Hop, was nur richtig ist, wenn nichts außer dem Proxy uvicorn erreichen kann.
 
 ## Worker – und wer sticky sein muss {#workers-and-who-has-to-be-sticky}
 
@@ -157,6 +173,7 @@ Dem Fan-out ist es egal, an welchem Server-Objekt ein Stream hängt. Zwei Server
 * Über echte Prozesse hinweg **liefert das SDK keinen Bus mit, der dir helfen kann.** `SubscriptionBus` ist ein `Protocol` mit zwei Methoden (`publish` und `subscribe`), das du über deinem eigenen Pub/Sub-Backend implementierst (Redis, NATS, was auch immer du schon betreibst) und als `MCPServer(subscriptions=...)` übergibst. Die Skizze und den Vertrag findest du in **[Abonnements](../handlers/subscriptions.md#scaling-past-one-process)**.
 * Der Bus transportiert vier kleine typisierte Events, nie JSON-RPC. Bestätigung, Filterung und Stream-Lebenszyklus bleiben im SDK, sodass dein Bus das Protokoll nicht kaputt machen kann; er kann nur Events zwischen Prozessen bewegen.
 * Streams sind **nicht** wiederaufnehmbar, und Events werden **nicht** erneut abgespielt. Fällt ein Replikat weg, fallen seine Streams weg; die Clients lauschen erneut und holen die Daten erneut ab. Es gibt keinen Event Store zu teilen und sonst nichts zu konfigurieren. Das ist die eine Stelle, an der horizontales Skalieren wirklich nur mehr vom Gleichen ist.
+* Ein Server, der keine Änderungsbenachrichtigungen braucht, lässt den Bus weg: **[schalte sie ab](../handlers/subscriptions.md#turning-it-off)**.
 
 ## Was das SDK dir nicht gibt {#what-the-sdk-does-not-give-you}
 
@@ -170,6 +187,7 @@ Ein `MCPServer` ist eine Protokollimplementierung, kein Anwendungsserver. Die De
 ## Zusammenfassung {#recap}
 
 * Ohne weitere Konfiguration beantwortet die App nur Requests an localhost. `transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])` ist die Schranke zum Livegang: Bis du es übergibst, ist jeder Request hinter einem echten Hostnamen ein `421`, und der Grund steht nur im Log des Servers.
+* Hinter einem TLS-terminierenden Proxy startest du uvicorn mit `--proxy-headers --forwarded-allow-ips=...`, sonst zeigen seine Redirects auf `http://`, und der Client lehnt sie ab.
 * Auf 2026-07-28 gibt es keine Session und nichts, woran ein Load Balancer sticky sein könnte. `stateless_http=True` ist ein reiner Legacy-Schalter, weil ein moderner Request geroutet und beantwortet ist, bevor dieses Flag überhaupt gelesen wird.
 * Der Standardschlüssel für `requestState` ist `os.urandom(32)`, pro Prozess erzeugt. Ein Multi-Roundtrip-Retry, der bei einem anderen Worker landet, scheitert mit `-32602` *„Invalid or expired requestState“*.
 * Die Lösung ist `RequestStateSecurity(keys=[...])` **und** derselbe Servername auf jeder Instanz. Der Name ist der Standard-Audience-Claim des Tokens. Dieselben Schlüssel, derselbe Name.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 7ffc91f5e38bdfe0, 717d3f235a8333a7, f471a13b2fe5d737, ed6af2df4b656dff]
+  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 6eba6ce094f4417e, 125f28588c85dd7b, ddd8969b698ca11c, ed6af2df4b656dff]
   tool: 1
 ---
 # 拡張機能 {#extensions}
@@ -49,7 +49,7 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 役に立つ最小の拡張機能は、ツール 1 つと設定マップ 1 つです。
 
-```python title="server.py" hl_lines="17 19-20 22-23 26"
+```python title="server.py" hl_lines="16 18-19 21-22 25"
 --8<-- "docs_src/extensions/tutorial003.py"
 ```
 
@@ -57,17 +57,23 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 * `settings()` は `capabilities.extensions["com.example/stamps"]` にアドバタイズされる値です。設定なしで拡張機能をアドバタイズするには `{}`（デフォルト）を返してください。
 * 拡張機能がサーバーを受け取ることはありません。提供するものをデータとして宣言し、`MCPServer` がそれを消費します。書き換えられる `self.server` はありません。
 
-そして `main()` がその証明です。`mcp` に直接つなぐインメモリのクライアントです。
+HTTP で配信すれば、クライアントがその証明になります。
 
-```python title="server.py" hl_lines="29-34"
---8<-- "docs_src/extensions/tutorial003.py"
+```console
+uv run mcp run server.py --transport streamable-http
 ```
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/extensions/tutorial003_client.py"
+```
+
+このページの `server.py` はどれもこのコマンドで配信し、`client.py` はどれもその横で、2 つ目のターミナルから `python client.py` で実行します。
 
 ### 独自メソッドの提供 {#serving-your-own-methods}
 
 拡張機能は**新しいリクエストメソッド**を登録できます。仕様のメソッドと並んで配信される、独自の動詞（verb）です。
 
-```python title="server.py" hl_lines="16-22 31 40-48"
+```python title="server.py" hl_lines="14-20 24 33-41"
 --8<-- "docs_src/extensions/tutorial004.py"
 ```
 
@@ -83,14 +89,15 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 ### クライアント側 {#the-client-side}
 
-同じファイルの `main()` に、クライアント側の話がすべて、その両半分とも入っています。
+クライアントは独立したプログラムで、クライアント側の話の両半分を担っています。
 
-```python title="server.py" hl_lines="54-58"
---8<-- "docs_src/extensions/tutorial004.py"
+```python title="client.py" hl_lines="21-23 27-30"
+--8<-- "docs_src/extensions/tutorial004_client.py"
 ```
 
 * `Client(..., extensions=[advertise(EXTENSION_ID)])` が拡張機能を宣言します。宣言は `ClientCapabilities.extensions` になります。2026-07-28 接続では、このマップはリクエストごとの `_meta` エンベロープで運ばれるため、サーバーは**すべての**リクエストでそれを見ます。レガシー接続では `initialize` ハンドシェイクに載ります。サーバーのコードはどちらでも気にしません。`require_client_extension(ctx, ...)` と `ctx.session.check_client_capability(...)` は、どちらの経路でも正しい情報源を読みます。
 * ベンダーメソッドは 1 層下がって `client.session.send_request(...)` を使います。`Client` がファーストクラスのメソッドを増やすのは仕様の動詞に対してだけです。`send_request` はどんな `Request` サブクラスも受け付けるため、ベンダーリクエストはそのまま渡せます。
+* `SearchRequest` と、それが運ぶ 2 つのモデルは拡張機能の通信上の契約なので、クライアントは自分でそれらを宣言します。公開された拡張機能なら、両側がインポートするパッケージに含めて配布するでしょう。
 
 ### `tools/call` のインターセプト {#intercepting-toolscall}
 
@@ -109,10 +116,16 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 ## クライアント拡張機能を使う {#using-a-client-extension}
 
-**クライアント拡張機能**は、同じ契約を利用する側から見たものです。1 つの識別子の下にまとめられたクライアント側の振る舞い一式です。インスタンスを `Client(extensions=[...])` に渡し、通常どおりツールを呼び出します。
+**クライアント拡張機能**は、同じ契約を利用する側から見たものです。1 つの識別子の下にまとめられたクライアント側の振る舞い一式です。ここでのサーバーは `buy` に対して、品物ではなく引き換え用のレシートで答えます。ただし、拡張機能を宣言したクライアントに対してだけです。
 
-```python title="client.py" hl_lines="66-68"
+```python title="server.py" hl_lines="22-25"
 --8<-- "docs_src/extensions/tutorial006.py"
+```
+
+クライアントでは、インスタンスを `Client(extensions=[...])` に渡し、通常どおりツールを呼び出します。
+
+```python title="client.py" hl_lines="33-35"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 `call_tool("buy", ...)` は、他のすべての呼び出しと同様にプレーンな `CallToolResult` を返します。拡張機能が変えたのは次の点です。サーバーは `buy` に対して、最終結果の代わりに `receipt` という**結果の形状**で答えられるようになり、`call_tool` が戻る前に `Receipts` がそれを完了させます（ここでは後続の呼び出しでレシートを引き換えます）。呼び出し側のコードは何も変わりません。
@@ -124,15 +137,15 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 ```python
 from mcp.client import advertise
 
-client = Client(mcp, extensions=[advertise("com.example/search")])
+client = Client("http://localhost:8000/mcp", extensions=[advertise("com.example/search")])
 ```
 
 ## クライアント拡張機能を書く {#writing-a-client-extension}
 
 `ClientExtension` をサブクラス化し、必要なものだけをオーバーライドします。提供できるものは 3 種類で、それぞれにデフォルトがあります。`settings()`、`claims()`、`notifications()` です。
 
-```python title="client.py" hl_lines="17-18 43-44 46-47"
---8<-- "docs_src/extensions/tutorial006.py"
+```python title="client.py" hl_lines="16-17 25-26 28-29"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 * 識別子はサーバー側と同じ文法に従い、クラスの定義時に検証されます。
@@ -153,10 +166,16 @@ def notifications(self) -> Sequence[NotificationBinding[Any]]:
 
 ### 拡張機能の動詞 {#extension-verbs}
 
-拡張機能独自のリクエストメソッドには、クライアント側の登録は不要です。ベンダーリクエスト型は `mcp.types.Request` をサブクラス化し、[独自メソッドの提供](#serving-your-own-methods)と同様に `client.session.send_request` を通ります。追加が 1 つあります。パラメーターのキーを `Mcp-Name` ヘッダーに載せなければならない場合（tasks のような拡張機能の仕様では、その動詞にこれが必要です）、リクエスト型は `name_param` を宣言します。
+拡張機能独自のリクエストメソッドには、クライアント側の登録は不要です。ベンダーリクエスト型は `mcp.types.Request` をサブクラス化し、[独自メソッドの提供](#serving-your-own-methods)と同様に `client.session.send_request` を通ります。名前付きのジョブに関する動詞を 1 つ、拡張機能が配信するサーバーを例に取りましょう。
 
-```python title="client.py" hl_lines="22-25 46-47"
+```python title="server.py" hl_lines="12-13 30"
 --8<-- "docs_src/extensions/tutorial007.py"
+```
+
+クライアント側での追加が 1 つあります。パラメーターのキーを `Mcp-Name` ヘッダーに載せなければならない場合（tasks のような拡張機能の仕様では、その動詞にこれが必要です）、リクエスト型は `name_param` を宣言します。
+
+```python title="client.py" hl_lines="20-23 28-29"
+--8<-- "docs_src/extensions/tutorial007_client.py"
 ```
 
 セッションはどの送信経路でも `params["jobId"]` を `Mcp-Name` に反映し、値が欠けている場合は必須ヘッダーを黙って省くのではなく、はっきりとエラーになります。

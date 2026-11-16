@@ -65,7 +65,12 @@ from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestCon
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import serve_dual_era_loop
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import (
+    DEFAULT_MAX_SESSIONS,
+    DEFAULT_SESSION_IDLE_TIMEOUT,
+    StreamableHTTPASGIApp,
+    StreamableHTTPSessionManager,
+)
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPDeprecationWarning
@@ -138,6 +143,7 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        get_tool_input_schema: Callable[[str], Mapping[str, Any] | None] | None = None,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -221,6 +227,7 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        get_tool_input_schema: Callable[[str], Mapping[str, Any] | None] | None = None,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -313,6 +320,7 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        get_tool_input_schema: Callable[[str], Mapping[str, Any] | None] | None = None,
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -420,6 +428,14 @@ class Server(Generic[LifespanResultT]):
         # after the handler returns; fields the handler set explicitly win.
         self.cache_hints: dict[str, CacheHint] = validate_cache_hints(cache_hints)
         self.lifespan = lifespan
+        self.get_tool_input_schema = get_tool_input_schema
+        """Returns a tool's input schema by name, or `None` when there is nothing to validate.
+
+        When set, `Mcp-Param-*` header validation on the 2026-07-28 Streamable HTTP
+        path calls this instead of running the `tools/list` handler. It is called
+        before middleware runs, so it is not scoped to the caller. If it raises,
+        the error is logged and the call is served unvalidated.
+        """
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._session_manager: StreamableHTTPSessionManager | None = None
@@ -540,8 +556,8 @@ class Server(Generic[LifespanResultT]):
             description=self.description,
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
-                experimental_capabilities or {},
-                extensions if extensions is not None else self.extensions,
+                experimental_capabilities,
+                extensions,
             ),
             instructions=self.instructions,
             website_url=self.website_url,
@@ -722,6 +738,8 @@ class Server(Generic[LifespanResultT]):
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
         max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
+        session_idle_timeout: float | None = DEFAULT_SESSION_IDLE_TIMEOUT,
+        max_sessions: int | None = DEFAULT_MAX_SESSIONS,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
         auth: AuthSettings | None = None,
@@ -747,6 +765,8 @@ class Server(Generic[LifespanResultT]):
             stateless=stateless_http,
             security_settings=transport_security,
             max_request_body_size=max_request_body_size,
+            session_idle_timeout=session_idle_timeout,
+            max_sessions=max_sessions,
         )
         self._session_manager = session_manager
 
@@ -767,7 +787,10 @@ class Server(Generic[LifespanResultT]):
                 middleware = [
                     Middleware(
                         AuthenticationMiddleware,
-                        backend=BearerAuthBackend(token_verifier),
+                        backend=BearerAuthBackend(
+                            token_verifier,
+                            resource_server_url=auth.resource_server_url if auth.validate_token_resource else None,
+                        ),
                     ),
                     Middleware(AuthContextMiddleware),
                 ]

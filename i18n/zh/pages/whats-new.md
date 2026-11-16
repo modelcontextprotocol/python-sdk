@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 11d93f1fa09eadf5, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, bd42ee3a268f6ea4, 875eb2889263424e]
   tool: 1
 ---
 # v2 的新变化 {#whats-new-in-v2}
@@ -37,13 +37,13 @@ mcp = MCPServer("Demo")  # v1: FastMCP("Demo")
 
 v1 交给你的是三层嵌套：一个产出原始流的传输上下文管理器，包在外面的 `ClientSession`，再加上手动调用的 `await session.initialize()`。v2 只有一个对象：
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client` 接受一个服务器对象（内存直连，没有传输：这就是测试的做法）、一个 URL（Streamable HTTP），或者任意传输上下文管理器，比如 `stdio_client(...)`。进入 `async with` 就会建立连接并协商协议版本，不管服务器讲的是哪一代协议；之后 `client.server_capabilities` 和 `client.protocol_version` 直接就在那里，服务器表明身份时 `client.server_info` 也一样（它现在是 `Implementation | None`，因为 2026 版的身份信息是可选的）。你在 v1 注册的采样和征询回调仍然能用（它们的函数体会看到和本页其他地方一样的 snake_case 属性重命名），现在还会回答 2026 风格的、嵌在结果里的请求（见下文），并且是并发运行而不是一次一个。想要底层接口的人仍然可以用底下的 `ClientSession`，`client.session` 会把它交给你；它也变了（运行在新的调度器引擎上，自身的一些签名也改了），所以下探之前先读 **[迁移指南](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**。
+`Client` 接受一个 URL（Streamable HTTP）、一个 `StdioServerParameters`（stdio 子进程）、其他任意传输上下文管理器（比如 `sse_client(...)`），或者在测试里直接接受服务器对象本身（内存直连，没有传输）。进入 `async with` 就会建立连接并协商协议版本，不管服务器讲的是哪一代协议；之后 `client.server_capabilities` 和 `client.protocol_version` 直接就在那里，服务器表明身份时 `client.server_info` 也一样（它现在是 `Implementation | None`，因为 2026 版的身份信息是可选的）。你在 v1 注册的采样和征询回调仍然能用（它们的函数体会看到和本页其他地方一样的 snake_case 属性重命名），现在还会回答 2026 风格的、嵌在结果里的请求（见下文），并且是并发运行而不是一次一个。想要底层接口的人仍然可以用底下的 `ClientSession`，`client.session` 会把它交给你；它也变了（运行在新的调度器引擎上，自身的一些签名也改了），所以下探之前先读 **[迁移指南](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**。
 
-**[Client](client/index.md)** 介绍它，**[客户端传输](client/transports.md)** 讲三种连接形式，**[客户端回调](client/callbacks.md)** 讲回调本身，**[测试](get-started/testing.md)** 展示取代 v1 `create_connected_server_and_client_session()` 辅助函数的内存模式。
+**[Client](client/index.md)** 介绍它，**[客户端传输](client/transports.md)** 讲四种连接形式，**[客户端回调](client/callbacks.md)** 讲回调本身，**[测试](get-started/testing.md)** 展示取代 v1 `create_connected_server_and_client_session()` 辅助函数的内存模式。
 
 ### 底层 `Server` 是重建，不是改名 {#the-low-level-server-was-rebuilt-not-renamed}
 
@@ -129,7 +129,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentB
 重命名会自己跳出来提醒你。下面这些不会：
 
 * **同步函数在工作线程上运行。** `def` 定义的工具（或资源、提示词、解析器）不再阻塞事件循环；代价是它的函数体不再 **在** 事件循环线程上运行，这对有线程亲和性的代码有影响。`async def` 处理函数不受影响。**[迁移指南](migration.md#sync-handler-functions-now-run-on-a-worker-thread)**。
-* **在工具内部抛出的 `MCPError`（v1 的 `McpError`）现在是协议错误。** 模型永远看不到它。其他所有异常仍然会变成模型能读到并做出反应的 `is_error=True` 结果。两者的划分见 **[错误处理](servers/handling-errors.md)**。
+* **在工具内部抛出的 `MCPError`（v1 的 `McpError`）现在是协议错误。** 模型永远看不到它。其他所有异常仍然会变成 `is_error=True` 结果，但只有 `ToolError` 的消息能到达模型：其他任何异常现在显示为 `Error executing tool <name>`，traceback 则写进你的服务器日志。两者的划分见 **[错误处理](servers/handling-errors.md)**。
 * **结果在发出之前会被校验。** 手工构建的 `Tool` 如果 `input_schema` 是 `{}`，现在会让 `tools/list` 失败（规范要求 `"type": "object"`）。基于 `@mcp.tool()` 构建的服务器永远不会遇到这个；它们的模式是 SDK 写的。
 * **你的客户端会校验收到的东西。** `list_tools()` 和 `call_tool()` 会按协商好的协议版本检查服务器的答复，所以 v1 宽松解析能容忍的不太合规的服务器，现在会抛 `pydantic.ValidationError`。如果你连接的是自己不控制的服务器，要做好由你来发现它们的准备；细节见 **[迁移指南](migration.md#client-validates-inbound-traffic-against-the-protocol-schema)**。
 * **URI 模板现在是真正的 RFC 6570。** `{+path}`、`{?query}` 之类都能用，匹配是精确的而不是正则式的宽松匹配，提取出的值里的路径穿越默认会被拒绝。更严格的模板在装饰时就失败，而不是等到第一个请求。**[URI 模板](servers/uri-templates.md)**。
@@ -166,11 +166,15 @@ v2 实现了 2026-07-28 修订版，并且同时服务 **两个** 修订版：�
 
 替代方案把调用反了过来。需要从用户那里拿东西的工具把问题 **返回** 出去（`InputRequiredResult`），客户端用它一直都有的那些回调来回答，然后调用会带着答案重试。`Client` 替你驱动这个循环。在服务器上你很少自己构建这个结果，因为 **[依赖](handlers/dependencies.md)** 会做这件事：用 `Resolve(ask_quantity)` 注解一个参数，其中 `ask_quantity` 是你写的普通函数，SDK 就会通过连接所支持的机制去问——在旧版会话上是实时的征询请求，在 2026 上是多轮往返。一个工具函数体，两代协议：
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-这个文件把卖点集中在了一处：一个服务器，一个由 `Resolve` 支撑的工具，一个旧版客户端加一个新版客户端都拿到了各自的答案，全在内存里。**[多轮往返请求](handlers/multi-round-trip.md)** 解释这个机制（包括 `request_state`，SDK 会替你密封并验证它）；**[征询](handlers/elicitation.md)** 讲提问的部分。
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+这两个文件就是全部卖点：一个服务器，一个由 `Resolve` 支撑的工具，一个旧版客户端加一个新版客户端都从同一个正在运行的服务器拿到了各自的答案（**[服务旧版客户端](run/legacy-clients.md)** 会逐步讲解它们）。**[多轮往返请求](handlers/multi-round-trip.md)** 解释这个机制（包括 `request_state`，SDK 会替你密封并验证它）；**[征询](handlers/elicitation.md)** 讲提问的部分。
 
 !!! warning "这是移植过来的 v1 服务器唯一会改变行为的地方"
     你自己的测试会最先碰到它：`Client(mcp)` 默认会和你的 v2 服务器协商出 2026-07-28，所以调用 `ctx.elicit()` 的工具会在一个 v1 上能通过的测试里失败。把问题挪进一个 `Resolve(...)` 参数（两代通用），或者如果你确实想要推送行为，就把测试客户端固定为 `mode="legacy"`。
@@ -192,7 +196,7 @@ v2 实现了 2026-07-28 修订版，并且同时服务 **两个** 修订版：�
 ### 其余变化速览 {#the-rest-quickly}
 
 * **身份信息是可选的、按消息携带的元数据。** 请求侧的 `clientInfo` `_meta` 键是可选的（必需的一对是 `protocolVersion` + `clientCapabilities`），`serverInfo` 则从 `server/discover` 的结果体里搬了出来：服务器改为把它盖进每个 2026 版结果的 `_meta` 里（[规范 #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)）。SDK 总是会盖；服务器不表明身份时（比如某个中间件剥掉了这个键），`client.server_info` 就是 `None`。**[底层 Server](advanced/low-level-server.md)** 展示了线路上的这个印记。
-* **请求不用解析请求体就能路由。** 新版 HTTP 请求带有 `Mcp-Method`（对三个类似工具的调用，还有 `Mcp-Name`）；用 `x-mcp-header` 注解的工具输入模式属性会被镜像成一个 `Mcp-Param-*` 头，并由服务器交叉核对（[SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)）。网关和限流器单凭请求头就能路由；规则见 **[迁移指南](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)**。
+* **请求不用解析请求体就能路由。** 新版 HTTP 请求带有 `Mcp-Method`（对三个类似工具的调用，还有 `Mcp-Name`）；用 `x-mcp-header` 注解的工具输入模式属性会被镜像成一个 `Mcp-Param-*` 头，并由服务器交叉核对（[SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)）。网关和限流器单凭请求头就能路由。**[请求头参数](advanced/header-parameters.md)** 展示了如何标记参数。
 * **结果带有缓存提示。** 列表和读取结果声明 `ttlMs` 和 `cacheScope`（[SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)）；用 `cache_hints=` 按方法设置它们，`Client` 则用内置的响应缓存来遵守它们。不发送提示的服务器（所有 2026 之前的服务器）看到的是完全相同、未经缓存的流量。**[缓存提示](client/caching.md)**。
 * **扩展是一等公民。** 服务器和客户端在反向 DNS 标识符下声明可选的能力包（[SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)）；内置的 `Apps` 扩展（MCP Apps）是参考实现。**[扩展](advanced/extensions.md)** 和 **[MCP Apps](advanced/apps.md)**。
 * **错误码标准化了。** 不存在的资源是 `-32602`，URI 放在 `error.data` 里，新的规范保留码有 `-32020`（头不匹配）、`-32021`（缺少必需的能力）和 `-32022`（不支持的协议版本）。**[故障排查](troubleshooting.md)** 按确切的消息文本编排。

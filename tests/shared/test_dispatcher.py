@@ -45,7 +45,7 @@ def echo_handlers(recorder: Recorder) -> tuple[OnRequest, OnNotify]:
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
         # Strip `_meta` so JSON-RPC and direct dispatch record identically:
-        # the JSON-RPC outbound path always attaches `_meta` (otel injection).
+        # the JSON-RPC outbound path attaches `_meta` under a live tracer (otel injection).
         recorded = {k: v for k, v in (params or {}).items() if k != "_meta"} if params is not None else None
         recorder.requests.append((method, recorded))
         recorder.contexts.append(ctx)
@@ -228,6 +228,28 @@ async def test_ctx_progress_is_noop_when_caller_supplied_no_callback(pair_factor
         with anyio.fail_after(5):
             result = await client.send_raw_request("tools/call", None)
     assert result == {"ok": True}
+
+
+@pytest.mark.anyio
+async def test_raising_on_progress_callback_is_logged_and_request_still_succeeds(
+    pair_factory: PairFactory, caplog: pytest.LogCaptureFixture
+):
+    """A caller's `on_progress` callback that raises is logged and does not fail the request (SDK-defined)."""
+
+    async def server_on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        await ctx.progress(0.5)
+        return {"ok": True}
+
+    async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+        raise RuntimeError("progress callback boom")
+
+    async with running_pair(pair_factory, server_on_request=server_on_request) as (client, *_):
+        with anyio.fail_after(5):
+            result = await client.send_raw_request("tools/call", None, {"on_progress": on_progress})
+    assert result == {"ok": True}
+    assert "progress callback raised" in caplog.text
 
 
 @pytest.mark.anyio

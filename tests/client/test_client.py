@@ -114,7 +114,6 @@ async def test_client_is_initialized(app: MCPServer):
     async with Client(app, mode="legacy") as client:
         assert client.server_capabilities == snapshot(
             ServerCapabilities(
-                experimental={},
                 prompts=PromptsCapability(list_changed=False),
                 resources=ResourcesCapability(subscribe=False, list_changed=False),
                 tools=ToolsCapability(list_changed=False),
@@ -159,15 +158,13 @@ async def test_client_list_tools(app: MCPServer):
                         name="greet",
                         description="Greet someone by name.",
                         input_schema={
-                            "properties": {"name": {"title": "Name", "type": "string"}},
+                            "properties": {"name": {"type": "string"}},
                             "required": ["name"],
-                            "title": "greetArguments",
                             "type": "object",
                         },
                         output_schema={
-                            "properties": {"result": {"title": "Result", "type": "string"}},
+                            "properties": {"result": {"type": "string"}},
                             "required": ["result"],
-                            "title": "greetOutput",
                             "type": "object",
                         },
                     )

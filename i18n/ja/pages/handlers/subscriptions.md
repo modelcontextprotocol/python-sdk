@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [60a9de8a0bdaa531, 317bbe7e4355cdcc, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, 266f56fb798068a4, 7c0e57030b622139, df18d7c2417a9883]
+  sections: [60a9de8a0bdaa531, 6693607ea56d8bd6, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, b8bc624a627ead9b, 2139e68e36d9e621, 7c0e57030b622139, 34ab1af2b9ab5b45]
   tool: 1
 ---
 # サブスクリプション {#subscriptions}
@@ -22,7 +22,7 @@ translation:
 * 兄弟にあたるのが `notify_prompts_changed()` と `notify_resources_changed()` です。
 * サブスクライバーがいなければ、何も起こりません。アイドル状態のサーバーへの発行は no-op なので、誰かが聞いているかどうかを確認することはありません。何が変わったかを述べるだけです。
 
-`MCPServer` は `subscriptions/listen` を代わりに処理します。通信上の義務（最初のフレームとしての確認応答、ストリームごとのフィルタリング、全フレームへのサブスクリプション ID の付与）は SDK の仕事です。
+`MCPServer` は、[オフにしない](#turning-it-off)かぎり `subscriptions/listen` を代わりに処理します。通信上の義務（最初のフレームとしての確認応答、ストリームごとのフィルタリング、全フレームへのサブスクリプション ID の付与）は SDK の仕事です。
 
 !!! check
     実際の通信では、フィルターに `board://sprint` を指定したストリームは、`complete_task` の実行後に次のようになります。
@@ -79,7 +79,32 @@ translation:
 
 発行はハンドラーから開いているストリームへ、`SubscriptionBus` を経由して伝わります。デフォルトはインメモリで、1 つのプロセスとその中のすべてのストリームです。ロードバランサーの背後でレプリカを動かすまでは、これが正解です。レプリカを動かすと、クライアントのストリームは 1 つのレプリカに固定され、別のレプリカでの発行がそこに届かなければならないからです。
 
-その継ぎ目は自分で実装します。pub/sub バックエンドの上に 2 つのメソッドを載せるだけです。
+デフォルトのバスでは届きません。レプリカごとに別々のバスを持つからです。
+
+```mermaid
+flowchart LR
+    client[Client] --> lb[Load balancer]
+    lb --> stream
+    lb ~~~~ gap
+    lb --> tool
+    subgraph B [Replica B]
+        tool[tools/call] -- publishes --> busB[(bus B)]
+    end
+    gap[(no shared bus)]
+    subgraph A [Replica A]
+        stream[listen stream] -- subscribed --> busA[(bus A)]
+    end
+    style A fill:none
+    style B fill:none
+    style gap fill:none,stroke-dasharray:4 4
+```
+
+何も失敗しません。呼び出しは成功し、ストリームは沈黙したままです。そのため、ロードバランサーの背後では次のどちらかを選んでください。
+
+* **変更通知が必要な場合。** 下記のとおり、すべてのレプリカに同じバスを渡してください。
+* **必要ない場合。** 変更通知を[オフにして](#turning-it-off)ください。そうすれば、届かないイベントをクライアントに約束することも、クライアントがそのためにストリームを開いたままにすることもありません。
+
+共有バスは自分で実装します。pub/sub バックエンドの上に 2 つのメソッドを載せるだけです。
 
 ```python
 from collections.abc import Callable
@@ -128,6 +153,20 @@ async def tools_reloaded() -> None:
     await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
 
+## オフにする {#turning-it-off}
+
+カタログがまったく変わらないサーバーには、発行するものがありません。サーバーを組み立てるときに、そう指定します。
+
+```python title="server.py" hl_lines="3"
+--8<-- "docs_src/subscriptions/tutorial007.py"
+```
+
+* `2026-07-28` のクライアントには変更通知がアドバタイズされず、`subscriptions/listen` リクエストには開いたストリームの代わりに *Method not found* が返ります。
+* `ctx.notify_*` は引き続き動作しますが、誰にも届きません。そのため、ハンドラーを変更する必要はありません。
+* それより前のプロトコルバージョンのクライアントには、違いはありません。
+
+開いているストリームは、終わることのないリクエストです。そのため、リクエストの継続時間で課金されるホストでもこの設定は重要です。
+
 ## 低レベルでの組み立て {#the-low-level-composition}
 
 低レベルの `Server` には、あらかじめ配線されたものは何もありません。同じ部品を 3 行で組み立てます。
@@ -148,5 +187,6 @@ async def tools_reloaded() -> None:
 * クライアント側は `async with client.listen(...)` です。詳しくは「クライアント」の下の **[サブスクリプション](../client/subscriptions.md)** を参照してください。
 * 低レベルの `Server` では同じ部品を自分で組み立てます。バス、`ListenHandler(bus)`、`on_subscriptions_listen` スロットです。
 * スケールアウトとは、`SubscriptionBus`（メソッド 2 つ）を実装し、`MCPServer(subscriptions=...)` として渡すことです。
+* 発行するものがない場合や、共有バスのないレプリカ構成の場合は、`MCPServer(subscriptions=False)` を使います。変更通知はアドバタイズされず、ストリームも保持されません。
 
 これらすべてを処理するサーバーを、レプリカ 1 つでも 20 でも動かす方法は、**[デプロイとスケール](../run/deploy.md)** にあります。

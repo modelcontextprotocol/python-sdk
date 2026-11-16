@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
+  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 25b49f89c9e6f9d0, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
   tool: 1
 ---
 # Elicitation {#elicitation}
@@ -90,7 +90,8 @@ Bu şema formun kendisidir. `Field(description=...)` etikettir; bir varsayılan 
     Bir elicitation şeması, bir aracın girdi şeması kadar ifade gücüne sahip değildir. Yalnızca
     düz, ilkel alanlar: `str`, `int`, `float`, `bool` veya dizelerden oluşan bir `Literal`
     (bir `enum`'a dönüşür). Modelin içine bir model koyarsanız `ctx.elicit`, istemciye hiçbir
-    şey gönderilmeden önce istisna fırlatır:
+    şey gönderilmeden önce istisna fırlatır. Araç çağrısı `Error executing tool <name>` ile
+    başarısız olur, nedeni de sunucu log'unuzdadır:
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -113,8 +114,8 @@ Ret bir hata değildir. Reddetmenin ne anlama geldiğine araç karar verir (bura
 
 !!! tip
     Yanıt, kodunuz görmeden önce modelinize göre doğrulanır. Bir `bool` için `"maybe"` gönderen
-    bir istemci rezervasyonunuzu bozmaz: çağrı bir şema uyuşmazlığı hatasıyla başarısız olur,
-    `if`'iniz hiç çalışmaz.
+    bir istemci rezervasyonunuzu bozmaz: `ctx.elicit` `ValueError` fırlatır, çağrı başarısız
+    olur ve `if`'iniz hiç çalışmaz.
 
 ## Kullanıcıyı bir URL'ye gönderme {#send-the-user-to-a-url}
 

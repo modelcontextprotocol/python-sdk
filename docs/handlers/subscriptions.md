@@ -17,7 +17,7 @@ Your side of it is one line: publish the change.
 * The siblings are `notify_prompts_changed()` and `notify_resources_changed()`.
 * No subscribers, no work. Publishing to an idle server is a no-op, so you never check whether anyone is listening. You state what changed.
 
-`MCPServer` serves `subscriptions/listen` for you. The wire obligations (the acknowledgment as the first frame, per-stream filtering, the subscription id on every frame) are the SDK's job.
+`MCPServer` serves `subscriptions/listen` for you, unless you [turn it off](#turning-it-off). The wire obligations (the acknowledgment as the first frame, per-stream filtering, the subscription id on every frame) are the SDK's job.
 
 !!! check
     On the wire, a stream whose filter named `board://sprint` looks like this after `complete_task` runs:
@@ -74,7 +74,32 @@ Entering `client.listen(...)` sends the request and waits for your acknowledgmen
 
 Publishes travel from your handler to the open streams over a `SubscriptionBus`. The default is in-memory: one process, every stream in it. That is the right answer until you run replicas behind a load balancer, because then a client's stream is pinned to one replica, and a publish on another replica has to reach it.
 
-That seam is yours to implement: two methods over your pub/sub backend.
+With the default bus it can't, because every replica has its own:
+
+```mermaid
+flowchart LR
+    client[Client] --> lb[Load balancer]
+    lb --> stream
+    lb ~~~~ gap
+    lb --> tool
+    subgraph B [Replica B]
+        tool[tools/call] -- publishes --> busB[(bus B)]
+    end
+    gap[(no shared bus)]
+    subgraph A [Replica A]
+        stream[listen stream] -- subscribed --> busA[(bus A)]
+    end
+    style A fill:none
+    style B fill:none
+    style gap fill:none,stroke-dasharray:4 4
+```
+
+Nothing fails: the call succeeds, and the stream stays silent. So behind a load balancer, pick one:
+
+* **You need change notifications.** Give every replica the same bus, below.
+* **You don't.** [Turn them off](#turning-it-off), so no client is promised events it will miss or holds a stream open for them.
+
+The shared bus is yours to implement: two methods over your pub/sub backend.
 
 ```python
 from collections.abc import Callable
@@ -123,6 +148,20 @@ async def tools_reloaded() -> None:
     await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
 
+## Turning it off
+
+A server whose catalog never changes has nothing to publish. Say so when you build it:
+
+```python title="server.py" hl_lines="3"
+--8<-- "docs_src/subscriptions/tutorial007.py"
+```
+
+* A `2026-07-28` client sees no change notifications advertised, and a `subscriptions/listen` request gets *Method not found* instead of an open stream.
+* `ctx.notify_*` still works and reaches nobody, so your handlers don't change.
+* Clients on earlier protocol versions see no difference.
+
+An open stream is a request that never finishes, so this also matters on a host that bills by request duration.
+
 ## The low-level composition
 
 Down on the low-level `Server` there is no pre-wired anything, and the same parts assemble in three lines:
@@ -143,5 +182,6 @@ Down on the low-level `Server` there is no pre-wired anything, and the same part
 * The client end is `async with client.listen(...)`: **[Subscriptions](../client/subscriptions.md)** under *Clients* is that story.
 * On the low-level `Server` you assemble the same parts yourself: a bus, `ListenHandler(bus)`, the `on_subscriptions_listen` slot.
 * Scaling out means implementing `SubscriptionBus`, two methods, and passing it as `MCPServer(subscriptions=...)`.
+* Nothing to publish, or replicas with no shared bus: `MCPServer(subscriptions=False)` advertises no change notifications and holds no stream.
 
 Running the server that serves all this, behind one replica or twenty, is **[Deploy & scale](../run/deploy.md)**.

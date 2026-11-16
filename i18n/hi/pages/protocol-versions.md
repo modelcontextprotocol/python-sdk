@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [478fd619e5f90ef8, aef094a00e44e248, bab8cbf3449fa7e9, df1809b15a58335b, 5f9d8c2336ed0239, f54974398e43ddef, b24443dd78584870]
+  sections: [d98e337bf28845e0, dd642acbba36f615, f547b3e76da19c94, 149513378588da5c, 4e149ed992046709, f54974398e43ddef, b24443dd78584870]
   tool: 1
 ---
 # Protocol versions {#protocol-versions}
@@ -11,9 +11,17 @@ MCP की दो पीढ़ियाँ हैं।
 
 आपको इसकी चिंता लगभग कभी नहीं करनी पड़ती, क्योंकि `Client` आपके लिए negotiate कर लेता है। यह page उस एक constructor argument के बारे में है जो इसे नियंत्रित करता है, `mode=`, और उन तीन मौकों के बारे में जब आप इसे बदलते हैं।
 
+इस page का हर snippet एक `client.py` है जो **[Client](client/index.md)** वाले Bookshop `server.py` से बात करता है। उस server को एक terminal में शुरू करें:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+फिर हर snippet को दूसरे terminal में `python client.py` से चलाएँ।
+
 ## `mode="auto"` {#modeauto}
 
-```python title="client.py" hl_lines="14-15"
+```python title="client.py" hl_lines="7-8"
 --8<-- "docs_src/protocol_versions/tutorial001.py"
 ```
 
@@ -31,13 +39,14 @@ MCP की दो पीढ़ियाँ हैं।
 पूरा feature बस इतना ही है। एक `Client`, किसी भी पीढ़ी का server, और code में कोई branching नहीं।
 
 !!! info
-    `MCPServer` हर transport पर `server/discover` का जवाब देता है — in-memory, stdio, streamable
-    HTTP — इसलिए आपके अपने server के साथ `auto` हमेशा `2026-07-28` पर पहुँचता है। fallback सिर्फ़
-    असली pre-2026 server के सामने ही चलता है, और ठीक वहीं आप इसे चाहते भी हैं।
+    `MCPServer` हर transport पर `server/discover` का जवाब देता है — Streamable HTTP, stdio, और वह
+    in-process connection जो आपके tests इस्तेमाल करते हैं — इसलिए आपके अपने server के साथ `auto` हमेशा
+    `2026-07-28` पर पहुँचता है। fallback सिर्फ़ असली pre-2026 server के सामने ही चलता है, और ठीक वहीं
+    आप इसे चाहते भी हैं।
 
 ## `mode="legacy"` {#modelegacy}
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial002.py"
 ```
 
@@ -57,11 +66,11 @@ server-initiated request का मतलब है server का **आपको
 
 `mode="auto"` handshake तभी देता है जब server इतना पुराना हो कि और कुछ चले ही नहीं। `mode="legacy"` इसकी गारंटी देता है। जब भी आप `Client(...)` को `sampling_callback`, request के रूप में चलाया जाने वाला `elicitation_callback`, या `message_handler` देते हैं, इसे चुनें। **[Client callbacks](client/callbacks.md)** में हर एक की बात विस्तार से है।
 
-## Version pin करना {#pinning-a-version}
+## version pin करना {#pinning-a-version}
 
 `mode` modern protocol version string भी स्वीकार करता है। आज यह set ठीक `["2026-07-28"]` है।
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial003.py"
 ```
 
@@ -94,7 +103,7 @@ probe सस्ता है, लेकिन फिर भी यह एक rou
 
 इसलिए इसे संभाल कर रखें। `auto` connection के बाद `client.session.discover_result` में ठीक वही `DiscoverResult` होता है जो server ने भेजा था: उसके `supported_versions`, उसकी `capabilities`, उसके `instructions`, और वह पहचान जो server ने result के `_meta` में दर्ज की थी। अगली बार इसे `prior_discover=` के रूप में वापस दें:
 
-```python title="client.py" hl_lines="15 17"
+```python title="client.py" hl_lines="8 10"
 --8<-- "docs_src/protocol_versions/tutorial004.py"
 ```
 

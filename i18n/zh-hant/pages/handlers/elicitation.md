@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
+  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 25b49f89c9e6f9d0, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
   tool: 1
 ---
 # 徵詢 {#elicitation}
@@ -83,7 +83,7 @@ translation:
 那份 schema 就是表單。`Field(description=...)` 是標籤；預設值會預先填入輸入框，並讓該欄位變成選填。這和**[工具](../servers/tools.md)**頁面描述工具引數時用的是同一套 Pydantic 轉 JSON Schema 機制。
 
 !!! warning
-    徵詢用的 schema 表達能力不如工具的輸入 schema。只能用扁平的基本型別欄位：`str`、`int`、`float`、`bool`，或是字串組成的 `Literal`（會變成 `enum`）。如果在模型裡再放一個模型，`ctx.elicit` 會在送出任何東西給用戶端之前就引發例外：
+    徵詢用的 schema 表達能力不如工具的輸入 schema。只能用扁平的基本型別欄位：`str`、`int`、`float`、`bool`，或是字串組成的 `Literal`（會變成 `enum`）。如果在模型裡再放一個模型，`ctx.elicit` 會在送出任何東西給用戶端之前就引發例外。工具呼叫會以 `Error executing tool <name>` 失敗，原因則在伺服器記錄裡：
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -104,7 +104,7 @@ translation:
 拒絕不是錯誤。拒絕代表什麼由工具決定（這裡是不訂位），然後照常回答模型。
 
 !!! tip
-    回答在你的程式碼看到之前，就會先依照模型驗證。用戶端若在 `bool` 欄位送來 `"maybe"`，也不會弄壞你的訂位：呼叫會以 schema 不符的錯誤失敗，你的 `if` 根本不會執行。
+    回答在你的程式碼看到之前，就會先依照模型驗證。用戶端若在 `bool` 欄位送來 `"maybe"`，也不會弄壞你的訂位：`ctx.elicit` 會引發 `ValueError`，呼叫失敗，你的 `if` 根本不會執行。
 
 ## 把使用者送往一個 URL {#send-the-user-to-a-url}
 

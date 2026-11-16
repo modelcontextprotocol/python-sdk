@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 7a53ead3e704a7f0, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 9fd2357154a5b7e7, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # Den Server betreiben {#running-your-server}
@@ -72,9 +72,14 @@ Jeder Transport hat eigene Keyword-Argumente, alle an `run()`:
 * `streamable_http_path`: wo der MCP-Endpunkt liegt. Standardwert `/mcp`.
 * `json_response=True`: jeden POST mit einem einzelnen JSON-Body statt eines SSE-Streams beantworten. Dieser Body hat Platz für die Response und sonst nichts. Ein Tool, das mitten im Request in den Client zurückruft (`ctx.elicit()`, Sampling), löst auf dieser Strecke daher `NoBackChannelError` aus, und Benachrichtigungen, die an den laufenden Aufruf gebunden sind (Fortschritt aus `ctx.report_progress()`, Log-Nachrichten pro Aufruf), werden verworfen; der eigenständige `GET`-Stream trägt davon unabhängige weiterhin.
 * `stateless_http=True`: ein frischer Transport pro Request, kein Session-Tracking.
-* `max_request_body_size`: größter akzeptierter POST-Body in Bytes. Standardwert 4 MiB; größere Requests
+* `max_request_body_size`: größter akzeptierter Request-Body in Bytes. Standardwert 4 MiB; größere Requests
   erhalten HTTP 413, bevor geparst oder eine Session angelegt wird. Erhöhe ihn nur, wenn legitime MCP-Nachrichten
   diese Größe überschreiten.
+* `session_idle_timeout`: Sekunden, die eine Legacy-Session ohne laufenden Request verbringen darf, bevor der
+  Server sie schließt. Standardwert 1800. `None` schaltet den Timeout ab. Siehe
+  [Lebensdauer und Limits von Sessions](legacy-clients.md#session-lifetime-and-limits).
+* `max_sessions`: wie viele Legacy-Sessions ein Prozess gleichzeitig hält. Standardwert 10 000. `None`
+  hebt das Limit auf. Im selben Abschnitt beschrieben.
 * `event_store`, `retry_interval`, `transport_security`: Wiederaufnahme und Schutz vor DNS-Rebinding. Sie können warten, bis du anderswo als auf localhost bereitstellst; **[Bereitstellen und skalieren](deploy.md)** behandelt `transport_security`.
 
 !!! warning

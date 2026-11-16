@@ -58,7 +58,7 @@ One `tools/call` from you, one `elicitation/create` back from the server, answer
     `mode="legacy"` on the `Client(...)` call is doing real work. By default `Client(...)` negotiates the modern
     protocol path, and that path has no back-channel for server-to-client requests: `ctx.elicit`
     fails before your callback ever runs. The transport doesn't decide that; the negotiated
-    protocol does, in-memory and over a URL alike. Pin `mode="legacy"` whenever your client has
+    protocol does. Pin `mode="legacy"` whenever your client has
     to answer one; every test behind this page does. **[Protocol versions](../protocol-versions.md)** has the whole story.
 
     On a 2026-07-28 session the callback isn't dead, it's fed differently: when a tool returns an
@@ -146,4 +146,4 @@ Two more. Neither declares anything.
 * `sampling_callback` and `list_roots_callback` work the same way but serve deprecated features; modern servers use multi-round-trip requests instead.
 * `logging_callback` and `message_handler` receive notifications. They declare nothing.
 
-The first argument to `Client(...)` is a transport object. **[Client transports](transports.md)** covers every kind.
+The first argument to `Client(...)` picks the transport. **[Client transports](transports.md)** covers every kind.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0d6c05bcbf836bf3, 59a7b14eeefc68c1, 7114d8d6daba203f, e8bbb56a98ba7bc9, 5138010f6159901c, f78da7c7c363d4c6, 220a939cab348686]
+  sections: [0d6c05bcbf836bf3, 9a78b5f6b44b18ab, 7114d8d6daba203f, e8bbb56a98ba7bc9, bfd2fd1153e71dac, 1615a994ef071fdd, 65c599fae991f245]
   tool: 1
 ---
 # 첫걸음 {#first-steps}
@@ -17,7 +17,7 @@ translation:
 * **클라이언트**는 호스트 안에 있으며 MCP로 통신합니다. 호스트는 연결된 서버마다 클라이언트를 하나씩 실행합니다.
 * **서버**는 이 SDK로 만드는 것입니다. 서버는 클라이언트에 여러 가지를 노출하며, 모델과 직접 대화하는 일은 없습니다.
 
-직접 작성하는 것은 서버입니다. 호스트는 다른 누군가가 만든 제품입니다. SDK는 `Client`도 제공합니다. 서버를 테스트할 때 쓰게 되며, 이 페이지 뒷부분에서 다시 등장합니다.
+직접 작성하는 것은 서버입니다. 호스트는 다른 누군가가 만든 제품입니다. SDK는 `Client`도 제공합니다. 호스트가 URL로 서버에 접속하거나 서버를 서브프로세스로 실행할 때 쓰는 바로 그 클래스입니다. 이 페이지 뒷부분에서 다시 등장하며, 작성한 서버를 테스트하는 수단이기도 합니다.
 
 ## 세 가지 프리미티브 {#the-three-primitives}
 
@@ -82,22 +82,20 @@ Inspector에서 탭 세 개를 보았습니다. Inspector가 세 개라는 것�
 
 클라이언트가 연결하면 서버는 **기능**, 즉 어떤 부류의 요청에 응답할지를 선언합니다. 클라이언트는 이 선언을 보고 애초에 무엇을 요청할지 결정합니다. 이 선언을 작성한 적은 없습니다. `MCPServer`가 대신 선언합니다.
 
-직접 확인해 보세요. SDK의 `Client`는 서버 객체를 그대로 받아 **인메모리**로 연결합니다(서브프로세스도, 포트도 없습니다).
+직접 확인해 보세요. 한쪽 터미널에서 `server.py`를 HTTP로 실행해 두세요.
 
-```python
-import asyncio
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-from mcp import Client
+그리고 다른 터미널에서 클라이언트를 이 서버에 연결하세요.
 
-from server import mcp
+```python title="client.py" hl_lines="7-8"
+--8<-- "docs_src/first_steps/tutorial001_client.py"
+```
 
-
-async def main() -> None:
-    async with Client(mcp) as client:
-        print(client.server_capabilities.model_dump(exclude_none=True))
-
-
-asyncio.run(main())
+```console
+python client.py
 ```
 
 ```text
@@ -117,8 +115,9 @@ asyncio.run(main())
 없는 것에도 주목하세요. `completions`(리소스 템플릿과 프롬프트의 인자 자동 완성)에는 직접 작성하는 핸들러가 필요한데, 이 서버에는 핸들러가 없으므로 해당 기능이 빠져 있고, 올바르게 동작하는 클라이언트라면 요청하지 않습니다. 선택 사항은 모두 이 규칙을 따릅니다. 등록하면 기능이 나타납니다. **[자동 완성](../servers/completions.md)** 페이지가 이를 보여 줍니다.
 
 !!! info
-    `Client(mcp)`는 이 문서의 모든 예제를 테스트하는 데 쓰이는 바로 그 인메모리 클라이언트이며,
-    작성한 서버도 같은 방식으로 테스트하게 됩니다. 이를 다루는 페이지가 따로 있습니다. **[테스트](testing.md)**입니다.
+    이 `client.py`는 완전한 MCP 클라이언트이며, 이를 다루는 페이지는 **[클라이언트](../client/index.md)**입니다.
+    테스트에서는 터미널도 포트도 건너뛰고 `Client(mcp)`처럼 `Client`에 서버 객체 자체를 넘깁니다.
+    이 역시 전용 페이지가 있습니다. **[테스트](testing.md)**입니다.
 
 ## 작성하지 않은 것 {#what-you-did-not-write}
 
@@ -127,7 +126,7 @@ asyncio.run(main())
 * JSON Schema. `a: int, b: int`가 **곧** `add`의 스키마입니다.
 * 요청 핸들러. `tools/list`, `resources/read`, `prompts/get`은 모두 대신 처리됩니다.
 * 기능 선언. `MCPServer`가 대신 만들었습니다.
-* 프로토콜 코드 단 한 줄. 버전 협상, JSON-RPC 프레이밍, 기능 교환은 모두 `mcp dev`와 `Client(mcp)` 안에서 일어났고, 눈에 보이지도 않았습니다.
+* 프로토콜 코드 단 한 줄. 버전 협상, JSON-RPC 프레이밍, 기능 교환은 모두 `mcp dev`와 `client.py` 안에서 일어났고, 눈에 보이지도 않았습니다.
 
 이 비율이야말로 SDK가 존재하는 이유입니다.
 
@@ -138,6 +137,6 @@ asyncio.run(main())
 * 프리미티브마다 데코레이터 하나면 됩니다. `@mcp.tool()`, `@mcp.resource(uri)`, `@mcp.prompt()`입니다. 이름, 설명, 스키마는 함수에서 가져옵니다.
 * `{param}`이 들어간 URI는 리소스 **템플릿**을 만들며, 구체적인 리소스와는 따로 나열됩니다.
 * 서버의 **기능**은 자동으로 선언되며, 클라이언트는 서버가 선언한 것만 요청합니다.
-* `Client(mcp)`는 서버 객체에 인메모리로 연결합니다. 첫날부터 갖추는 테스트 하네스입니다.
+* `Client("http://localhost:8000/mcp")`는 실행 중인 서버와 통신합니다. 대신 서버 객체를 넘겨 `Client(mcp)`로 만들면 첫날부터 쓰는 테스트 하네스가 됩니다.
 
 다음은 **[실제 호스트에 연결하기](real-host.md)**입니다. 이 서버를 Claude Desktop이나 IDE 안에서 실제로 돌려 봅니다. 그다음은 **[테스트](testing.md)**입니다. 페이지 하나, 인메모리 클라이언트 하나면 동작하는지 추측할 일이 없어집니다. 그 뒤로는 프리미티브마다 전용 페이지가 이어지며, 모델이 주도하는 프리미티브인 **[도구](../servers/tools.md)**부터 시작합니다.

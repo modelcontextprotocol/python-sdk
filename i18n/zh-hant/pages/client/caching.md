@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9e7b9a1710e5aeba, b74ca4c1d2ddddee, fa8714e61bf90c5a, 04db67a886b7271c, 857690fb8f876800]
+  sections: [9e7b9a1710e5aeba, 66a2e9acc9101d54, d3d25aa802f5145a, 04db67a886b7271c, 857690fb8f876800]
   tool: 1
 ---
 # 快取提示 {#caching-hints}
@@ -27,7 +27,7 @@ translation:
 
 在低階的 `Server` 上，處理函式自己手動組出結果，而 `ttl_ms` / `cache_scope` 只是結果模型上的欄位。明確設定這些欄位的處理函式，永遠勝過建構子的對應表，而且是逐欄位比較：
 
-```python title="server.py" hl_lines="10 16"
+```python title="server.py" hl_lines="11 17"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -41,9 +41,23 @@ translation:
 
 在 2026-07-28 的工作階段（session）上，`Client` 會替你遵守這些提示：它內建一個回應快取，預設開啟。帶著 `ttlMs` 抵達的結果會被存起來，在 TTL 內完全相同的呼叫會直接由快取提供，不需要往返。**沒有**帶提示的結果不會被快取：沒有提示的結果會套用 `CacheConfig.default_ttl_ms`，它預設為 `0`（立刻過期），所以什麼都沒宣告的伺服器，看到的流量和以往一模一樣，一次呼叫就一次請求。
 
-```python title="client.py" hl_lines="33 35 38"
+要親眼看看這個過程，就用 uvicorn 提供前一節的 `server.py`（它的最後一行會建立 ASGI 應用程式）。處理函式每次真正執行時都會印出一行：
+
+```console
+uvicorn server:app --port 8000
+```
+
+```python title="client.py" hl_lines="20 23 28"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
+
+在第二個終端機執行 `python client.py`。它會印出第一個結果帶著的提示，處理函式的 `ttlMs` 和對應表的 `cacheScope` 並排：
+
+```text
+1000 public
+```
+
+伺服器的終端機交代了剩下的部分：在 uvicorn 的請求記錄之間，`tools/list served` 出現了三次。
 
 四次呼叫，三次抓取。第二次呼叫找到新鮮的項目，根本沒送到伺服器；把（注入的）時鐘撥過 TTL 之後，第三次又重新抓取；第四次則指定了 `cache_mode="refresh"`。這個關鍵字引數存在於五個會快取的動詞上（`list_tools`、`list_prompts`、`list_resources`、`list_resource_templates`、`read_resource`）：
 
@@ -53,7 +67,7 @@ translation:
 
 有一條規則凌駕於 `"use"` 之上：**帶有 `meta` 的呼叫一定會送到伺服器。**設定了 `meta` 的請求（進度 token、追蹤欄位）期待的是一個實際送上線路的請求，所以在 `cache_mode="use"` 下會被當成 `"refresh"` 處理：跳過快取讀取，而抓取回來的結果仍然會取代快取中的項目。`"bypass"` 和明確指定的 `"refresh"` 行為照舊。
 
-要完全關掉快取，就用 `Client(server, cache=None)` 建構：每次呼叫又都變回一次往返，而 `cache_mode` 雖然仍可接受，但不會有任何作用。
+要完全關掉快取，就在建構 `Client` 時傳入 `cache=None`：每次呼叫又都變回一次往返，而 `cache_mode` 雖然仍可接受，但不會有任何作用。
 
 範圍也會自動遵守：`"private"` 項目綁定在快取的**分區（partition）**上（見下文），而 `"public"` 項目則可以選擇更廣的共用。此外，對通知點名的那些項目來說，**通知勝過 TTL**：`list_changed` 通知會逐出對應的快取清單，`resources/updated` 則會逐出恰好存在該 URI 下的快取讀取結果，不管它們有多新鮮。在 2026-07-28 連線上，這些通知是透過你用 `client.listen(...)` 開啟的 `subscriptions/listen` 串流送達的，而且逐出會在你的監看程式看到事件之前完成；詳情請見 **[訂閱](subscriptions.md)**。
 

@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: [5d13c2f0ba42c0d2, c52a1de2b6b32f40, 8e792bf8c7489ec6, 38552ea228b0a04f]
   tool: 1
 ---
 # 测试 {#testing}
 
-Python SDK 提供了一个带**内存传输**的 `Client` 类：把服务器对象传给它，它就会直接连接上去。
+SDK 的 `Client` 类，也就是连接 URL 或启动子进程的那个类，还能在**内存中**连接：把服务器对象传给它，它就直接和服务器对话。
 
-不用子进程，不占端口，根本不走任何传输。思路和 FastAPI 的 `TestClient` 一样。
+不用子进程，不占端口，线路上什么都没有。思路和 FastAPI 的 `TestClient` 一样。
 
 ## 基本用法 {#basic-usage}
 
@@ -80,13 +80,13 @@ async def test_call_add_tool(client: Client):
 
 可能出错的情况有两种，而这个标志只管其中一种。
 
-**你的工具**内部抛出的异常不算协议失败。它会变成一个带 `is_error=True` 的普通结果，模型会读到其中的消息。`raise_exceptions` 不会改变这一点：不管有没有它，`call_tool` 返回的都是同一个 `is_error=True` 结果。有一整页专门讲这个：**[处理错误](../servers/handling-errors.md)**。
+**你的工具**内部抛出的异常不算协议失败。它会变成一个带 `is_error=True` 的普通结果（如果抛出的是 `ToolError`，模型会读到你写的消息）。`raise_exceptions` 不会改变这一点：不管有没有它，`call_tool` 返回的都是同一个 `is_error=True` 结果。有一整页专门讲这个：**[处理错误](../servers/handling-errors.md)**。
 
 工具函数体**之外**的失败则不同。在 `Client(mcp)` 提供的这条连接上，服务器会先把它脱敏成一条笼统的 `"Internal server error"`，客户端才会看到。意外崩溃的细节绝不应该泄露给远程调用方。但在测试里，这恰恰是你**不**想要的，也正是 `raise_exceptions=True` 所改变的：测试看到的是真实的消息，而不是脱敏后的那条。
 
 测试里就让它开着。它在生产代码中没有意义。
 
-## 默认在进程内 {#in-process-by-default}
+## 默认不区分协议时代 {#era-neutral-by-default}
 
 !!! note
     `Client(mcp)` 在进程内连接，默认**不区分协议时代**：它会先探测服务器，再选择合适的协议路径。如果测试要验证旧版（legacy）特有的语义（采样（sampling）或征询（elicitation）的推送、`message_handler`），就固定使用 `mode="legacy"`，并在这种情况下去掉 `raise_exceptions=True`：旧版连接本来就不做脱敏，而这个标志会让失败在服务器任务内部重新抛出，而不是抛到你的测试里。

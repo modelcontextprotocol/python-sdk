@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ca6988b7503cd2d3]
+  sections: [348f8697c6b12cd0]
   tool: 1
 ---
 # Avançado {#advanced}
@@ -14,6 +14,8 @@ do `MCPServer` atrapalha:
   personalizados criados por você.
 * **[Paginação](pagination.md)** e **[Middleware](middleware.md)**: duas coisas que você
   *só* consegue fazer no `Server` de baixo nível.
+* **[Parâmetros de cabeçalho](header-parameters.md)**: permitem que um gateway roteie uma chamada de ferramenta com base em um
+  dos argumentos dela.
 * **[Extensões](extensions.md)** e **[MCP Apps](apps.md)**: a superfície de
   extensão do protocolo. Componha pacotes de extensão em um servidor ou escreva os seus.
 

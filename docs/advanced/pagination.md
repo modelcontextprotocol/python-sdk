@@ -26,9 +26,13 @@ Pagination is for the server whose resource list is really a database: thousands
 
 ### Try it
 
-`Client(server)` connects to a low-level `Server` in memory exactly as it connects to an `MCPServer`.
+`mcp run` only accepts an `MCPServer`, so you serve this one yourself. The last line of `server.py` builds an ordinary ASGI app from the `Server`, and uvicorn runs that:
 
-Call `list_resources()` with no arguments. You get ten resources, `book-1` through `book-10`, and `next_cursor` is the string `"10"`.
+```console
+uvicorn server:app --port 8000
+```
+
+Point any client (**[The Client](../client/index.md)**, or the Inspector) at `http://localhost:8000/mcp` and call `list_resources()` with no arguments. You get ten resources, `book-1` through `book-10`, and `next_cursor` is the string `"10"`.
 
 Hand it back with `list_resources(cursor="10")` and the first resource is `book-11`, the new `next_cursor` is `"20"`.
 
@@ -38,7 +42,7 @@ The tenth page comes back with `next_cursor` set to `None`. Done.
 
 Every `list_*` method on `Client` (`list_tools`, `list_resources`, `list_resource_templates`, `list_prompts`) takes a `cursor=` keyword. Draining a paged list is one `while True`:
 
-```python title="client.py" hl_lines="26-32"
+```python title="client.py" hl_lines="9-15"
 --8<-- "docs_src/pagination/tutorial002.py"
 ```
 
@@ -46,7 +50,7 @@ Every `list_*` method on `Client` (`list_tools`, `list_resources`, `list_resourc
 * Extend **before** you look at `next_cursor`: the last page has resources too.
 * `next_cursor is None` is the exit. Anything else goes straight back into `cursor=`, untouched.
 
-Run its `main()` and it prints `100 resources`: ten pages of ten, stitched together by a loop that never knew there were ten pages.
+With uvicorn still serving `server.py`, run `python client.py` in a second terminal. It prints `100 resources`: ten pages of ten, stitched together by a loop that never knew there were ten pages.
 
 This is the same loop **[The Client](../client/index.md)** shows for every `list_*` verb, and it costs nothing against a server that doesn't page: `next_cursor` is `None` on the first response and the loop runs once.
 

@@ -5,8 +5,10 @@ from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 
+RESOURCE = "http://127.0.0.1:8000/mcp"
+
 KNOWN_TOKENS = {
-    "alice-token": AccessToken(token="alice-token", client_id="alice", scopes=["notes:read"]),
+    "alice-token": AccessToken(token="alice-token", client_id="alice", scopes=["notes:read"], resource=RESOURCE),
 }
 
 
@@ -20,8 +22,9 @@ mcp = MCPServer(
     token_verifier=StaticTokenVerifier(),
     auth=AuthSettings(
         issuer_url=AnyHttpUrl("https://auth.example.com"),
-        resource_server_url=AnyHttpUrl("http://127.0.0.1:8000/mcp"),
+        resource_server_url=AnyHttpUrl(RESOURCE),
         required_scopes=["notes:read"],
+        validate_token_resource=True,
     ),
 )
 

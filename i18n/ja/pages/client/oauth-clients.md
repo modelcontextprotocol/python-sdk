@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, 63878d29e87c3e73, 13175843d3588af4, e7e2b9fd516f77de, 758f06399b513c1f, a05d7278487d610b]
+  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, c2dae1ebe2ebd543, 13175843d3588af4, df06056fb16b3846, 758f06399b513c1f, a05d7278487d610b]
   tool: 1
 ---
 # OAuth クライアント {#oauth-clients}
@@ -77,18 +77,20 @@ translation:
 
 `Client` が初めてリクエストを送ると、サーバーは `401` を返します。そこからプロバイダーが引き継ぎます。
 
-1. **発見。** `WWW-Authenticate` ヘッダーを読み、サーバーの Protected Resource Metadata を `/.well-known/oauth-protected-resource` から取得します。そこからこのリソースを保護している認可サーバーを知り、「その」サーバーのメタデータを取得します。
+1. **発見。** `WWW-Authenticate` ヘッダーを読み、サーバーの Protected Resource Metadata を `/.well-known/oauth-protected-resource` から取得します。そこからこのリソースを保護している認可サーバーを知り、「その」サーバーのメタデータを取得します。（リソースメタデータを公開していない古いサーバーには、代わりにそのサーバー自身のオリジンで認可サーバーのメタデータを問い合わせます。）どちらの場合も、メタデータは取得対象のサーバーを `issuer` として名指ししていなければなりません。それ以外は拒否されます。
 2. **登録。** ストレージに何もなければ、`OAuthClientMetadata` を使って動的に登録し、結果を保存します。
 3. **認可。** PKCE のペアと `state` を生成し、認可 URL を組み立て、`redirect_handler` を await します。続いて、コードを受け取るために `callback_handler` を await します。
 4. **交換。** コードを `OAuthToken` と引き換えて保存し、元のリクエストを `Authorization: Bearer ...` 付きで再送します。
 
 それ以降は静かになります。トークンはストレージから取り出され、期限切れのアクセストークンはリフレッシュトークンで更新されます。そのどれもうまくいかないときだけ、フローをもう一度実行します。
 
+これらのリクエストすべてに共通するトランスポートのルールが 1 つあります。外側の MCP リクエストと同じく、リダイレクトに従うのは同じオリジンにとどまり、かつメソッドを保つ場合（たとえば末尾スラッシュの 307/308）だけです。それ以外のリダイレクトは、その URL が応答しなかったものとして扱います。
+
 これらを自分で書く必要はまったくありませんでした。残るキーワード引数は 2 つ（`client_metadata_url` と `validate_resource_url`）で、このファイルではどちらも不要です。知っておく価値があるのは `client_metadata_url` のほうで、下に専用のセクションがあります。
 
 ### 試してみる {#try-it}
 
-このドキュメントの例のほとんどは、インメモリの `Client(server)` で確認できます。これは違います。このフローの要点は HTTP の `401` であり、インメモリのクライアントとサーバーのあいだには HTTP がありません。
+テストで使うインメモリの `Client(server)` は、ここでは役に立ちません。このフローの要点は HTTP の `401` であり、インメモリのクライアントとそのサーバーのあいだには HTTP がないからです。
 
 リポジトリには実際に動くバージョンが同梱されています。`examples/servers/simple-auth/` はスタンドアロンの認可サーバーと保護された MCP サーバーを動かし、`examples/clients/simple-auth-client/` はこのページのクライアントを小さな CLI に育てたものです。その README に 2 つのコマンドが載っています。サーバーを起動し、それに対してクライアントを実行すれば、4 つのステップが進んでいくのを見られます。
 
@@ -106,13 +108,14 @@ URL は HTTPS で、ルート以外のパスを持っている必要がありま
 
 `ClientCredentialsOAuthProvider` は同じ `httpx2.Auth` で、人間がいないだけです。
 
-```python title="client.py" hl_lines="4 27-33"
+```python title="client.py" hl_lines="4 27-34"
 --8<-- "docs_src/oauth_clients/tutorial002.py"
 ```
 
 変わった点は次のとおりです。
 
 * `OAuthClientMetadata` もハンドラーもありません。`client_id` と `client_secret` を渡すと、プロバイダーはそれらを中心に最小限の `client_credentials` 登録を組み立て、動的登録を完全に省きます。
+* `issuer` には、そのクレデンシャルを発行した認可サーバーを指定します。そのサーバーの `/.well-known/oauth-authorization-server` ドキュメントが返す `issuer` の値を使ってください。発見は上と同じように実行されますが、トークンリクエストは「その」発行者のメタデータからしか組み立てられません。MCP サーバーがそれ以外の場所を指していれば、フローは代わりに `OAuthFlowError` で止まります。省略するのは非推奨で、3.0 では必須になります（**[非推奨の機能](../deprecated.md#deprecated-sdk-helpers)** を参照してください）。それまでのあいだ、プロバイダーは警告を出したうえで、発見で見つかった認可サーバーをそのまま使います。
 * `scope` はスペース区切りの文字列で、OAuth の通信上の形式です。
 * その先はすべて同じです。同じ `TokenStorage`、同じ `httpx2.AsyncClient(auth=...)`、同じ `streamable_http_client` です。
 
@@ -123,7 +126,7 @@ URL は HTTPS で、ルート以外のパスを持っている必要がありま
 
 !!! info
     `mcp.client.auth.extensions.client_credentials` にはもう 1 つプロバイダーがあります。
-    **`PrivateKeyJWTOAuthProvider`** は、共有シークレットの代わりに JWT で認証するクライアント向けです（`private_key_jwt`、つまり鍵ペアやワークロードアイデンティティの方式）。パターンは同じで、1 つ構築して `auth=` に載せます。同じモジュールには、そのアサーションを組み立てる 2 つのヘルパー、`SignedJWTParameters` と `static_assertion_provider` も含まれています。
+    **`PrivateKeyJWTOAuthProvider`** は、共有シークレットの代わりに JWT で認証するクライアント向けです（`private_key_jwt`、つまり鍵ペアやワークロードアイデンティティの方式）。パターンは同じで、1 つ構築して（同じく省略可能な `issuer` を取ります）`auth=` に載せます。同じモジュールには、そのアサーションを組み立てる 2 つのヘルパー、`SignedJWTParameters` と `static_assertion_provider` も含まれています。
 
 人間がいない状況はもう 1 つあります。クライアントが企業に属していて、どの MCP サーバーに到達してよいかをユーザーではなくその企業のアイデンティティプロバイダーが決める場合です。これは独自の信頼モデルを持つ別のグラントで、専用のページ **[アイデンティティアサーション](identity-assertion.md)** があります。
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3c4f2f06b4e978b6, 22520eecae3d1961, f4e1709db18d635a, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
+  sections: [3c4f2f06b4e978b6, 51ea5fbcb0e93563, 32d8808606ffdae0, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
   tool: 1
 ---
 # 连接到真实的宿主 {#connect-to-a-real-host}
@@ -11,7 +11,7 @@ translation:
 
 ## 一个服务器，所有宿主 {#one-server-every-host}
 
-```python title="server.py" hl_lines="3 33-34"
+```python title="server.py" hl_lines="4 34-35"
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
@@ -41,7 +41,7 @@ uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py
 !!! note "本页讲的是本地场景"
     这里的一切都是在宿主所在的那台机器上运行你的服务器：宿主通过 stdio 启动你的文件。对个人工具或单机工具来说，这样做完全合适。要把服务器交给 **没有** 你这个文件的人，给出去的是 **URL** 而不是命令：同一个 `mcp` 对象，通过 Streamable HTTP 提供服务。**[运行服务器](../run/index.md)** 用一张表讲清这个决策，**[部署与扩展](../run/deploy.md)** 则是从那里走到真实主机名的路线。
 
-    而且宿主不过是内置了 MCP 客户端的应用程序，所以你自己的 Python 也能扮演宿主的角色：**[客户端传输方式](../client/transports.md)** 用 `stdio_client(...)` 把同一个文件作为子进程启动，**[测试](testing.md)** 则一个进程都不起，直接在内存中连接它。
+    而且宿主不过是内置了 MCP 客户端的应用程序，所以你自己的 Python 也能扮演宿主的角色：**[客户端传输方式](../client/transports.md)** 用 `Client(StdioServerParameters(...))` 把同一个文件作为子进程启动，**[测试](testing.md)** 则一个进程都不起，直接在内存中连接它。
 
 ## Claude Desktop {#claude-desktop}
 

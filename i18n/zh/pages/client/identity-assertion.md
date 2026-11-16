@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, e7828fd2729b2c9d, a03ec26bfc678b65, 1034c653c0bcf1b0]
+  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, 7cf38181f6c99fd5, 37804d4fb36d6302, 1034c653c0bcf1b0]
   tool: 1
 ---
 # 身份断言 {#identity-assertion}
@@ -57,7 +57,7 @@ translation:
 
 ### 机密客户端 {#a-confidential-client}
 
-`client_secret` 是必填的；没有它，构造函数会抛出 `ValueError`。[SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) 底下的 IETF profile 把这种授权许可留给机密客户端，SEP-990 要求客户端进行身份认证，而这个 SDK 通过坚持要求共享密钥来同时落实这两点。`token_endpoint_auth_method` 决定它走哪条路：`client_secret_post`（默认，放在表单体里）或 `client_secret_basic`（HTTP Basic 头）。该 profile 还允许 `private_key_jwt`；这个 provider 不支持。
+`client_secret` 是必填的；没有它，构造函数会抛出 `ValueError`。[SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) 底下的 IETF profile 建议只让机密客户端使用这种授权许可，而 [RFC 7521](https://datatracker.ietf.org/doc/html/rfc7521) 把这项策略留给授权服务器决定。这个 SDK 在两端都取保守的解读：内置的授权服务器拒绝没有共享密钥的客户端，这个 provider 也坚持要求提供一个。`token_endpoint_auth_method` 决定它走哪条路：`client_secret_post`（默认，放在表单体里）或 `client_secret_basic`（HTTP Basic 头）。该 profile 还允许 `private_key_jwt`；这个 provider 不支持。
 
 !!! tip
     从环境变量或密钥管理器读取 `client_secret`，永远不要从源码仓库里读。
@@ -84,6 +84,7 @@ SDK 也可以自己**充当**授权服务器：`create_auth_routes` 以列表形
 
 * `identity_assertion_enabled=True` 是总开关。关闭时（这是默认），即使你实现了钩子，`/token` 对这种授权许可也回答 `unsupported_grant_type`，元数据里也不会提到它。打开后，元数据会多出 `jwt-bearer` 授权类型，并在 `authorization_grant_profiles_supported` 里列出 `urn:ietf:params:oauth:grant-profile:id-jag`，这是扩展用来宣告支持的字段。（这个 SDK 的客户端从不读它：它只为一个 issuer 配置，直接发请求就是了。）
 * **`exchange_identity_assertion`** 就是那个钩子。它运行之前，SDK 已经认证了客户端，拒绝了公开客户端，也拒绝了注册信息里没有列出该授权许可的客户端。你拿到一个 `IdentityAssertionParams`（原始的 `assertion`、请求的 `scopes` 和 `resource`），返回一个普通的 `OAuthToken`。
+* 拒绝公开客户端是 SDK 的策略，不是规范的要求。内置服务器只通过共享密钥认证客户端：它不支持 `private_key_jwt`，目前也不解析 Client ID Metadata Document（[#1801](https://github.com/modelcontextprotocol/python-sdk/issues/1801)），所以靠这种文档标识的客户端在这里用不了这种授权许可。想采用别的策略的部署，可以把 `create_auth_routes` 返回的 `/token` 路由换成自己的。
 * 动态客户端注册无条件拒绝这种授权许可，所以这里的 `get_client` 提供的是一个手工配置的客户端。ID-JAG 客户端没法靠自我注册凭空出现。
 * 这个类有一半是拒绝。`OAuthAuthorizationServerProvider` 是**整个**授权服务器，所以它也要求实现授权码流程；一个同时让用户登录的服务器会真正实现那些方法，而这一个只开一扇门。
 

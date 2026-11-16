@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, e758745df6fb7b0a]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # Deploy और scale करना {#deploy-scale}
@@ -46,6 +46,22 @@ translation:
     वह सिर्फ़ **server** के log में दिखता है, एक अकेली warning के रूप में। नया-नया
     deploy हुआ server जो हर connection ठुकरा रहा हो, उसे Host allowlist की समस्या ही मानें जब तक कुछ और साबित न हो।
     **[Troubleshooting](../troubleshooting.md)** भी यहीं से शुरू होता है।
+
+## TLS-terminating proxy के पीछे {#behind-a-tls-terminating-proxy}
+
+अगर TLS किसी proxy पर ख़त्म होता है (कोई ingress, load balancer, Caddy, nginx) और uvicorn उसके पीछे plain HTTP serve करता है, तो uvicorn को बताएँ कि वह proxy के `X-Forwarded-*` headers पर भरोसा करे:
+
+```console
+uvicorn server:app --proxy-headers --forwarded-allow-ips='<proxy address>'
+```
+
+इसके बिना app यह मान लेता है कि उसे `http://` पर serve किया जा रहा है, और वह जो भी redirect भेजता है (आम तौर पर `/mcp` → `/mcp/`) वह `http://…` की ओर इशारा करता है। Python client किसी HTTPS endpoint से plain HTTP पर जाने से इनकार कर देता है और साफ़ बताता है:
+
+```text
+MCPError: Redirect to http://mcp.example.com/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+```
+
+client की तरफ़ का कामचलाऊ उपाय है ठीक वही URL configure करना जो server serve करता है (`https://mcp.example.com/mcp/`, slash सहित), ताकि कोई redirect हो ही नहीं। असली इलाज ऊपर वाला flag है। `FORWARDED_ALLOW_IPS` इसी का environment-variable रूप है; `*` हर hop पर भरोसा करता है, जो सिर्फ़ तभी सही है जब proxy के अलावा कोई uvicorn तक न पहुँच सके।
 
 ## Workers, और sticky किसे होना है {#workers-and-who-has-to-be-sticky}
 
@@ -144,19 +160,20 @@ seal के बारे में बाकी सब कुछ **[`requestStat
 
 ## अलग-अलग replicas के बीच change notifications {#change-notifications-across-replicas}
 
-client की `subscriptions/listen` stream एक लंबे समय तक चलने वाला response है, इसलिए वह अपनी पूरी ज़िंदगी एक replica से बँधी रहती है। किसी **दूसरे** replica पर publish हुआ `ctx.notify_resource_updated(...)` उस तक पहुँचना चाहिए।
+client का `subscriptions/listen` stream एक लंबे समय तक चलने वाला response है, इसलिए वह अपनी पूरी ज़िंदगी एक replica से बँधा रहता है। किसी **दूसरे** replica पर publish हुआ `ctx.notify_resource_updated(...)` उस तक पहुँचना चाहिए।
 
-दोनों के बीच का जोड़ `SubscriptionBus` है। आप server को जो भी bus देते हैं, हर publish उसी में जाता है और हर खुली stream उसी को सुनती है, इसलिए हर replica को वही bus दें:
+दोनों के बीच का जोड़ `SubscriptionBus` है। आप server को जो भी bus देते हैं, हर publish उसी में जाता है और हर खुला stream उसी को सुनता है, इसलिए हर replica को वही bus दें:
 
 ```python title="server.py" hl_lines="2 7 9"
 --8<-- "docs_src/deploy/tutorial004.py"
 ```
 
-fan-out को इससे कोई मतलब नहीं कि stream किस server object से जुड़ी है। एक ही `InMemorySubscriptionBus` रखने वाले दो servers पहले से ऐसे ही बर्ताव करते हैं: एक पर listen stream खोलें, दूसरे पर `edit_note` चलाएँ, और stream को इसकी ख़बर मिल जाती है। वह in-memory bus सिर्फ़ एक process के अंदर के server objects तक फैलता है, इसलिए यह model है, deployment नहीं:
+fan-out को इससे कोई मतलब नहीं कि stream किस server object से जुड़ा है। एक ही `InMemorySubscriptionBus` रखने वाले दो servers पहले से ऐसे ही बर्ताव करते हैं: एक पर listen stream खोलें, दूसरे पर `edit_note` चलाएँ, और stream को इसकी ख़बर मिल जाती है। वह in-memory bus सिर्फ़ एक process के अंदर के server objects तक फैलता है, इसलिए यह model है, deployment नहीं:
 
 * असली processes के बीच, **SDK में ऐसा कोई bus नहीं आता जो आपकी मदद कर सके।** `SubscriptionBus` दो methods वाला `Protocol` है (`publish` और `subscribe`) जिसे आप अपने pub/sub backend (Redis, NATS, जो भी आप पहले से चलाते हैं) के ऊपर implement करते हैं और `MCPServer(subscriptions=...)` के रूप में देते हैं। sketch और contract **[Subscriptions](../handlers/subscriptions.md#scaling-past-one-process)** में हैं।
 * bus चार छोटे typed events ढोता है, JSON-RPC कभी नहीं। Acknowledgment, filtering, और stream lifecycle SDK में ही रहते हैं, इसलिए आपका bus protocol तोड़ नहीं सकता; वह सिर्फ़ events को processes के बीच ले जा सकता है।
-* Streams resumable **नहीं** हैं और events replay **नहीं** होते। कोई replica खो जाए तो उसकी streams गिर जाती हैं; clients फिर से listen और फिर से fetch करते हैं। साझा करने को कोई event store नहीं और configure करने को और कुछ नहीं। यह वह एक जगह है जहाँ scale out करना सच में बस वही चीज़ और ज़्यादा है।
+* Streams resumable **नहीं** हैं और events replay **नहीं** होते। कोई replica खो जाए तो उसके streams गिर जाते हैं; clients फिर से listen और फिर से fetch करते हैं। साझा करने को कोई event store नहीं और configure करने को और कुछ नहीं। यह वह एक जगह है जहाँ scale out करना सच में बस वही चीज़ और ज़्यादा है।
+* जिस server को change notifications की ज़रूरत नहीं, वह bus छोड़ देता है: **[इन्हें बंद कर दें](../handlers/subscriptions.md#turning-it-off)**।
 
 ## SDK आपको क्या नहीं देता {#what-the-sdk-does-not-give-you}
 
@@ -170,6 +187,7 @@ fan-out को इससे कोई मतलब नहीं कि stream �
 ## सारांश {#recap}
 
 * बिना कुछ configure किए app सिर्फ़ उन्हीं requests का जवाब देता है जो localhost को भेजी गई हों। `transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])` ही go-live gate है: जब तक आप इसे नहीं देते, असली hostname के पीछे हर request `421` है और कारण सिर्फ़ server के log में है।
+* TLS-terminating proxy के पीछे uvicorn को `--proxy-headers --forwarded-allow-ips=...` के साथ चलाएँ, वरना उसके redirects `http://` की ओर इशारा करते हैं और client उन्हें ठुकरा देता है।
 * 2026-07-28 पर कोई session नहीं है और load balancer के sticky होने के लिए कुछ नहीं। `stateless_http=True` सिर्फ़ legacy का knob है क्योंकि modern request उस flag के पढ़े जाने से पहले ही route होकर जवाब पा लेती है।
 * default `requestState` key `os.urandom(32)` है, हर process में अलग बनी हुई। कोई multi-round-trip retry जो दूसरे worker तक पहुँचे, `-32602` *"Invalid or expired requestState"* के साथ fail होती है।
 * इलाज है `RequestStateSecurity(keys=[...])` **और** हर instance पर एक ही server नाम। नाम ही token का default audience claim है। वही keys, वही नाम।

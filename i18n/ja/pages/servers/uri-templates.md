@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
+  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 317f4256a650cab6, 4b6c4a845438abc7, f98b46bafbee4acd]
   tool: 1
 ---
 # URI テンプレートとパスの安全性 {#uri-templates-and-path-safety}
@@ -98,7 +98,7 @@ SDK はハンドラーの実行前に、次のいずれかに当てはまるパ�
 
 組み込みのチェックはよくあるケースを止めますが、サンドボックスの境界までは知りようがありません。ファイルシステムにアクセスする場合は、`safe_join` を使ってパスを解決し、ベースディレクトリの内側に収まっていることを検証してください。
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -127,7 +127,7 @@ SDK はハンドラーの実行前に、次のいずれかに当てはまるパ�
 これらのチェックはヒューリスティックな事前フィルターです。ファイルシステムへのアクセスでは、依然として `safe_join` が封じ込めの境界です。
 
 !!! tip
-    ハンドラーがリクエストに応えられない場合（ファイルが存在しない、ID が不明など）は、例外を送出してください。SDK がそれをエラーレスポンスに変換します。プロトコルエラーとツールエラーの違いについては、**[エラーの処理](handling-errors.md)** を参照してください。
+    ハンドラーがリクエストに応えられない場合（ファイルが存在しない、ID が不明など）は、上の `read_manual` と同じように `ResourceNotFoundError` を送出してください。クライアントには、指定したメッセージと URI を含む `-32602` が返ります。想定外の例外は、代わりに汎用の `-32603` になります。**[エラーの処理](handling-errors.md#a-resource-that-doesnt-exist)** を参照してください。
 
 ## 低レベル Server でのリソース {#resources-on-the-low-level-server}
 

@@ -19,10 +19,9 @@ Because of it, the tool the SDK sends during `tools/list` carries an `output_sch
 ```json
 {
   "properties": {
-    "result": {"title": "Result", "type": "integer"}
+    "result": {"type": "integer"}
   },
   "required": ["result"],
-  "title": "get_temperatureOutput",
   "type": "object"
 }
 ```
@@ -59,9 +58,9 @@ Declare the shape as a Pydantic `BaseModel` and return an instance:
 ```json
 {
   "properties": {
-    "temperature": {"description": "Degrees Celsius.", "title": "Temperature", "type": "number"},
-    "humidity": {"description": "Relative humidity, 0 to 1.", "title": "Humidity", "type": "number"},
-    "conditions": {"title": "Conditions", "type": "string"}
+    "temperature": {"description": "Degrees Celsius.", "type": "number"},
+    "humidity": {"description": "Relative humidity, 0 to 1.", "type": "number"},
+    "conditions": {"type": "string"}
   },
   "required": ["temperature", "humidity", "conditions"],
   "title": "WeatherData",
@@ -125,9 +124,9 @@ A `list[...]` isn't a JSON object either, so it gets the `{"result": ...}` wrapp
   "$defs": {
     "WeatherData": {
       "properties": {
-        "temperature": {"title": "Temperature", "type": "number"},
-        "humidity": {"title": "Humidity", "type": "number"},
-        "conditions": {"title": "Conditions", "type": "string"}
+        "temperature": {"type": "number"},
+        "humidity": {"type": "number"},
+        "conditions": {"type": "string"}
       },
       "required": ["temperature", "humidity", "conditions"],
       "title": "WeatherData",
@@ -135,21 +134,20 @@ A `list[...]` isn't a JSON object either, so it gets the `{"result": ...}` wrapp
     }
   },
   "properties": {
-    "result": {"items": {"$ref": "#/$defs/WeatherData"}, "title": "Result", "type": "array"}
+    "result": {"items": {"$ref": "#/$defs/WeatherData"}, "type": "array"}
   },
   "required": ["result"],
-  "title": "get_forecastOutput",
   "type": "object"
 }
 ```
 
 Ask for a two-day forecast and `structured_content` is `{"result": [{...}, {...}]}`. `content` becomes **two** `TextContent` blocks, one per item: a list is flattened for the model rather than dumped as one string.
 
-`tuple[...]`, unions, and `Optional[...]` are wrapped the same way.
+`tuple[...]`, unions, and `Optional[...]` are wrapped the same way, and so are `set` and `frozenset`, with or without an item type. A bare `list` or `tuple` is not: see **[Content blocks and media](#content-blocks-and-media)**.
 
 ## Dictionaries
 
-`dict[str, ...]` is the one generic that already *is* a JSON object, so it isn't wrapped:
+`dict[str, ...]` (or `typing.Dict[str, ...]`, or a bare `dict`, read as `dict[str, Any]`) is the one generic that already *is* a JSON object, so it isn't wrapped:
 
 ```python title="server.py" hl_lines="9"
 --8<-- "docs_src/structured_output/tutorial006.py"
@@ -158,7 +156,6 @@ Ask for a two-day forecast and `structured_content` is `{"result": [{...}, {...}
 ```json
 {
   "additionalProperties": {"type": "number"},
-  "title": "get_temperaturesDictOutput",
   "type": "object"
 }
 ```
@@ -168,6 +165,8 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 ```
 
 The keys must be `str`. A `dict[int, float]` can't be a JSON object, so it falls back to the `{"result": ...}` wrapper.
+
+Dictionary results use Pydantic's `TypeAdapter` for validation and serialization. If you inspect a tool's `FuncMetadata.output_model`, it holds the dictionary type annotation itself.
 
 ## Validation
 
@@ -182,17 +181,18 @@ You don't notice while you build the value by hand: Pydantic already made sure y
 The annotation promises `WeatherData`. The upstream response stopped sending `humidity`.
 
 !!! check
-    Call `get_weather` and it does not quietly hand the client a half-empty object. The call fails,
-    and the first lines of the error name the field:
+    Call `get_weather` and it does not quietly hand the client a half-empty object. The call fails:
+    the client gets `is_error=True` with `Error executing tool get_weather`, so the model knows the
+    call failed instead of confidently reading weather that isn't there. The field name is for you,
+    in the server log at `ERROR`:
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
     humidity
       Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
     ```
-
-    That text comes back as the tool result with `is_error=True`, so the model knows the call failed
-    instead of confidently reading weather that isn't there.
 
 Returning a plain `dict` from a `-> WeatherData` tool is fine, by the way. That's exactly what `json.loads` produced. Validation is on the value, not on the Python type.
 
@@ -211,6 +211,8 @@ The opposite, `structured_output=True`, turns the automatic detection into a req
 ## Content blocks and media
 
 Content blocks and media (`TextContent`, `EmbeddedResource`, `Image`, `Audio` and friends, on their own, as the items of a `list`, `tuple` or `Sequence`, or as the arms of a union) are opted out for you: they are for the model to read, so auto-detection derives no schema from them (**[Images, audio & icons](media.md)** covers `Image` and `Audio`). `structured_output=True` still forces one for the content-block classes.
+
+A bare `list` or `tuple` is opted out too. Nothing in the annotation says its items aren't blocks, and a schema would send any image it holds twice: once as a block for the model, and again as base64 in `structured_content`. Write the item type (`list[str]`, `tuple[int, ...]`) to get a schema, or pass `structured_output=True` to wrap it as a list of anything. The forced wrapper still has to serialize every item as JSON, so an `Image` or `Audio` in it makes the call fail. Only a bare `list` or `tuple` as the whole annotation is opted out: `list | None` is wrapped like any other union.
 
 ## A class without type hints
 
@@ -241,9 +243,9 @@ There is one way to end up unstructured without asking for it: return a class th
 ## Recap
 
 * The **return type annotation** is the output schema. It's published in `tools/list` as `output_schema`.
-* Scalars, lists, tuples and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes and `dict[str, ...]` are objects already and stay as they are.
+* Scalars, `list[...]`, `tuple[...]`, sets and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes, `dict[str, ...]` and a bare `dict` are objects already and stay as they are.
 * Every result carries `content` (text, for the model) **and** `structured_content` (data, for the application).
 * What you return is validated against the schema. A mismatch is a tool error, not a corrupt result.
-* `structured_output=False` opts a tool out. Content blocks, `Image` and `Audio` opt out by default; a class without type hints opts out silently, so watch for it.
+* `structured_output=False` opts a tool out. Content blocks, `Image`, `Audio` and a bare `list` or `tuple` opt out by default; a class without type hints opts out silently, so watch for it.
 
 You now own everything a tool can say back. Next, the second primitive: **[Resources](resources.md)**.

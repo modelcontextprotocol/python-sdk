@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, e7828fd2729b2c9d, a03ec26bfc678b65, 1034c653c0bcf1b0]
+  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, 7cf38181f6c99fd5, 37804d4fb36d6302, 1034c653c0bcf1b0]
   tool: 1
 ---
 # アイデンティティアサーション {#identity-assertion}
@@ -57,7 +57,7 @@ translation:
 
 ### コンフィデンシャルクライアント {#a-confidential-client}
 
-`client_secret` は必須で、ないとコンストラクターが `ValueError` を送出します。[SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) の下敷きになっている IETF プロファイルはこのグラントをコンフィデンシャルクライアント専用としており、SEP-990 はクライアントの認証を要求しています。この SDK は、共有シークレットを必須とすることでその両方を強制しています。`token_endpoint_auth_method` で、シークレットをどこに載せて送るかを選びます。`client_secret_post`（デフォルト、フォーム本体の中）か `client_secret_basic`（HTTP Basic ヘッダー）です。プロファイルは `private_key_jwt` も許可していますが、このプロバイダーはサポートしていません。
+`client_secret` は必須で、ないとコンストラクターが `ValueError` を送出します。[SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) の下敷きになっている IETF プロファイルは、このグラントをコンフィデンシャルクライアントに限って使うよう推奨しており、[RFC 7521](https://datatracker.ietf.org/doc/html/rfc7521) はそのポリシーを認可サーバーに委ねています。この SDK は、どちら側でも保守的な解釈を採っています。組み込みの認可サーバーは共有シークレットを持たないクライアントを拒否し、このプロバイダーは共有シークレットを必須とします。`token_endpoint_auth_method` で、シークレットをどこに載せて送るかを選びます。`client_secret_post`（デフォルト、フォーム本体の中）か `client_secret_basic`（HTTP Basic ヘッダー）です。プロファイルは `private_key_jwt` も許可していますが、このプロバイダーはサポートしていません。
 
 !!! tip
     `client_secret` は環境変数かシークレットマネージャーから読み込んでください。ソース管理には決して入れないでください。
@@ -84,6 +84,7 @@ SDK が認可サーバー「そのもの」になることもできます。`cre
 
 * `identity_assertion_enabled=True` がすべての門番です。オフ（これがデフォルト）のときは、フックを実装していても `/token` はこのグラントに `unsupported_grant_type` で応答し、メタデータにも載りません。オンにすると、メタデータに `jwt-bearer` グラントタイプが加わり、`authorization_grant_profiles_supported` に `urn:ietf:params:oauth:grant-profile:id-jag` が列挙されます。これは拡張仕様がサポートを告知するために使うフィールドです。（この SDK のクライアントはそれを読みません。1 つの issuer 向けにプロビジョニングされており、単に要求するだけです。）
 * **`exchange_identity_assertion`** がフックです。これが実行される前に、SDK はクライアントを認証し、パブリッククライアントを拒否し、登録内容にこのグラントが含まれていないクライアントを拒否しています。受け取るのは `IdentityAssertionParams`（生の `assertion`、要求された `scopes` と `resource`）で、返すのは素の `OAuthToken` です。
+* パブリッククライアントの拒否は SDK のポリシーであり、仕様の要件ではありません。組み込みのサーバーは共有シークレットでしかクライアントを認証しません。`private_key_jwt` をサポートしておらず、Client ID Metadata Document の解決にもまだ対応していない（[#1801](https://github.com/modelcontextprotocol/python-sdk/issues/1801)）ため、それで識別されるクライアントはここではこのグラントを使えません。別のポリシーにしたいデプロイメントは、`create_auth_routes` が返す `/token` ルートを独自のものに差し替えられます。
 * 動的クライアント登録はこのグラントを無条件に拒否するので、ここでの `get_client` は手作業でプロビジョニングしたクライアントを返します。ID-JAG クライアントが自分で自分を登録して存在するようになることはできません。
 * クラスの半分は拒否です。`OAuthAuthorizationServerProvider` は認可サーバー「全体」なので、認可コードフローも求められます。ユーザーのサインインも行うサーバーならそれらを本当に実装しますが、このサーバーには入口がちょうど 1 つしかありません。
 

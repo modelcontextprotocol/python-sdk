@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: [5d13c2f0ba42c0d2, c52a1de2b6b32f40, 8e792bf8c7489ec6, 38552ea228b0a04f]
   tool: 1
 ---
 # 測試 {#testing}
 
-Python SDK 附帶一個 `Client` 類別，內建**記憶體內傳輸**：把伺服器物件傳給它，它就會直接連上去。
+SDK 的 `Client` 類別，也就是連到 URL 或啟動子處理程序的同一個類別，也能在**記憶體內**連線：把伺服器物件傳給它，它就會直接和伺服器對話。
 
-沒有子處理程序，沒有連接埠，根本沒有傳輸層。概念和 FastAPI 的 `TestClient` 一樣。
+沒有子處理程序，沒有連接埠，線路上什麼都沒有。概念和 FastAPI 的 `TestClient` 一樣。
 
 ## 基本用法 {#basic-usage}
 
@@ -80,13 +80,13 @@ async def test_call_add_tool(client: Client):
 
 可能出錯的地方有兩種，而這個旗標只影響其中一種。
 
-**你的工具**內部引發的例外不算協定失敗。它會變成一個帶有 `is_error=True` 的正常結果，模型會讀到那則訊息。`raise_exceptions` 不會改變這一點：不管有沒有設定，`call_tool` 都回傳同樣的 `is_error=True` 結果。這部分有一整頁的說明：**[處理錯誤](../servers/handling-errors.md)**。
+**你的工具**內部引發的例外不算協定失敗。它會變成一個帶有 `is_error=True` 的正常結果（如果是 `ToolError`，模型會讀到你寫的訊息）。`raise_exceptions` 不會改變這一點：不管有沒有設定，`call_tool` 都回傳同樣的 `is_error=True` 結果。這部分有一整頁的說明：**[處理錯誤](../servers/handling-errors.md)**。
 
 發生在工具本體**之外**的失敗就不一樣了。在 `Client(mcp)` 給你的連線上，伺服器會先把它淨化成通用的 `"Internal server error"`，用戶端才看得到。意外當掉的細節本來就不該洩漏給遠端呼叫端。但在測試裡，這正是你**不**想要的，也正是 `raise_exceptions=True` 改變的地方：測試會看到真正的訊息，而不是淨化過的版本。
 
 測試裡就開著它。在正式環境的程式碼裡它沒有任何意義。
 
-## 預設為處理程序內連線 {#in-process-by-default}
+## 預設為世代中立 {#era-neutral-by-default}
 
 !!! note
     `Client(mcp)` 以處理程序內的方式連線，而且預設是**世代中立**的：它會探測伺服器，選出合適的協定路徑。如果測試要驗證舊版特有的語意（取樣（sampling）或徵詢（elicitation）的推送、`message_handler`），就固定用 `mode="legacy"`，並且在那裡拿掉 `raise_exceptions=True`：舊版連線本來就不會淨化，而這個旗標會讓失敗在伺服器任務裡重新引發，而不是在你的測試裡。

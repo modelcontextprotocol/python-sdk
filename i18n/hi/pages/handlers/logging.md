@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
+  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, 4cc0a00347c3f534, 4a0391691a674ae4, 2df5cd279eabf9f5]
   tool: 1
 ---
 # Logging {#logging}
@@ -53,6 +53,8 @@ standard library पहले से सही काम करती है: lo
 default `"INFO"` है।
 
 `logging.basicConfig()` पहले से मौजूद handlers को कभी नहीं बदलता। अगर आप server बनाने से पहले खुद logging configure करते हैं, तो आपका configuration ही चलता है।
+
+सिर्फ़ failures दर्ज करने के लिए हर handler में `try`/`except` लगाने की भी ज़रूरत नहीं है। जब कोई tool या resource function raise करता है, तो SDK उसे आपके लिए log कर देता है। क्या log होता है और किस level पर, यह **[errors संभालना](../servers/handling-errors.md#any-other-exception)** में बताया गया है।
 
 ## इसे आज़माएँ {#try-it}
 

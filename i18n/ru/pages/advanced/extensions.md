@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 7ffc91f5e38bdfe0, 717d3f235a8333a7, f471a13b2fe5d737, ed6af2df4b656dff]
+  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 6eba6ce094f4417e, 125f28588c85dd7b, ddd8969b698ca11c, ed6af2df4b656dff]
   tool: 1
 ---
 # Расширения {#extensions}
@@ -49,7 +49,7 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 Самое маленькое полезное расширение — один инструмент и карта настроек:
 
-```python title="server.py" hl_lines="17 19-20 22-23 26"
+```python title="server.py" hl_lines="16 18-19 21-22 25"
 --8<-- "docs_src/extensions/tutorial003.py"
 ```
 
@@ -57,17 +57,23 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 * `settings()` — значение, объявляемое в `capabilities.extensions["com.example/stamps"]`. Верните `{}` (значение по умолчанию), чтобы объявить расширение без настроек.
 * Расширение никогда не получает сервер. Оно описывает свой вклад как данные; `MCPServer` их потребляет. Никакого `self.server`, который можно было бы менять, нет.
 
-А `main()` служит доказательством: клиент в памяти, подключённый напрямую к `mcp`:
+Запустите его по HTTP — и доказательством послужит клиент:
 
-```python title="server.py" hl_lines="29-34"
---8<-- "docs_src/extensions/tutorial003.py"
+```console
+uv run mcp run server.py --transport streamable-http
 ```
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/extensions/tutorial003_client.py"
+```
+
+Каждый `server.py` на этой странице запускается этой командой, а каждый `client.py` работает рядом с ним: `python client.py` во втором терминале.
 
 ### Обслуживание собственных методов {#serving-your-own-methods}
 
 Расширение может регистрировать **новые методы запросов** — собственные глаголы, обслуживаемые рядом с методами спецификации:
 
-```python title="server.py" hl_lines="16-22 31 40-48"
+```python title="server.py" hl_lines="14-20 24 33-41"
 --8<-- "docs_src/extensions/tutorial004.py"
 ```
 
@@ -83,14 +89,15 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 ### Клиентская сторона {#the-client-side}
 
-`main()` из того же файла — это вся клиентская часть, обе её половины:
+Клиент — отдельная программа, и в ней обе половины клиентской части:
 
-```python title="server.py" hl_lines="54-58"
---8<-- "docs_src/extensions/tutorial004.py"
+```python title="client.py" hl_lines="21-23 27-30"
+--8<-- "docs_src/extensions/tutorial004_client.py"
 ```
 
 * `Client(..., extensions=[advertise(EXTENSION_ID)])` объявляет расширение. Объявления превращаются в `ClientCapabilities.extensions`: на подключении версии 2026-07-28 карта передаётся в конверте `_meta` каждого запроса, так что сервер видит её в **каждом** запросе; на подключении старого поколения она едет в рукопожатии `initialize`. Серверному коду всё равно, какой из вариантов: `require_client_extension(ctx, ...)` и `ctx.session.check_client_capability(...)` читают нужный источник на обоих путях.
 * Вендорные методы спускаются на уровень ниже, к `client.session.send_request(...)`; `Client` обзаводится полноценными методами только для глаголов спецификации. `send_request` принимает любой подкласс `Request`, так что вендорный запрос проходит как есть.
+* `SearchRequest` и две модели, которые он несёт, — это контракт расширения в передаваемых данных, поэтому клиент объявляет их у себя сам. Опубликованное расширение поставляло бы их в пакете, который импортируют обе стороны.
 
 ### Перехват `tools/call` {#intercepting-toolscall}
 
@@ -109,10 +116,16 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 ## Использование клиентского расширения {#using-a-client-extension}
 
-**Клиентское расширение** — тот же контракт со стороны потребителя: набор клиентского поведения за одним идентификатором. Передайте экземпляры в `Client(extensions=[...])` и вызывайте инструменты как обычно:
+**Клиентское расширение** — тот же контракт со стороны потребителя: набор клиентского поведения за одним идентификатором. Сервер здесь отвечает на `buy` не самим товаром, а квитанцией, которую нужно погасить, — и только клиенту, объявившему расширение:
 
-```python title="client.py" hl_lines="66-68"
+```python title="server.py" hl_lines="22-25"
 --8<-- "docs_src/extensions/tutorial006.py"
+```
+
+На клиенте передайте экземпляры в `Client(extensions=[...])` и вызывайте инструменты как обычно:
+
+```python title="client.py" hl_lines="33-35"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 `call_tool("buy", ...)` возвращает обычный `CallToolResult`, как и любой другой вызов. Что изменило расширение: теперь сервер может ответить на `buy` **формой результата** `receipt` вместо окончательного результата, а `Receipts` доводит её до конца (здесь — погашая квитанцию дополнительным вызовом) до того, как `call_tool` вернёт управление. В месте вызова не меняется ничего.
@@ -124,15 +137,15 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 ```python
 from mcp.client import advertise
 
-client = Client(mcp, extensions=[advertise("com.example/search")])
+client = Client("http://localhost:8000/mcp", extensions=[advertise("com.example/search")])
 ```
 
 ## Написание клиентского расширения {#writing-a-client-extension}
 
 Унаследуйтесь от `ClientExtension` и переопределите только то, что нужно. Три вида вклада, у каждого реализация по умолчанию: `settings()`, `claims()` и `notifications()`.
 
-```python title="client.py" hl_lines="17-18 43-44 46-47"
---8<-- "docs_src/extensions/tutorial006.py"
+```python title="client.py" hl_lines="16-17 25-26 28-29"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 * Идентификатор подчиняется той же грамматике, что и на сервере, и проверяется при определении класса.
@@ -153,10 +166,16 @@ def notifications(self) -> Sequence[NotificationBinding[Any]]:
 
 ### Глаголы расширения {#extension-verbs}
 
-Собственные методы запросов расширения не требуют регистрации на стороне клиента. Тип вендорного запроса наследуется от `mcp.types.Request` и отправляется через `client.session.send_request`, как в разделе [Обслуживание собственных методов](#serving-your-own-methods). Одно дополнение: когда ключ из params должен передаваться в заголовке `Mcp-Name` (спецификации расширений, например tasks, требуют этого для своих глаголов), тип запроса объявляет `name_param`:
+Собственные методы запросов расширения не требуют регистрации на стороне клиента. Тип вендорного запроса наследуется от `mcp.types.Request` и отправляется через `client.session.send_request`, как в разделе [Обслуживание собственных методов](#serving-your-own-methods). Возьмём сервер, расширение которого обслуживает один глагол, относящийся к именованному заданию:
 
-```python title="client.py" hl_lines="22-25 46-47"
+```python title="server.py" hl_lines="12-13 30"
 --8<-- "docs_src/extensions/tutorial007.py"
+```
+
+Одно дополнение на клиенте: когда ключ из params должен передаваться в заголовке `Mcp-Name` (спецификации расширений, например tasks, требуют этого для своих глаголов), тип запроса объявляет `name_param`:
+
+```python title="client.py" hl_lines="20-23 28-29"
+--8<-- "docs_src/extensions/tutorial007_client.py"
 ```
 
 Сессия дублирует `params["jobId"]` в `Mcp-Name` на каждом пути отправки, а отсутствующее значение приводит к явной ошибке, а не к молчаливому пропуску обязательного заголовка.

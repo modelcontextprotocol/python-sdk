@@ -153,8 +153,6 @@ def _surface_classes(module: ModuleType) -> list[tuple[str, type[BaseModel]]]:
             continue
         if obj.__module__ != module.__name__ or obj.__name__ != name:
             continue  # re-export or alias to another model
-        if getattr(obj, "__pydantic_root_model__", False):
-            continue  # RootModel alias wrapper; the field-subset property does not apply
         out.append((f"{tail}.{name}", obj))
     return out
 

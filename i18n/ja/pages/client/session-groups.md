@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, d18adbdbb835ea73]
+  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, ed4d17e894864056]
   tool: 1
 ---
 # セッショングループ {#session-groups}
@@ -76,7 +76,7 @@ translation:
 ## まとめ {#recap}
 
 * `ClientSessionGroup` は多数のサーバー接続を保持し、それらのツール、リソース、プロンプトをそれぞれ 1 つの `dict` にまとめます。
-* サーバーごとに `connect_to_server(params)` を呼びます。受け取るのはトランスポートのパラメーターであり、`Client` が受け取るサーバーオブジェクトや URL ではありません。
+* サーバーごとに `connect_to_server(params)` を呼びます。受け取るのはトランスポートのパラメーターであり、`Client` が受け取る URL や `Transport` ではありません。
 * `group.call_tool(name, arguments)` は、所有するサーバーへのルーティングを代わりに行います。
 * 名前はグループ全体で一意でなければなりません。`search` ツールを持つ 2 つのサーバーは、そのままでは共存できません。
 * `component_name_hook=` は登録されるすべての名前を書き換えます。dict のキーは変わりますが、実際に送信される名前は変わりません。

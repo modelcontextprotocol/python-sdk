@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import socket
 import sys
+import tomllib
 import traceback
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -26,11 +27,6 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
 from mcp.types.version import LATEST_MODERN_VERSION
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 Target: TypeAlias = "Server[Any] | MCPServer | Transport | StdioServerParameters | str"
 """Anything ``Client(...)`` accepts: an HTTP URL, stdio launch parameters, a ``Transport``, or an in-process server."""
@@ -182,7 +178,9 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
                 # server origin and relative paths like "/mcp" resolve.
                 parts = urlsplit(url)
                 base = f"{parts.scheme}://{parts.netloc}"
-                http = await stack.enter_async_context(httpx2.AsyncClient(base_url=base))
+                http = await stack.enter_async_context(
+                    httpx2.AsyncClient(base_url=base, timeout=httpx2.Timeout(30.0, read=300.0))
+                )
                 make = targets
                 if build_auth is not None:
                     http.auth = build_auth(http)

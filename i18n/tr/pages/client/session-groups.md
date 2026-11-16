@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, d18adbdbb835ea73]
+  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, ed4d17e894864056]
   tool: 1
 ---
 # Oturum grupları {#session-groups}
@@ -78,7 +78,7 @@ Elinizde zaten bağlı bir `ClientSession` varsa (`Client.session` bunlardan bir
 ## Özet {#recap}
 
 * `ClientSessionGroup` birçok sunucu bağlantısını tutar ve bunların araçlarını, kaynaklarını ve prompt'larını birer `dict`'te birleştirir.
-* Her sunucu için `connect_to_server(params)`. Aktarım parametreleri alır; bir `Client`'ın aldığı sunucu nesnesini ya da URL'yi asla almaz.
+* Her sunucu için `connect_to_server(params)`. Aktarım parametreleri alır; bir `Client`'ın aldığı URL'yi ya da `Transport`'u asla almaz.
 * `group.call_tool(name, arguments)` çağrıyı sizin yerinize sahibi olan sunucuya yönlendirir.
 * Adlar grubun tamamında benzersiz olmalıdır; `search` aracı olan iki sunucu kendi hâllerine bırakılırsa bir arada bulunamaz.
 * `component_name_hook=` kaydedilen her adı yeniden yazar. Sözlük anahtarı değişir, ağ üzerindeki ad değişmez.

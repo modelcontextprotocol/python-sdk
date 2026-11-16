@@ -13,12 +13,13 @@ English section hashes it reflects; nothing else tracks state.
 
 Usage (from the repository root):
     python scripts/docs/translations.py status [--lang CODE]
-    python scripts/docs/translations.py translate --lang CODE [--pages PATH ...]
+    python scripts/docs/translations.py translate [--lang CODE ...] [--pages PATH ...] [--jobs N]
     python scripts/docs/translations.py stage [--lang CODE]
 
 Only `translate` calls the model (credentials come from the environment, e.g.
-`ANTHROPIC_API_KEY`) and needs the `translate` dependency group;
-`DOCS_TRANSLATE_MODEL`, if set, replaces the registry's `model` for that run.
+`ANTHROPIC_API_KEY`) and needs the `translate` dependency group; it keeps
+`--jobs` pages in flight at once, and `DOCS_TRANSLATE_MODEL`, if set, replaces
+the registry's `model` for that run.
 Exit codes: 0 done, 1 some page failed, 2 configuration or credential error.
 """
 
@@ -31,9 +32,12 @@ import posixpath
 import re
 import shutil
 import sys
-from collections import Counter
+import threading
+from collections import Counter, deque
 from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from itertools import chain, zip_longest
 from pathlib import Path
 from typing import Any, Literal, Protocol, cast, get_args
 
@@ -54,6 +58,12 @@ TOOL_VERSION = 1
 OUTPUT_TOKEN_BUDGET = 64_000
 # Repair turns fed back to the model after the first reply before a page fails.
 MAX_REPAIRS = 2
+# Pages in flight at once unless `--jobs` says otherwise: each page is its own
+# conversation, so concurrency changes nothing the model sees, only wall-clock time.
+DEFAULT_JOBS = 8
+# Retries (with backoff) the API client makes on rate limits and overloads before
+# a request fails its page; generous, since many pages share one rate limit.
+API_RETRIES = 6
 NOTICES_PAGE = "i18n/notices.md"
 # The nav page the notices link to for how the translations are made.
 TRANSLATIONS_DOC = "translations.md"
@@ -385,6 +395,8 @@ class Repo:
     prose_pages: list[str]
     translatable: list[str]
     renderer: markdown.Markdown
+    # python-markdown instances are not thread-safe; pages render one at a time.
+    _render_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def language(self, code: str) -> Language:
         for language in self.registry.languages:
@@ -413,10 +425,12 @@ class Repo:
         Raises:
             PageError: The renderer sees headings the source scan does not (setext, indented, HTML).
         """
-        self.renderer.reset()
-        self.renderer.convert(body)
-        tokens = cast("list[dict[str, Any]]", getattr(self.renderer, "toc_tokens", []))
-        ids, found = [str(token["id"]) for token in _flatten(tokens)], parse_headings(body)
+        with self._render_lock:
+            self.renderer.reset()
+            self.renderer.convert(body)
+            tokens = cast("list[dict[str, Any]]", getattr(self.renderer, "toc_tokens", []))
+            ids = [str(token["id"]) for token in _flatten(tokens)]
+        found = parse_headings(body)
         if len(ids) != len(found):
             raise PageError(f"the page renders {len(ids)} headings but {len(found)} are ATX headings at column 0")
         return ids
@@ -579,7 +593,10 @@ class Completion:
 
 
 class Translator(Protocol):
-    """Anything that answers a conversation (`ConfigError`: credentials rejected; `PageError`: request failed)."""
+    """Anything that answers a conversation (`ConfigError`: credentials rejected; `PageError`: request failed).
+
+    `complete` is called from several threads at once when pages run in parallel.
+    """
 
     def complete(self, *, model: str, system: str, messages: Sequence[Message], max_tokens: int) -> Completion: ...
 
@@ -587,14 +604,22 @@ class Translator(Protocol):
 def anthropic_translator() -> Translator:
     """The Claude Messages API client, streaming, with the system prompt as one cached block.
 
-    `anthropic` lives in the non-default `translate` dependency group, so it is
-    imported here, by name: offline commands and type checking never need it.
+    One client serves every thread. The system prompt is everything a language's
+    pages share (rules, instructions, glossary), so it is the cacheable prefix:
+    the first request of a language writes it and the rest read it. A page that
+    starts before that first reply has begun streaming writes it again instead;
+    `command_translate` orders the work so that is rare, and nothing waits on it.
+
+    `anthropic` (and `httpx`, its transport, whose errors can escape it) lives in
+    the non-default `translate` dependency group, so both are imported here, by
+    name: offline commands and type checking never need them.
 
     Raises:
         ConfigError: The `translate` dependency group is not installed, or no credentials are configured.
     """
     try:
         sdk = importlib.import_module("anthropic")
+        httpx = importlib.import_module("httpx")
     except ImportError as exc:
         raise ConfigError(
             "the anthropic package is not installed; run with `uv run --frozen --group translate`"
@@ -602,7 +627,7 @@ def anthropic_translator() -> Translator:
     # The SDK resolves every credential source it knows at construction; fail
     # here, before any page work, rather than on the first request.
     try:
-        client = sdk.Anthropic()
+        client = sdk.Anthropic(max_retries=API_RETRIES)
     except sdk.AnthropicError as exc:  # e.g. a credential profile it was pointed at is unreadable
         raise ConfigError(f"cannot set up the API client: {exc}") from exc
     if not (client.api_key or client.auth_token or client.credentials):
@@ -619,6 +644,8 @@ def anthropic_translator() -> Translator:
                 raise ConfigError(f"the API rejected the credentials: {exc.message}") from exc
             except sdk.APIError as exc:
                 raise PageError(f"API request failed: {exc.message}") from exc
+            except httpx.HTTPError as exc:  # the connection failing mid-reply is not wrapped by the SDK
+                raise PageError(f"API connection failed: {exc!r}") from exc
             usage = Usage(
                 reply.usage.input_tokens,
                 reply.usage.output_tokens,
@@ -926,30 +953,78 @@ def translate_page(repo: Repo, inputs: Inputs, job: Job, translator: Translator,
 
 
 def command_translate(repo: Repo, args: argparse.Namespace, translator: Translator | None) -> int:
-    language = repo.language(args.lang)
-    inputs = repo.inputs(language)
-    jobs = select_jobs([classify(page) for page in repo.pages(language)], args.pages)
-    if not jobs:
-        print(f"{language.code}: nothing to translate")
+    codes = list(dict.fromkeys(args.lang))  # each language once, in the order given
+    languages = [repo.language(code) for code in codes] if codes else repo.registry.languages
+    per_language: list[list[tuple[Inputs, Job]]] = []
+    for language in languages:
+        inputs = repo.inputs(language)
+        jobs = select_jobs([classify(page) for page in repo.pages(language)], args.pages)
+        if not jobs:
+            print(f"{language.code}: nothing to translate")
+        per_language.append([(inputs, job) for job in jobs])
+    # Page-major across languages (every language's first page, then every second page, ...),
+    # so each language's first request is under way, and its cached prefix written, before
+    # its next page goes out, however many pages are in flight.
+    work = [item for item in chain.from_iterable(zip_longest(*per_language)) if item is not None]
+    if not work:
         return 0
     model = os.environ.get("DOCS_TRANSLATE_MODEL") or repo.registry.model  # never recorded in the generated files
     # Only a job with open sections calls the model; a run without one needs no client and no
     # credentials. Otherwise both are set up here, so bad credentials fail before any page work.
-    if translator is None and any(job.open for job in jobs):
+    if translator is None and any(job.open for _, job in work):
         translator = anthropic_translator()
-    usage, failed = Usage(), False
-    for job in jobs:
-        page = job.state.page
+
+    def produce(inputs: Inputs, job: Job) -> tuple[str | PageError | ConfigError, Usage]:
+        """The page body, or why it failed or must stop the run, with the tokens it cost; runs on a pool thread."""
+        spent = Usage()
         try:
-            body = translate_page(repo, inputs, job, translator, model, usage) if translator else reassemble(repo, job)
-        except PageError as exc:
-            failed = True
-            print(f"error: {page.key}: {exc}", file=sys.stderr)
-            continue
-        page.target.parent.mkdir(parents=True, exist_ok=True)
-        page.target.write_text(with_provenance(body, job.state.hashes), encoding="utf-8", newline="\n")
-        print(f"translated: {page.key} ({len(job.open)} of {len(job.state.hashes)} sections)", flush=True)
+            body = translate_page(repo, inputs, job, translator, model, spent) if translator else reassemble(repo, job)
+        except (PageError, ConfigError) as exc:
+            return exc, spent
+        return body, spent
+
+    active = sorted({inputs.language.code for inputs, _ in work}, key=[lang.code for lang in languages].index)
+    print(f"translating {len(work)} pages ({', '.join(active)}), {args.jobs} at a time, with {model}", flush=True)
+    usage, failed = Usage(), False
+    queue = deque(work)
+    running: dict[Future[tuple[str | PageError | ConfigError, Usage]], tuple[Language, Job]] = {}
+    stopped: ConfigError | None = None  # rejected credentials: start nothing more, keep what still lands
+    pool = ThreadPoolExecutor(max_workers=args.jobs)
+    try:
+        # The window is refilled here rather than handing the pool every page up front, so
+        # that once the credentials are rejected no further page starts; pages already in
+        # flight are still collected, and written if they made it, before the run stops.
+        while (queue and stopped is None) or running:
+            while queue and stopped is None and len(running) < args.jobs:
+                inputs, job = queue.popleft()
+                running[pool.submit(produce, inputs, job)] = (inputs.language, job)
+            for future in wait(running, return_when=FIRST_COMPLETED).done:
+                language, job = running.pop(future)
+                result, spent = future.result()
+                usage.add(spent)
+                if isinstance(result, ConfigError):
+                    stopped = stopped or result
+                    continue
+                page = job.state.page
+                if isinstance(result, PageError):
+                    failed = True
+                    print(f"{language.code}: error: {page.key}: {result}", file=sys.stderr)
+                    continue
+                page.target.parent.mkdir(parents=True, exist_ok=True)
+                page.target.write_text(with_provenance(result, job.state.hashes), encoding="utf-8", newline="\n")
+                done = f"{len(job.open)} of {len(job.state.hashes)} sections"
+                print(f"{language.code}: translated {page.key} ({done})", flush=True)
+    except KeyboardInterrupt:
+        # The pool's threads are not daemons: left to them, the process would sit until every
+        # page in flight finished (and was thrown away). Leave now instead.
+        print(f"interrupted: {len(running)} pages in flight abandoned, {len(queue)} not started", file=sys.stderr)
+        print(f"usage: {usage}", flush=True)
+        os._exit(130)
+    finally:
+        pool.shutdown(wait=False)
     print(f"usage: {usage}")
+    if stopped is not None:
+        raise stopped
     return 1 if failed else 0
 
 
@@ -1072,6 +1147,12 @@ def command_status(repo: Repo, args: argparse.Namespace) -> int:
 # ---- Command line ----
 
 
+def _positive(text: str) -> int:
+    if (value := int(text)) < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="translations.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1080,9 +1161,14 @@ def _parser() -> argparse.ArgumentParser:
     status = commands.add_parser("status", help="what each language is missing")
     status.add_argument("--lang", metavar="CODE")
     translate = commands.add_parser("translate", help="translate missing and outdated pages (calls the model)")
-    translate.add_argument("--lang", metavar="CODE", required=True)
     translate.add_argument(
-        "--pages", nargs="+", metavar="PATH", default=[], help="re-translate exactly these pages from scratch"
+        "--lang", nargs="+", action="extend", metavar="CODE", default=[], help="only these (default: every language)"
+    )
+    translate.add_argument(
+        "--pages", nargs="+", action="extend", metavar="PATH", default=[], help="re-translate exactly these, afresh"
+    )
+    translate.add_argument(
+        "--jobs", type=_positive, metavar="N", default=DEFAULT_JOBS, help=f"pages in flight (default {DEFAULT_JOBS})"
     )
     staged = commands.add_parser("stage", help="assemble .build/i18n/CODE/docs for the site build")
     staged.add_argument("--lang", metavar="CODE", help="stage this language only (default: every language)")

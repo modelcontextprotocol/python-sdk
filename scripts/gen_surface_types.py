@@ -5,13 +5,14 @@ writes the result to `src/mcp-types/mcp_types/_v<version>/__init__.py` (the
 underscore marks these as internal validators, not public API) with only
 the fixes the raw output needs: a small JSON pre-patch for the known
 `number`-as-`integer` schema.json defect, a header, full URLs for the spec's
-site-absolute doc links, and per-version epilogue aliases. Run with
+site-absolute doc links, plain type aliases, and per-version epilogue aliases. Run with
 `uv run --frozen --group codegen python scripts/gen_surface_types.py [--check]`.
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
 import difflib
 import hashlib
 import json
@@ -29,6 +30,12 @@ TYPES_DIR = REPO_ROOT / "src" / "mcp-types" / "mcp_types"
 # The result-meta serverInfo stamp: every `$defs` entry carrying this property
 # gets its typed `$ref` stripped by `make_server_info_opaque` below.
 SERVER_INFO_META_PROPERTY = "io.modelcontextprotocol/serverInfo"
+
+LEGACY_EXTENSIONS_FIELD = {
+    "additionalProperties": {"additionalProperties": True, "properties": {}, "type": "object"},
+    "description": "Optional MCP extensions that the peer supports, keyed by extension identifier.",
+    "type": "object",
+}
 
 # schema.ts -> schema.json renders TypeScript `number` as JSON Schema
 # `integer` at these sites; patch the JSON before codegen so floats validate.
@@ -55,6 +62,22 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
             {"$ref": "#/$defs/PrimitiveSchemaDefinition"},
             {},
         ),
+        # JSON Schema 2020-12 allows a boolean wherever a sub-schema is expected, and
+        # 2026-07-28 already leaves these free-form; accept `true`/`false` property schemas.
+        (
+            "$defs/Tool/properties/inputSchema/properties/properties/additionalProperties",
+            {"additionalProperties": True, "properties": {}, "type": "object"},
+            {"anyOf": [{"additionalProperties": True, "properties": {}, "type": "object"}, {"type": "boolean"}]},
+        ),
+        (
+            "$defs/Tool/properties/outputSchema/properties/properties/additionalProperties",
+            {"additionalProperties": True, "properties": {}, "type": "object"},
+            {"anyOf": [{"additionalProperties": True, "properties": {}, "type": "object"}, {"type": "boolean"}]},
+        ),
+        # Extensions are negotiated through `initialize` before 2026-07-28 too (e.g. MCP Apps);
+        # carry the 2026-07-28 field so the result sieve doesn't drop a server's acceptance.
+        ("$defs/ClientCapabilities/properties/extensions", None, LEGACY_EXTENSIONS_FIELD),
+        ("$defs/ServerCapabilities/properties/extensions", None, LEGACY_EXTENSIONS_FIELD),
     ],
     "2026-07-28": [
         ("$defs/NumberSchema/properties/default/type", "number", ["integer", "number"]),
@@ -83,12 +106,24 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
 }
 
 # Classes the spec defines as open key-value bags: `_meta` content, the
-# JSON-Schema-document fields on `Tool`, and the schemas with explicit
-# `additionalProperties: {}`. These keep `extra="allow"` so the sieve preserves
-# arbitrary keys; every other class ignores extras. Per-version because codegen
-# reuses class names across versions for unrelated schemas (e.g. `Data`).
+# JSON-Schema-document fields on `Tool`, the capability objects (documented as
+# "not a closed set"), and the schemas with explicit `additionalProperties: {}`.
+# These keep `extra="allow"` so the sieve preserves arbitrary keys; every other
+# class ignores extras. Per-version because codegen reuses class names across
+# versions for unrelated schemas (e.g. `Data`).
 OPEN_CLASSES: dict[str, frozenset[str]] = {
-    "2025-11-25": frozenset({"Meta", "InputSchema", "OutputSchema", "Result", "GetTaskPayloadResult", "Data"}),
+    "2025-11-25": frozenset(
+        {
+            "Meta",
+            "InputSchema",
+            "OutputSchema",
+            "Result",
+            "GetTaskPayloadResult",
+            "Data",
+            "ClientCapabilities",
+            "ServerCapabilities",
+        }
+    ),
     "2026-07-28": frozenset(
         {
             "MetaObject",
@@ -99,6 +134,8 @@ OPEN_CLASSES: dict[str, frozenset[str]] = {
             "InputSchema",
             "OutputSchema",
             "Result",
+            "ClientCapabilities",
+            "ServerCapabilities",
         }
     ),
 }
@@ -136,6 +173,8 @@ def load_pinned() -> list[dict[str, str]]:
 def patch_schema(schema: dict[str, Any], patches: list[tuple[str, Any, Any]]) -> None:
     """Apply `(path, old, new)` JSON-pointer-ish patches in place, asserting the old value.
 
+    An `old` of `None` asserts the key is absent, so a patch can add a property.
+
     Path segments use JSON-pointer escaping (`~1` for `/`, `~0` for `~`) so keys
     that themselves contain a slash (the reserved `io.modelcontextprotocol/*`
     `_meta` keys) are addressable.
@@ -145,8 +184,8 @@ def patch_schema(schema: dict[str, Any], patches: list[tuple[str, Any, Any]]) ->
         node: Any = schema
         for part in parts:
             node = node[int(part) if part.isdigit() else part]
-        if node[leaf] != old:
-            raise SystemExit(f"schema patch {path}: expected {old!r}, found {node[leaf]!r}")
+        if node.get(leaf) != old:
+            raise SystemExit(f"schema patch {path}: expected {old!r}, found {node.get(leaf)!r}")
         node[leaf] = new
 
 
@@ -177,12 +216,14 @@ def run_codegen(schema_path: Path, output_path: Path) -> None:
             "--input-file-type", "jsonschema",
             "--output", str(output_path),
             "--output-model-type", "pydantic_v2.BaseModel",
-            "--target-python-version", "3.10",
+            "--target-python-version", "3.11",
             "--base-class", "mcp_types._wire_base.WireModel",
             "--snake-case-field", "--remove-special-field-name-prefix",
             "--use-annotated", "--use-field-description", "--use-schema-description",
             "--enum-field-as-literal", "all",
+            "--default-values", '{"ElicitRequestFormParams.mode": "form"}',
             "--use-union-operator", "--use-double-quotes",
+            "--use-type-alias", "--skip-root-model",
             "--extra-fields", "ignore",
             # JSON Schema `format` is annotation-only; codegen's defaults
             # (Base64Str, AnyUrl) over-assert and reject valid wire data.
@@ -209,7 +250,7 @@ def allow_open_class_extras(source: str, open_classes: frozenset[str]) -> str:
         return match.group(0).replace('extra="ignore"', 'extra="allow"')
 
     source = re.sub(
-        r'^class (\w+)\(WireModel\):\n(?: {4}.*\n|\n)*? {4}model_config = ConfigDict\(\n {8}extra="ignore",\n {4}\)\n',
+        r'^class (\w+)\(WireModel\):\n(?: {4}.*\n|\n)*? {4}model_config = ConfigDict\(extra="ignore"\)\n',
         patch,
         source,
         flags=re.MULTILINE,
@@ -225,6 +266,10 @@ def build(entry: dict[str, str]) -> str:
     schema = json.loads((SCHEMA_DIR / f"{version}.json").read_text(encoding="utf-8"))
     patch_schema(schema, SCHEMA_PATCHES.get(version, []))
     make_server_info_opaque(schema)
+    if "JSONValue" in schema["$defs"]:
+        # A single recursive alias avoids mutually recursive alias evaluation in type checkers.
+        assert schema["$defs"]["JSONValue"]["anyOf"][0] == {"$ref": "#/$defs/JSONObject"}
+        schema["$defs"]["JSONValue"]["anyOf"][0] = schema["$defs"]["JSONObject"]
 
     with tempfile.TemporaryDirectory() as tmp:
         patched = Path(tmp) / "schema.json"
@@ -234,7 +279,30 @@ def build(entry: dict[str, str]) -> str:
         source = raw.read_text(encoding="utf-8")
 
     source = re.sub(r"\A# generated by datamodel-codegen:\n#[^\n]*\n", "", source)
-    source = re.sub(r"^class Model\(RootModel\[Any\]\):\n {4}root: Any\n+", "", source, count=1, flags=re.MULTILINE)
+    # Explicit __annotations__ hides declared fields under Python 3.14's deferred annotations.
+    source = source.replace('    __annotations__ = {\n        "__pydantic_extra__": Dict[str, Any],\n    }\n', "")
+    source = source.replace(", Dict,", ",")
+    # Keep named aliases only for recursive types; other aliases remain ordinary Python types and unions.
+    for node in reversed(ast.parse(source).body):
+        if not (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "TypeAliasType"
+        ):
+            continue
+        value = node.value.args[1]
+        if any(
+            isinstance(part, ast.Constant) and isinstance(part.value, str) and part.value in schema["$defs"]
+            for part in ast.walk(value)
+        ):
+            continue
+        original = ast.get_source_segment(source, node.value)
+        replacement = ast.get_source_segment(source, value)
+        assert original is not None and replacement is not None
+        source = source.replace(original, f"({replacement})", 1)
+    if "= TypeAliasType(" not in source:
+        source = source.replace("from typing_extensions import TypeAliasType\n", "")
     # Codegen appends `| None` to forward refs of nullable models, which is a
     # runtime TypeError on a string ref and redundant since `JSONValue` includes None.
     source = source.replace('"JSONValue" | None', '"JSONValue"')
@@ -242,10 +310,12 @@ def build(entry: dict[str, str]) -> str:
     # them to full URLs so they resolve from the rendered API docs and pass the
     # strict mkdocs link validation.
     source = source.replace("](/", "](https://modelcontextprotocol.io/")
+    source = re.sub(
+        r'model_config = ConfigDict\(\n\s+(extra="ignore"),\n\s+\)', r"model_config = ConfigDict(\1)", source
+    )
     source = allow_open_class_extras(source, OPEN_CLASSES[version])
     if epilogue := EPILOGUES.get(version, ""):
-        # Insert before the trailing model_rebuild() block: pyright's evaluation
-        # order for the recursive RootModel block is sensitive to placement.
+        # Resolve aliases before rebuilding models with forward references.
         match = re.search(r"^\w+\.model_rebuild\(\)$", source, flags=re.MULTILINE)
         cut = match.start() if match else len(source)
         source = f"{source[:cut]}{epilogue}\n\n{source[cut:]}"

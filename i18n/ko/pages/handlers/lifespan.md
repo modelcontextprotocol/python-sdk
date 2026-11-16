@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f3ca8ac5f90f2dfa, 85a1ef3588ba0736, 563346d4d5804933, 9e3528340d0bab53]
+  sections: [f3ca8ac5f90f2dfa, 48e478ef7bd688b1, 563346d4d5804933, 52ac6a7734d6f581]
   tool: 1
 ---
 # Lifespan {#lifespan}
@@ -46,7 +46,7 @@ lifespan은 **한 번** 실행됩니다. 서버가 시작될 때(첫 요청 전)
 
 모델이 전달할 수 있는 인자는 `genre`뿐입니다. lifespan은 서버 내부의 일입니다.
 
-`@mcp.resource()`와 `@mcp.prompt()` 함수도 `ctx` 매개변수를 받을 수 있는데, 다음 절에서 설명할 이유로 타입 매개변수 없는 `Context`로 씁니다. `ctx`가 담고 있는 모든 것은 **[Context](context.md)**에서 확인하세요.
+`@mcp.resource()`와 `@mcp.prompt()` 함수도 `ctx` 매개변수를 받을 수 있습니다. `ctx`가 담고 있는 모든 것은 **[Context](context.md)**에서 확인하세요.
 
 ### 제대로 된 타입 지정 {#it-really-is-typed}
 
@@ -55,19 +55,6 @@ lifespan은 **한 번** 실행됩니다. 서버가 시작될 때(첫 요청 전)
 이 타입 매개변수 하나 덕분에 타입 검사기에게 `ctx.request_context.lifespan_context`는 **곧** `AppContext`입니다. `.db`는 자동 완성되고, `.dbb`는 서버를 실행하기도 전에 오류가 됩니다.
 
 대신 타입 매개변수 없는 `Context`를 쓰면 `lifespan_context`의 타입은 `dict[str, Any]`가 됩니다. 타입 검사기로서는 lifespan이 무엇을 yield했는지 알 방법이 없기 때문입니다. 객체는 런타임에 여전히 존재하지만, 도움은 잃게 됩니다.
-
-!!! warning
-    `Context[AppContext]`는 **도구 전용** 표기입니다. `@mcp.resource()`나
-    `@mcp.prompt()` 함수에 붙이면 해당 핸들러 호출은 모두 실패합니다. 클라이언트는 오류를 돌려받고,
-    서버 로그에 그 이유가 나타납니다.
-
-    ```text
-    Context is not available outside of a request
-    ```
-
-    리소스와 프롬프트에서는 타입 매개변수 없는 `ctx: Context`를 쓰세요. lifespan이 yield한 객체는
-    런타임에 여전히 `ctx.request_context.lifespan_context`에 있습니다. 포기하는 것은 타입 매개변수이지
-    객체가 아닙니다.
 
 !!! tip
     lifespan은 항상 있습니다. 전달하지 않으면 SDK의 기본 lifespan이 빈 `dict`를 yield하므로
@@ -101,7 +88,7 @@ lifespan은 **한 번** 실행됩니다. 서버가 시작될 때(첫 요청 전)
 * `yield` 앞의 코드는 시작입니다. 뒤의 `finally`는 종료입니다.
 * 요청마다 실행되는 것이 아니라 서버의 전체 수명을 감싸며 한 번 실행됩니다.
 * `yield`한 것은 모든 도구, 리소스, 프롬프트에서 `ctx.request_context.lifespan_context`입니다.
-* `ctx: Context[AppContext]`는 도구에서 이 접근에 완전한 타입을 부여합니다. 리소스와 프롬프트는 타입 매개변수 없는 `Context`를 받습니다.
+* `ctx: Context[AppContext]`는 이 접근에 완전한 타입을 부여합니다.
 * `lifespan=` 매개변수가 없으면 빈 `dict`이며, 절대 `None`이 아닙니다.
 
 호출 도중 멈추고 사용자만 아는 것을 사용자에게 묻는 핸들러는 **[엘리시테이션(elicitation)](elicitation.md)**에서 다룹니다.

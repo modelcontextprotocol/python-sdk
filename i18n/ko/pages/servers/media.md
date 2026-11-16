@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 043f526230dd243d, 6ee3e9bcfd24047a]
+  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 864137b5e9c61e91, 043f526230dd243d, db1ef91db7d6b3f3]
   tool: 1
 ---
 # 미디어 {#media}
@@ -86,6 +86,24 @@ result.structured_content  # None
     `Audio`를 그렇게 만들면 클라이언트는 `mime_type="audio/wav"`라고 전달받고, 그대로 믿고
     디코딩에 실패합니다. `data=`를 전달할 때는 `format=`도 전달하세요.
 
+## 리소스 임베드하기 {#embedding-a-resource}
+
+도구는 문서도 반환할 수 있습니다. 텍스트나 바이트를 그 문서가 위치한 URI, MIME 타입과 함께 묶은 것입니다. 이것이 또 다른 종류의 콘텐츠 블록인 **`EmbeddedResource`**입니다. 평범한 `str`과 달리 콘텐츠가 무엇인지 클라이언트에게 알려 주므로, 클라이언트는 이를 첨부 파일로 보여 주거나 이미 알고 있는 리소스임을 알아볼 수 있습니다.
+
+```python title="server.py" hl_lines="7 14 16-18"
+--8<-- "docs_src/media/tutorial005.py"
+```
+
+* `brand://guidelines`는 평범한 리소스입니다(**[리소스](resources.md)**에서 다룹니다). 도구는 요청이 있을 때 같은 문서를 모델에게 건네며, `guidelines()`를 직접 호출하므로 단일 정보 출처가 유지됩니다.
+* `EmbeddedResource`와 `TextResourceContents`는 `mcp.types`에서 가져옵니다. 이미지처럼 헬퍼가 있는 것은 아닙니다. 만든 블록은 그대로 결과에 들어가고, `structured_content`는 없습니다.
+* 리소스가 등록된 URI를 쓰세요. 그래야 클라이언트가 첨부 파일과 `brand://guidelines`가 같은 문서임을 알 수 있습니다. 등록 여부와 상관없이 어떤 URI든 허용됩니다.
+
+```python
+result.content  # [EmbeddedResource(type="resource", resource=TextResourceContents(uri="brand://guidelines", mime_type="text/markdown", text="# Brand guidelines\n\n..."))]
+```
+
+바이너리 콘텐츠에는 `TextResourceContents` 대신 `BlobResourceContents(uri=..., mime_type=..., blob=...)`를 쓰고, 바이트를 base64로 인코딩해 `blob`에 넣으세요. 클라이언트가 나중에 `resources/read`로 읽을 수 있는 포인터만 보내려면 대신 `ResourceLink(name=..., uri=...)`를 반환하세요. 이것도 콘텐츠 블록입니다.
+
 ## 아이콘 {#icons}
 
 `Icon`은 콘텐츠가 아니라 메타데이터입니다. 이미지를 담지 않고 URI로 이미지를 가리키며, 클라이언트는 이를 가져와 서버 이름, 도구, 리소스, 프롬프트 옆에 표시할 수 있습니다.
@@ -115,6 +133,7 @@ client.server_info.icons  # [Icon(src="https://example.com/brand-kit.png", mime_
 
 * 도구에서 `Image`나 `Audio`를 반환하면 클라이언트는 `ImageContent` / `AudioContent` 블록을 받습니다. 바이트는 base64로 인코딩되고 MIME 타입이 함께 갑니다.
 * `path=`로 만들어 확장자가 MIME 타입을 정하게 하거나, 메모리의 `data=`와 명시적인 `format=`으로 만드세요.
+* `EmbeddedResource`를 반환하면 문서(텍스트 또는 base64 blob, URI와 MIME 타입 포함)를 결과에 넣을 수 있고, `ResourceLink`를 반환하면 포인터만 보냅니다.
 * 미디어 결과에는 `structured_content`도 출력 스키마도 없습니다.
 * `Icon`은 포인터입니다. `src` URI에 선택적인 `mime_type`, `sizes`, `theme`이 더해집니다.
 * `icons=[...]`는 서버, 도구, 리소스, 프롬프트에서 동작하며, 클라이언트는 대응하는 객체에서 아이콘을 찾습니다.

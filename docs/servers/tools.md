@@ -24,15 +24,14 @@ From those type hints the SDK generates a JSON Schema and sends it to the client
 {
   "type": "object",
   "properties": {
-    "query": {"title": "Query", "type": "string"},
-    "limit": {"title": "Limit", "type": "integer"}
+    "query": {"type": "string"},
+    "limit": {"type": "integer"}
   },
-  "required": ["query", "limit"],
-  "title": "search_booksArguments"
+  "required": ["query", "limit"]
 }
 ```
 
-Both arguments are in `required` because neither has a default. You'll fix that in a moment. (The `title` keys are Pydantic artifacts; the properties, their types, and `required` are the contract.)
+Both arguments are in `required` because neither has a default. You'll fix that in a moment. There are no `title` keys: the ones Pydantic would derive from the class and field names only repeat them. A title you set yourself with `Field(title=...)` is kept.
 
 There is no `$schema` key either: MCP treats a schema without one as **JSON Schema 2020-12**, which is what Pydantic generates, so there is nothing to choose until you write schemas by hand on the **[low-level Server](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)**.
 
@@ -79,11 +78,10 @@ The schema follows:
 {
   "type": "object",
   "properties": {
-    "query": {"title": "Query", "type": "string"},
-    "limit": {"default": 10, "title": "Limit", "type": "integer"}
+    "query": {"type": "string"},
+    "limit": {"default": 10, "type": "integer"}
   },
-  "required": ["query"],
-  "title": "search_booksArguments"
+  "required": ["query"]
 }
 ```
 
@@ -136,7 +134,7 @@ You can mix and match: plain parameters next to model parameters, nested models,
 
 If a tool does I/O (calls an API, reads a file, queries a database), declare it `async def` and `await` inside it. The SDK awaits it.
 
-A plain `def` tool works too: the SDK runs it in a thread so it never blocks the server.
+A plain `def` tool works too: the SDK runs it in a thread so it never blocks the server. A long one can check whether the client is still waiting; see **[Cancellation](../handlers/cancellation.md)**.
 
 There is nothing else to configure.
 

@@ -575,7 +575,15 @@ async def _fulfil(marker: _Marker, key: str, res: _Resolution) -> ElicitationRes
         if res.context.session.can_send_request:
             _require_capability(res.context, marker, key)
         if isinstance(marker, Elicit):
-            return await res.context.elicit(marker.message, marker.schema)
+            try:
+                return await res.context.elicit(marker.message, marker.schema)
+            except ValueError as e:
+                # Accepted with no content, or content that fails the schema: the same
+                # client mistake the input_required path below reports as a ToolError.
+                # (A pydantic ValidationError here means a non-conformant client sent a
+                # malformed ElicitResult; its text is not repeated back.)
+                detail = "received an invalid elicitation response" if isinstance(e, ValidationError) else str(e)
+                raise ToolError(f"Resolver {key!r}: {detail}") from e
         result = await res.context.session.send_request(
             _render_request(marker),
             _result_type(marker),

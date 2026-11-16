@@ -15,7 +15,7 @@ This is the official Python SDK for it. With it you can:
 
 ## Requirements
 
-Python 3.10+.
+Python 3.11+.
 
 ## Installation
 

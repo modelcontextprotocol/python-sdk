@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [60a9de8a0bdaa531, 317bbe7e4355cdcc, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, 266f56fb798068a4, 7c0e57030b622139, df18d7c2417a9883]
+  sections: [60a9de8a0bdaa531, 6693607ea56d8bd6, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, b8bc624a627ead9b, 2139e68e36d9e621, 7c0e57030b622139, 34ab1af2b9ab5b45]
   tool: 1
 ---
 # Suscripciones {#subscriptions}
@@ -22,7 +22,7 @@ Tu parte es una sola línea: publicar el cambio.
 * Los métodos hermanos son `notify_prompts_changed()` y `notify_resources_changed()`.
 * Sin suscriptores, sin trabajo. Publicar en un servidor inactivo no hace nada, así que nunca compruebas si alguien está escuchando. Declaras qué cambió.
 
-`MCPServer` atiende `subscriptions/listen` por ti. Las obligaciones del canal (el acuse de recibo como primera trama, el filtrado por flujo, el id de suscripción en cada trama) son trabajo del SDK.
+`MCPServer` atiende `subscriptions/listen` por ti, a menos que [lo desactives](#turning-it-off). Las obligaciones del canal (el acuse de recibo como primera trama, el filtrado por flujo, el id de suscripción en cada trama) son trabajo del SDK.
 
 !!! check
     En el canal, un flujo cuyo filtro nombró `board://sprint` se ve así después de que se ejecuta `complete_task`:
@@ -79,7 +79,32 @@ Entrar en `client.listen(...)` envía la solicitud y espera tu acuse de recibo, 
 
 Las publicaciones viajan desde tu handler hasta los flujos abiertos a través de un `SubscriptionBus`. El valor por defecto es en memoria: un proceso, con todos los flujos dentro. Esa es la respuesta correcta hasta que ejecutas réplicas detrás de un balanceador de carga, porque entonces el flujo de un cliente queda fijado a una réplica, y una publicación en otra réplica tiene que llegar hasta él.
 
-Esa pieza te toca implementarla a ti: dos métodos sobre tu backend de pub/sub.
+Con el bus por defecto no puede, porque cada réplica tiene el suyo:
+
+```mermaid
+flowchart LR
+    client[Client] --> lb[Load balancer]
+    lb --> stream
+    lb ~~~~ gap
+    lb --> tool
+    subgraph B [Replica B]
+        tool[tools/call] -- publishes --> busB[(bus B)]
+    end
+    gap[(no shared bus)]
+    subgraph A [Replica A]
+        stream[listen stream] -- subscribed --> busA[(bus A)]
+    end
+    style A fill:none
+    style B fill:none
+    style gap fill:none,stroke-dasharray:4 4
+```
+
+Nada falla: la llamada tiene éxito y el flujo se queda en silencio. Así que, detrás de un balanceador de carga, elige una opción:
+
+* **Necesitas notificaciones de cambio.** Dale a cada réplica el mismo bus, como se muestra abajo.
+* **No las necesitas.** [Desactívalas](#turning-it-off), para que a ningún cliente se le prometan eventos que se va a perder ni mantenga un flujo abierto para ellos.
+
+El bus compartido te toca implementarlo a ti: dos métodos sobre tu backend de pub/sub.
 
 ```python
 from collections.abc import Callable
@@ -128,6 +153,20 @@ async def tools_reloaded() -> None:
     await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
 
+## Desactivarlas {#turning-it-off}
+
+Un servidor cuyo catálogo nunca cambia no tiene nada que publicar. Dilo al construirlo:
+
+```python title="server.py" hl_lines="3"
+--8<-- "docs_src/subscriptions/tutorial007.py"
+```
+
+* Un cliente `2026-07-28` no ve anunciada ninguna notificación de cambio, y una solicitud `subscriptions/listen` recibe *Method not found* en lugar de un flujo abierto.
+* `ctx.notify_*` sigue funcionando y no llega a nadie, así que tus handlers no cambian.
+* Los clientes con versiones anteriores del protocolo no notan ninguna diferencia.
+
+Un flujo abierto es una solicitud que nunca termina, así que esto también importa en un host que factura por la duración de las solicitudes.
+
 ## La composición de bajo nivel {#the-low-level-composition}
 
 Abajo, en el `Server` de bajo nivel, no hay nada preconectado, y las mismas piezas se ensamblan en tres líneas:
@@ -148,5 +187,6 @@ Abajo, en el `Server` de bajo nivel, no hay nada preconectado, y las mismas piez
 * El lado del cliente es `async with client.listen(...)`: **[Suscripciones](../client/subscriptions.md)** en *Clientes* tiene todos los detalles.
 * En el `Server` de bajo nivel ensamblas tú mismo las mismas piezas: un bus, `ListenHandler(bus)`, la ranura `on_subscriptions_listen`.
 * Escalar horizontalmente significa implementar `SubscriptionBus`, dos métodos, y pasarlo como `MCPServer(subscriptions=...)`.
+* Nada que publicar, o réplicas sin bus compartido: `MCPServer(subscriptions=False)` no anuncia notificaciones de cambio y no mantiene ningún flujo.
 
 Ejecutar el servidor que atiende todo esto, detrás de una réplica o de veinte, es **[Desplegar y escalar](../run/deploy.md)**.

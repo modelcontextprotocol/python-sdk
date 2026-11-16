@@ -1,10 +1,11 @@
 """`docs/troubleshooting.md`: every error string the page names, reproduced against the real SDK."""
 
 import logging
-from typing import Any
+from typing import Annotated, Any
 
 import httpx2
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import (
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -14,6 +15,7 @@ from mcp_types import (
     ErrorData,
     TextContent,
 )
+from pydantic import Field
 
 from docs_src.troubleshooting import (
     tutorial001,
@@ -30,6 +32,7 @@ from mcp.client import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import MCPServer
 from mcp.server.mcpserver import RequestStateSecurity
+from mcp.server.mcpserver.exceptions import InvalidSignature
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -83,6 +86,28 @@ async def test_a_failing_tool_returns_is_error_true_instead_of_raising() -> None
     ]
 
 
+async def test_a_crashing_tool_is_the_bare_form_with_its_traceback_in_the_server_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The bare `Error executing tool <name>`: the tool raised something other than ToolError, its text
+    is withheld, and the server log carries the exact ERROR message the page names."""
+    mcp = MCPServer("Weather")
+
+    @mcp.tool()
+    def forecast(city: str) -> str:
+        """Today's forecast for one city. Crashes: the upstream table is missing the key."""
+        forecasts: dict[str, str] = {}
+        return forecasts[city]
+
+    caplog.set_level(logging.ERROR, logger="mcp.server.mcpserver.server")
+    async with Client(mcp) as client:
+        result = await client.call_tool("forecast", {"city": "Atlantis"})
+    assert result.content == [TextContent(type="text", text="Error executing tool forecast")]
+    (record,) = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert record.getMessage() == "Tool 'forecast' raised an unexpected exception"
+    assert record.exc_info is not None
+
+
 async def test_an_unknown_tool_is_the_same_kind_of_result() -> None:
     """`Unknown tool: <name>` travels the same `is_error=True` path as a failing tool."""
     async with Client(tutorial001.mcp) as client:
@@ -100,6 +125,22 @@ async def test_the_tool_decorator_without_parentheses_raises_at_import_time() ->
         @undecorated
         def forecast(city: str) -> None:
             """Today's forecast for one city. Never called: the decoration itself is what raises."""
+
+
+async def test_an_invalid_x_mcp_header_annotation_raises_at_import_time() -> None:
+    """A marked `str | None` is refused by the decorator itself, with the heading's text and the reason after it."""
+    mcp = MCPServer("Weather")
+    with pytest.raises(InvalidSignature) as excinfo:
+
+        @mcp.tool()
+        def forecast(city: Annotated[str | None, Field(json_schema_extra={"x-mcp-header": "City"})] = None) -> None:
+            """Today's forecast for one city. Never called: the decoration itself is what raises."""
+
+    assert str(excinfo.value) == snapshot(
+        "Tool 'forecast' has an invalid x-mcp-header annotation: "
+        "property 'city': x-mcp-header is only permitted on integer/string/boolean properties "
+        "(the type keyword is NoneType, not a string)"
+    )
 
 
 async def test_a_duplicate_tool_name_keeps_the_first_and_drops_the_second() -> None:

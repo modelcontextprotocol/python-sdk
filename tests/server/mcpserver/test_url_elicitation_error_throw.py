@@ -106,4 +106,4 @@ async def test_normal_exceptions_still_return_error_result():
         assert result.is_error is True
         assert len(result.content) == 1
         assert isinstance(result.content[0], types.TextContent)
-        assert "Something went wrong" in result.content[0].text
+        assert result.content[0].text == "Error executing tool failing_tool"

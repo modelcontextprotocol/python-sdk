@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f3ca8ac5f90f2dfa, 85a1ef3588ba0736, 563346d4d5804933, 9e3528340d0bab53]
+  sections: [f3ca8ac5f90f2dfa, 48e478ef7bd688b1, 563346d4d5804933, 52ac6a7734d6f581]
   tool: 1
 ---
 # Lifespan {#lifespan}
@@ -46,7 +46,7 @@ lifespan **एक बार** चलता है। server शुरू हो�
 
 `genre` ही एकमात्र argument है जो model दे सकता है। lifespan आपके server का अपना मामला है।
 
-`@mcp.resource()` और `@mcp.prompt()` functions भी `ctx` parameter ले सकते हैं, जिसे सिर्फ़ `Context` लिखा जाता है; इसकी वजह अगला section बताता है। `ctx` में जो कुछ भी है, वह सब **[Context](context.md)** में है।
+`@mcp.resource()` और `@mcp.prompt()` functions भी `ctx` parameter ले सकते हैं। `ctx` में जो कुछ भी है, वह सब **[Context](context.md)** में है।
 
 ### यह सच में typed है {#it-really-is-typed}
 
@@ -55,19 +55,6 @@ annotation को फिर से देखें: `ctx: Context[AppContext]`�
 इसी एक type parameter की वजह से आपके type checker के लिए `ctx.request_context.lifespan_context` एक `AppContext` **है**। `.db` autocomplete होता है; `.dbb` server चलाने से पहले ही error है।
 
 इसकी जगह सिर्फ़ `Context` लिखें तो `lifespan_context` का type `dict[str, Any]` हो जाता है: type checker के पास यह जानने का कोई तरीका नहीं कि आपके lifespan ने क्या yield किया। runtime पर object फिर भी मौजूद रहता है; बस मदद चली जाती है।
-
-!!! warning
-    `Context[AppContext]` **सिर्फ़ tools के लिए** लिखने का तरीका है। इसे किसी `@mcp.resource()` या
-    `@mcp.prompt()` function पर लगाएँ तो उस handler की हर call विफल हो जाती है। client को error वापस मिलता है,
-    और server log बताता है क्यों:
-
-    ```text
-    Context is not available outside of a request
-    ```
-
-    resources और prompts में सिर्फ़ `ctx: Context` लिखें। आपके lifespan ने जो object yield किया वह
-    runtime पर अब भी `ctx.request_context.lifespan_context` ही है; आप type parameter छोड़ते हैं,
-    object नहीं।
 
 !!! tip
     lifespan हमेशा होता है। अगर आप कोई pass नहीं करते, तो SDK का default एक खाली `dict` yield करता है,
@@ -101,7 +88,7 @@ server को सिर्फ़ lifecycle तक सीमित कर दे�
 * `yield` से पहले का code startup है। उसके बाद का `finally` shutdown है।
 * यह एक बार चलता है, server की पूरी ज़िंदगी के इर्द-गिर्द, हर request पर नहीं।
 * आप जो भी `yield` करते हैं, वह हर tool, resource और prompt में `ctx.request_context.lifespan_context` है।
-* `ctx: Context[AppContext]` tools में इस access को पूरी तरह typed बना देता है। resources और prompts सिर्फ़ `Context` लेते हैं।
+* `ctx: Context[AppContext]` इस access को पूरी तरह typed बना देता है।
 * `lifespan=` न हो तो खाली `dict` मिलता है, कभी `None` नहीं।
 
 जो handler call के बीच रुककर user से वह पूछता है जो सिर्फ़ user ही जानता है, वह **[Elicitation](elicitation.md)** है।

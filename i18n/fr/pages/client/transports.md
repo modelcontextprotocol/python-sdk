@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, ff7401df479af877, 3d0832f39b0d7059, d4bf7e4479637768, 05e20c0a798860e7]
+  sections: [9cac816674181eb0, 5619e950d206e6c8, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 991c10e47fda2636]
   tool: 1
 ---
 # Transports côté client {#client-transports}
@@ -11,30 +11,15 @@ Vous n’en configurez jamais un séparément. `Client` prend un seul argument p
 
 Le côté *serveur* de chacun (ce que fait `mcp.run()` et ce que vous déployez) est traité dans **[Exécuter votre serveur](../run/index.md)**.
 
-## En mémoire {#in-memory}
-
-Passez l’objet serveur lui-même :
-
-```python title="client.py" hl_lines="14"
---8<-- "docs_src/client_transports/tutorial001.py"
-```
-
-Pas de sous-processus, pas de port, aucun octet sur une liaison. Le client et le serveur sont deux objets dans le même processus, et l’appel passe tout de même par la véritable couche protocolaire : `search_books` est listé, validé et invoqué exactement comme il le serait via HTTP.
-
-Cela en fait deux choses à la fois :
-
-* **Un banc de test.** Chaque exemple de cette documentation est exécuté de cette façon, et la page **[Tests](../get-started/testing.md)** construit tout son modèle autour de lui.
-* **Une API d’intégration.** Une application qui construit le serveur n’a pas besoin d’un saut réseau pour appeler ses outils.
-
 ## Streamable HTTP {#streamable-http}
 
-Passez une URL sous forme de chaîne et vous obtenez **Streamable HTTP**, le transport derrière lequel vous déployez :
+Passez une URL sous forme de chaîne et vous obtenez **Streamable HTTP**, le transport derrière lequel vous déployez et le premier vers lequel vous tourner :
 
 ```python title="client.py" hl_lines="5"
 --8<-- "docs_src/client_transports/tutorial002.py"
 ```
 
-C’est tout le client de production. `Client` enveloppe l’URL dans `streamable_http_client(...)` pour vous, par-dessus un `httpx2.AsyncClient` configuré comme MCP l’exige : `follow_redirects=True`, un délai d’expiration de 30 secondes pour connect/write/pool, et un délai de lecture de 300 secondes parce que le serveur peut garder un flux de réponse ouvert.
+C’est tout le client de production. `Client` enveloppe l’URL dans `streamable_http_client(...)` pour vous, par-dessus un `httpx2.AsyncClient` configuré comme MCP l’exige : un délai d’expiration de 30 secondes pour connect/write/pool, et un délai de lecture de 300 secondes parce que le serveur peut garder un flux de réponse ouvert.
 
 !!! check
     Un `Client` que vous venez de construire n’est **pas** connecté. La construction ne fait que choisir le transport ;
@@ -50,7 +35,7 @@ C’est tout le client de production. `Client` enveloppe l’URL dans `streamabl
 
 Dès que vous avez besoin d’un en-tête `Authorization`, d’un cookie, d’un proxy, de mTLS ou d’un délai d’expiration différent, construisez le `httpx2.AsyncClient` vous-même et passez-le à `streamable_http_client` :
 
-```python title="client.py" hl_lines="8-14"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client_transports/tutorial003.py"
 ```
 
@@ -59,6 +44,8 @@ Deux points à remarquer :
 * Le `httpx2.AsyncClient` vous appartient, donc c’est **vous** qui y entrez et en sortez. Le SDK ne ferme jamais un client qu’il n’a pas créé.
 * `streamable_http_client(url, http_client=...)` renvoie un transport, et `Client(transport)` l’accepte comme n’importe quoi d’autre.
 
+Conservez le `timeout=`. C’est celui qu’utilise le client du SDK lui-même (30 secondes, 300 pour les lectures) ; un `httpx2.AsyncClient` construit sans délai d’expiration reçoit la valeur par défaut de `httpx2`, soit 5 secondes, et un appel d’outil qui dure plus longtemps échoue sur une expiration du délai de lecture.
+
 Une remarque sur TLS : `httpx2` vérifie les certificats par rapport au magasin de confiance du système d’exploitation (via
 [`truststore`](https://pypi.org/project/truststore/)), et non par rapport à une liste d’autorités de certification embarquée. Dans un environnement sans
 magasin d’autorités de certification système utilisable (certains conteneurs minimaux), définissez les variables d’environnement standard `SSL_CERT_FILE`/`SSL_CERT_DIR`
@@ -66,36 +53,73 @@ ou passez un `verify=ssl_context` explicite à votre `httpx2.AsyncClient`
 (le contexte se trouve dans
 [`httpx` et `httpx-sse` remplacés par `httpx2`](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)).
 
+### Événements SSE plus volumineux {#larger-sse-events}
+
+Passez `max_sse_event_size` lorsqu’un serveur envoie un résultat d’outil ou une notification de grande taille dans un seul événement SSE :
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+La valeur par défaut est de 1 Mio par événement, mesurée en octets avant l’analyse de l’événement. La limite s’applique aux
+réponses POST, au flux GET et aux flux repris. Un événement trop volumineux dans une réponse POST ou un flux
+repris fait échouer cette requête avec une erreur SSE. Sur le flux GET d’arrière-plan, le client journalise
+l’erreur et relance le flux. Définissez `max_sse_event_size=None` pour désactiver le plafond lorsque vous faites confiance au
+serveur et avez besoin d’événements plus volumineux. Les réponses JSON ne sont pas concernées. Si vous utilisez `ClientSessionGroup`, définissez la
+même option sur `StreamableHttpParameters`.
+
 !!! warning
     `streamable_http_client` acceptait autrefois `headers=` et `timeout=` directement. Ce n’est plus le cas :
-    ses seuls paramètres sont `url`, `http_client` et `terminate_on_close`. Utilisez `headers=` par
+    ses paramètres sont `url`, `http_client`, `terminate_on_close` et `max_sse_event_size`. Utilisez `headers=` par
     habitude et vous obtenez :
 
     ```text
     TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
     ```
 
-    Tout ce qui relève de HTTP se trouve désormais sur l’unique `httpx2.AsyncClient` que vous passez.
+    Les en-têtes, l’authentification, les proxys et les délais d’expiration se trouvent sur l’unique `httpx2.AsyncClient` que vous passez.
+    `max_sse_event_size`, lui, s’applique aux lecteurs SSE du transport MCP.
 
 !!! info
     `httpx2` conserve l’API familière de `httpx` ; si vous connaissez `httpx`, vous savez déjà comment gérer ici l’authentification,
     les proxys, les hooks d’événements, les nouvelles tentatives et les limites de connexions. Le SDK n’ajoute rien par-dessus et ne retire
-    rien. C’est aussi là qu’OAuth se branche :
+    rien, à l’exception de la [gestion des redirections](#redirects). C’est aussi là qu’OAuth se branche :
     `httpx2.AsyncClient(auth=OAuthClientProvider(...))`. Tout ce flux est décrit dans **[Clients OAuth](oauth-clients.md)**.
+
+### Redirections {#redirects}
+
+Le transport se connecte à l’URL que vous lui avez donnée, et à cette origine uniquement.
+
+* Une redirection `307`/`308` qui reste sur le même schéma, le même hôte et le même port est suivie, tout comme `http://` → `https://` sur le même hôte. Cela couvre la redirection habituelle de barre oblique finale `/mcp` → `/mcp/`.
+* Une redirection vers n’importe quel autre endroit n’est **pas** suivie. L’appel échoue avec :
+
+    ```text
+    MCPError: Redirect to https://other.example.com/mcp not followed; use that URL as the endpoint if it is the intended server
+    ```
+
+    Si cette URL est bien le serveur que vous visiez, mettez-la dans votre configuration. Sinon, le serveur ou un proxy placé devant lui est mal configuré.
+
+Cela vaut pour tout `httpx2.AsyncClient` que vous passez : son réglage `follow_redirects` n’est pas consulté pour les requêtes MCP, dans un sens comme dans l’autre. Les fournisseurs OAuth du SDK appliquent la même règle à leurs propres requêtes.
+
+!!! tip
+    `Redirect to http://… not followed: it would downgrade this HTTPS endpoint to plain HTTP` signifie que le
+    serveur se trouve derrière un proxy à terminaison TLS dont il ignore l’existence et qu’il émet des redirections en `http://`.
+    Cela se corrige côté serveur (**[Déployer et passer à l’échelle](../run/deploy.md#behind-a-tls-terminating-proxy)**),
+    ou en utilisant l’URL `https://…/` exacte que le message suggère.
 
 ## stdio {#stdio}
 
 Un serveur **stdio** est un sous-processus. Le client le lance, écrit du JSON-RPC sur son stdin et lit du JSON-RPC depuis son stdout. C’est ainsi qu’un hôte de bureau exécute un serveur sur votre machine : un hôte *est* ce code plus une interface utilisateur, et **[Se connecter à un véritable hôte](../get-started/real-host.md)** montre la même relation vue du côté de l’hôte, sous forme de fichier de configuration.
 
-Décrivez le processus avec `StdioServerParameters`, transformez-le en transport avec `stdio_client`, et passez *cela* à `Client` :
+Décrivez le processus avec `StdioServerParameters` et passez-le à `Client` :
 
-```python title="client.py" hl_lines="4-8 12"
+```python title="client.py" hl_lines="3-7 11"
 --8<-- "docs_src/client_transports/tutorial004.py"
 ```
 
-`Client` n’accepte pas l’objet de paramètres seul. `StdioServerParameters` est de la configuration ; `stdio_client(server)` est le transport qui sait lancer un processus à partir de celle-ci. Enveloppez toujours.
+Entrer dans le bloc lance le processus. En sortir arrête le sous-processus : fermeture de stdin, attente, arrêt forcé s’il traîne. Vous ne le nettoyez jamais vous-même.
 
-Quitter le bloc `async with` arrête aussi le sous-processus : fermeture de stdin, attente, arrêt forcé s’il traîne. Vous ne le nettoyez jamais vous-même.
+Le stderr du processus enfant va vers le vôtre. Pour l’envoyer ailleurs, construisez le transport vous-même avec `stdio_client` (du module `mcp`) et passez-le à la place : `Client(stdio_client(server, errlog=log_file))`.
 
 !!! warning
     Le processus enfant n’hérite **pas** de votre environnement. Il reçoit une liste d’autorisation minimale (`HOME`, `LOGNAME`,
@@ -105,6 +129,18 @@ Quitter le bloc `async with` arrête aussi le sous-processus : fermeture de stdi
     Un serveur qui a besoin d’une clé d’API ne l’y trouvera pas. Passez-la explicitement avec `env=` ; ces
     variables sont fusionnées par-dessus la liste d’autorisation. C’est ce que fait `BOOKSHOP_API_KEY` ci-dessus.
 
+## En mémoire {#in-memory}
+
+Dans un test, il n’y a rien à déployer ni rien à lancer. Passez l’objet serveur lui-même :
+
+```python hl_lines="14"
+--8<-- "docs_src/client_transports/tutorial001.py"
+```
+
+Pas de sous-processus, pas de port, aucun octet sur une liaison. Le client et le serveur sont deux objets dans le même processus, et l’appel passe tout de même par la véritable couche protocolaire : `search_books` est listé, validé et invoqué exactement comme il le serait via HTTP. La page **[Tests](../get-started/testing.md)** construit tout son modèle autour de lui.
+
+La même forme sert aussi d’API d’intégration : une application qui construit elle-même le serveur peut appeler ses outils sans saut réseau.
+
 ## SSE {#sse}
 
 `sse_client(url)`, du module `mcp.client.sse`, est le transport HTTP que Streamable HTTP a remplacé. Enveloppez-le de la même manière, `Client(sse_client("http://localhost:8000/sse"))`, pour dialoguer avec un serveur qui le parle encore, et ne construisez rien de nouveau dessus.
@@ -113,16 +149,18 @@ Quitter le bloc `async with` arrête aussi le sous-processus : fermeture de stdi
 
 Pour `Client`, tout ce qui précède est une seule et même chose.
 
-Un **transport** est n’importe quel gestionnaire de contexte asynchrone qui produit une paire `(read, write)` de flux de messages : formellement, le protocole `Transport` de `mcp.client`. `Client` résout son argument selon son type : un objet serveur se connecte dans le processus, une `str` devient `streamable_http_client(url)`, et tout le reste est ouvert directement comme transport. C’est cette dernière règle qui explique pourquoi `stdio_client(...)`, `streamable_http_client(...)` et `sse_client(...)` s’insèrent tous au même emplacement, et pourquoi vous pouvez écrire le vôtre.
+Un **transport** est n’importe quel gestionnaire de contexte asynchrone qui produit une paire `(read, write)` de flux de messages : formellement, le protocole `Transport` de `mcp.client`. `Client` résout son argument selon son type : une `str` devient `streamable_http_client(url)`, un `StdioServerParameters` devient `stdio_client(params)`, un objet serveur se connecte dans le processus, et tout le reste est ouvert directement comme transport. C’est cette dernière règle qui explique pourquoi `stdio_client(...)`, `streamable_http_client(...)` et `sse_client(...)` s’insèrent tous au même emplacement, et pourquoi vous pouvez écrire le vôtre.
 
 ## Récapitulatif {#recap}
 
-* `Client(mcp)` (l’objet serveur) se connecte en mémoire. Utilisez-le pour les tests et pour l’intégration.
 * `Client("http://.../mcp")` (une URL) se connecte via Streamable HTTP, le transport de production.
 * Les en-têtes, l’authentification, les proxys et les délais d’expiration vont sur un `httpx2.AsyncClient` que vous passez à `streamable_http_client(url, http_client=...)`. Il n’y a pas de mot-clé `headers=`.
-* stdio s’écrit `Client(stdio_client(StdioServerParameters(...)))`, jamais l’objet de paramètres seul.
+* Utilisez `streamable_http_client(url, max_sse_event_size=...)` pour modifier la limite en octets de chaque événement SSE.
+* Les redirections ne sont suivies qu’à l’intérieur de l’origine de l’URL (une redirection `307`/`308` de barre oblique finale), plus `http`→`https` sur le même hôte. Tout le reste échoue avec `Redirect to … not followed` ; configurez l’URL finale.
+* stdio s’écrit `Client(StdioServerParameters(...))`. Ne l’enveloppez vous-même dans `stdio_client(...)` que pour rediriger le stderr du processus enfant.
 * Le sous-processus reçoit un environnement sous liste d’autorisation, pas le vôtre ; `env=` s’y ajoute.
-* Un transport est tout ce sur quoi vous pouvez faire `async with x as (read, write)`. `Client` transmet directement à ce protocole tout ce qui n’est ni un objet serveur ni une URL.
+* `Client(mcp)` (l’objet serveur) se connecte en mémoire. Utilisez-le dans les tests, ou pour intégrer un serveur dans l’application qui l’a construit.
+* Un transport est tout ce sur quoi vous pouvez faire `async with x as (read, write)`. `Client` transmet directement à ce protocole tout ce qui n’est ni un objet serveur, ni une URL, ni un `StdioServerParameters`.
 * Construire un `Client` choisit le transport. `async with` l’ouvre.
 
 Une fois le transport ouvert, les deux côtés doivent s’accorder sur une version du protocole. En temps normal, vous n’y pensez jamais ; le jour où vous devez y penser, la page à consulter est **[Versions du protocole](../protocol-versions.md)**.

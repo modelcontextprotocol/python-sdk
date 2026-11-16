@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
+  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 317f4256a650cab6, 4b6c4a845438abc7, f98b46bafbee4acd]
   tool: 1
 ---
 # Plantillas de URI y seguridad de rutas {#uri-templates-and-path-safety}
@@ -164,7 +164,7 @@ Las comprobaciones integradas detienen los casos comunes, pero no pueden conocer
 de tu entorno aislado. Para acceder al sistema de archivos, usa `safe_join` para resolver la
 ruta y verificar que se mantiene dentro de tu directorio base:
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -204,10 +204,10 @@ Estas comprobaciones son un prefiltro heurístico; para el acceso al sistema de 
 `safe_join` sigue siendo el límite de contención.
 
 !!! tip
-    Si tu handler no puede satisfacer la solicitud (el archivo no existe,
-    el id es desconocido), lanza una excepción. El SDK la convierte en una
-    respuesta de error. Consulta **[Manejo de errores](handling-errors.md)** para ver la diferencia entre un
-    error de protocolo y un error de herramienta.
+    Si tu handler no puede satisfacer la solicitud (el archivo no existe, el id es desconocido), lanza
+    `ResourceNotFoundError` como hace `read_manual` arriba. El cliente recibe `-32602` con tu mensaje
+    y la URI. Una excepción inesperada se convierte, en cambio, en un `-32603` genérico. Consulta
+    **[Manejo de errores](handling-errors.md#a-resource-that-doesnt-exist)**.
 
 ## Recursos en el Server de bajo nivel {#resources-on-the-low-level-server}
 

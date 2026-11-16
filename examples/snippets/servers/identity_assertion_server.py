@@ -50,7 +50,7 @@ class IdentityAssertionProvider(OAuthAuthorizationServerProvider[AuthorizationCo
 
     def __init__(self) -> None:
         self.access_tokens: dict[str, AccessToken] = {}
-        # SEP-990 clients are pre-registered out of band (DCR refuses the grant) and must be
+        # ID-JAG clients here are pre-registered out of band (DCR refuses the grant) and must be
         # confidential. `get_client` must return them, or the token endpoint 401s before the
         # exchange runs. Real deployments load these from their own store.
         self.clients: dict[str, OAuthClientInformationFull] = {

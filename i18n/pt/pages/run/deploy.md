@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, e758745df6fb7b0a]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # Deploy e escala {#deploy-scale}
@@ -46,6 +46,22 @@ Depois do deploy atrás de um hostname de verdade, esse mesmo padrão rejeita **
     não gostou aparece só no log do **servidor**, como um único warning. Um servidor recém-implantado
     que recusa toda conexão é uma allowlist de Host até que se prove o contrário.
     **[Solução de problemas](../troubleshooting.md)** também começa por aqui.
+
+## Atrás de um proxy que termina TLS {#behind-a-tls-terminating-proxy}
+
+Se o TLS termina em um proxy (um ingress, um balanceador de carga, Caddy, nginx) e o uvicorn serve HTTP puro atrás dele, diga ao uvicorn para confiar nos headers `X-Forwarded-*` do proxy:
+
+```console
+uvicorn server:app --proxy-headers --forwarded-allow-ips='<proxy address>'
+```
+
+Sem isso, o app acredita que está sendo servido por `http://`, e qualquer redirecionamento que ele emita (o habitual é `/mcp` → `/mcp/`) aponta para `http://…`. O cliente Python se recusa a seguir um endpoint HTTPS para HTTP puro e avisa:
+
+```text
+MCPError: Redirect to http://mcp.example.com/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+```
+
+O paliativo do lado do cliente é configurar a URL exata que o servidor serve (`https://mcp.example.com/mcp/`, com a barra) para que nenhum redirecionamento aconteça. A correção é a flag acima. `FORWARDED_ALLOW_IPS` é a grafia como variável de ambiente; `*` confia em todo salto, o que só está certo quando nada além do proxy consegue alcançar o uvicorn.
 
 ## Workers, e quem precisa de afinidade {#workers-and-who-has-to-be-sticky}
 
@@ -154,9 +170,10 @@ A costura entre os dois é o `SubscriptionBus`. Qualquer bus que você dê a um 
 
 Nada no fan-out se importa com qual objeto de servidor um stream está ligado. Dois servidores segurando um único `InMemorySubscriptionBus` já se comportam assim: abra um stream de listen em um, `edit_note` no outro, e o stream fica sabendo. Esse bus em memória só abrange objetos de servidor dentro de um processo, o que faz dele o modelo, não o deploy:
 
-* Entre processos de verdade, **o SDK não traz nenhum bus que possa te ajudar.** `SubscriptionBus` é um `Protocol` de dois métodos (`publish` e `subscribe`) que você implementa sobre seu próprio backend de pub/sub (Redis, NATS, o que você já roda) e passa como `MCPServer(subscriptions=...)`. **[Assinaturas](../handlers/subscriptions.md#scaling-past-one-process)** tem o esboço e o contrato.
+* Entre processos de verdade, **o SDK não traz nenhum bus que possa ajudar você.** `SubscriptionBus` é um `Protocol` de dois métodos (`publish` e `subscribe`) que você implementa sobre seu próprio backend de pub/sub (Redis, NATS, o que você já roda) e passa como `MCPServer(subscriptions=...)`. **[Assinaturas](../handlers/subscriptions.md#scaling-past-one-process)** tem o esboço e o contrato.
 * O bus carrega quatro pequenos eventos tipados, nunca JSON-RPC. Confirmação, filtragem e ciclo de vida do stream ficam no SDK, então seu bus não consegue quebrar o protocolo; ele só consegue mover eventos entre processos.
 * Streams **não** são retomáveis e eventos **não** são reenviados. Perder uma réplica derruba os streams dela; os clientes escutam de novo e buscam de novo. Não há event store para compartilhar e nada mais para configurar. Este é o único lugar em que escalar horizontalmente é de fato só mais do mesmo.
+* Um servidor que não precisa de notificações de mudança dispensa o bus: **[desligue-as](../handlers/subscriptions.md#turning-it-off)**.
 
 ## O que o SDK não te dá {#what-the-sdk-does-not-give-you}
 
@@ -170,6 +187,7 @@ Um `MCPServer` é uma implementação de protocolo, não um servidor de aplicaç
 ## Recapitulando {#recap}
 
 * Por padrão, o app responde apenas a requisições endereçadas ao localhost. `transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])` é o portão para ir ao ar: até você passar isso, toda requisição atrás de um hostname de verdade é um `421` e o motivo só está no log do servidor.
+* Atrás de um proxy que termina TLS, execute o uvicorn com `--proxy-headers --forwarded-allow-ips=...`, senão os redirecionamentos dele apontam para `http://` e o cliente os recusa.
 * No 2026-07-28 não há sessão e nada em que um balanceador de carga possa ter afinidade. `stateless_http=True` é um botão só para o legado porque uma requisição moderna é roteada e respondida antes de essa flag ser lida.
 * A chave padrão do `requestState` é `os.urandom(32)`, cunhada por processo. Uma nova tentativa de múltiplas idas e voltas que chega a um worker diferente falha com `-32602` *"Invalid or expired requestState"*.
 * A correção é `RequestStateSecurity(keys=[...])` **e** o mesmo nome de servidor em toda instância. O nome é a claim de audiência padrão do token. Mesmas chaves, mesmo nome.

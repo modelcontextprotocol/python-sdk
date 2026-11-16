@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, e9be7a8d0eb0a456, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 90c6043be435fcb0]
+  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, 32ef568335dd95a7, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 0abc5ea5cb7ff6b3]
   tool: 1
 ---
 # 客户端回调 {#client-callbacks}
@@ -58,7 +58,7 @@ result.content  # [TextContent(type='text', text='Card issued to Ada Lovelace.')
 你发出一个 `tools/call`，服务器回过来一个 `elicitation/create`，由你的函数作答——全部发生在一次工具调用之内。
 
 !!! info
-    `Client(...)` 调用里的 `mode="legacy"` 是真正起作用的。默认情况下 `Client(...)` 协商的是现代协议路径，而那条路径没有供服务器向客户端发请求的反向通道（back-channel）：`ctx.elicit` 会在你的回调运行之前就失败。决定这一点的不是传输方式，而是协商出的协议，内存传输和 URL 传输都一样。只要你的客户端需要回答这类请求，就固定使用 `mode="legacy"`；本页背后的每个测试都是这么做的。详见 **[协议版本](../protocol-versions.md)**。
+    `Client(...)` 调用里的 `mode="legacy"` 是真正起作用的。默认情况下 `Client(...)` 协商的是现代协议路径，而那条路径没有供服务器向客户端发请求的反向通道（back-channel）：`ctx.elicit` 会在你的回调运行之前就失败。决定这一点的不是传输方式，而是协商出的协议。只要你的客户端需要回答这类请求，就固定使用 `mode="legacy"`；本页背后的每个测试都是这么做的。详见 **[协议版本](../protocol-versions.md)**。
 
     在 2026-07-28 会话上，这个回调并没有失效，只是触发方式不同：当工具返回一个携带 `ElicitRequest` 的 `InputRequiredResult` 时，`Client` 会把该条目分派给同一个 `elicitation_callback`，并替你重试这次调用。那个流程见 **[多轮往返请求](../handlers/multi-round-trip.md)**。
 
@@ -139,4 +139,4 @@ result.structured_content  # {'result': ['elicitation']}
 * `sampling_callback` 和 `list_roots_callback` 的工作方式相同，但服务的是已弃用的功能；现代服务器改用多轮往返请求。
 * `logging_callback` 和 `message_handler` 接收通知。它们不声明任何东西。
 
-`Client(...)` 的第一个参数是传输对象。**[客户端传输](transports.md)** 涵盖了每一种。
+`Client(...)` 的第一个参数决定用哪种传输方式。**[客户端传输](transports.md)** 涵盖了每一种。

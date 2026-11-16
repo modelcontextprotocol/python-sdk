@@ -1,11 +1,13 @@
 """`docs/{handlers,client}/subscriptions.md`: every claim the two pages make, proved against the real SDK."""
 
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal
 
 import anyio
 import mcp_types as types
 import pytest
+from inline_snapshot import snapshot
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from trio.testing import MockClock
 
 from docs_src.subscriptions import (
@@ -17,6 +19,7 @@ from docs_src.subscriptions import (
     tutorial004_trio,
     tutorial005,
     tutorial006,
+    tutorial007,
 )
 from mcp import Client
 from mcp.server.auth.middleware.auth_context import auth_context_var
@@ -24,7 +27,8 @@ from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
-from mcp.server.subscriptions import SUBSCRIPTION_ID_META_KEY, ListenHandler, ToolsListChanged
+from mcp.server.mcpserver import MCPServer
+from mcp.server.subscriptions import SUBSCRIPTION_ID_META_KEY, ListenHandler, ResourceUpdated, ToolsListChanged
 from mcp.shared.exceptions import MCPError
 
 _ReadResource = Callable[
@@ -333,3 +337,62 @@ async def test_the_middleware_refuses_a_listen_the_caller_could_not_read() -> No
                 await client.read_resource("files://payroll.csv")
     finally:
         auth_context_var.reset(reset)
+
+
+def _replica(*, subscriptions: Literal[False] | None = None) -> MCPServer:
+    """One replica of the sprint board: its own server object running tutorial001's publishing tool."""
+    mcp = MCPServer("Sprint Board", subscriptions=subscriptions)
+    mcp.add_tool(tutorial001.complete_task)
+    return mcp
+
+
+async def test_a_publish_on_another_replica_never_reaches_the_stream() -> None:
+    """The load-balancer diagram: with the default bus, a stream on replica A misses a publish on replica B.
+
+    The stream subscribes to both boards, so B's event would be delivered if it crossed. B publishes
+    first, then A publishes a marker: the marker being the first event proves B's never arrived.
+    """
+    async with Client(_replica()) as on_a, Client(_replica()) as on_b:
+        async with on_a.listen(resource_subscriptions=["board://sprint", "board://backlog"]) as sub:
+            routed_to_b = await on_b.call_tool("complete_task", {"board": "sprint", "task": "design"})
+            await on_a.call_tool("complete_task", {"board": "backlog", "task": "tidy docs"})
+            with anyio.fail_after(5):
+                first_event = await anext(sub)
+            assert first_event == ResourceUpdated(uri="board://backlog")
+        assert routed_to_b.is_error is False  # "Nothing fails": the call on B itself succeeded
+
+
+async def test_a_server_with_subscriptions_off_advertises_nothing_and_refuses_listen() -> None:
+    """tutorial007: a 2026-07-28 client sees every change-notification flag false, and listen is method-not-found."""
+    async with Client(tutorial007.mcp) as client:
+        assert client.protocol_version in MODERN_PROTOCOL_VERSIONS
+        assert client.server_capabilities.model_dump(by_alias=True, exclude_none=True) == snapshot(
+            {
+                "prompts": {"listChanged": False},
+                "resources": {"subscribe": False, "listChanged": False},
+                "tools": {"listChanged": False},
+            }
+        )
+        # Entering is where the request is sent; `__aenter__` directly avoids an unreachable with-body.
+        with pytest.raises(MCPError) as exc_info:
+            await client.listen(tools_list_changed=True).__aenter__()
+        assert exc_info.value.error.code == types.METHOD_NOT_FOUND
+        # The refusal is in-band: the connection carries on and the tool still answers.
+        result = await client.call_tool("km_to_miles", {"km": 10})
+        assert result.structured_content == {"result": 6.21371}
+
+
+async def test_a_publishing_handler_runs_unchanged_with_subscriptions_off() -> None:
+    """`ctx.notify_*` still works with `subscriptions=False`: tutorial001's publishing tool needs no change."""
+    async with Client(_replica(subscriptions=False)) as client:
+        result = await client.call_tool("complete_task", {"board": "sprint", "task": "design"})
+    assert result.is_error is False
+    assert result.content == [types.TextContent(type="text", text="design: done")]
+
+
+async def test_subscriptions_off_changes_nothing_for_an_earlier_protocol_version() -> None:
+    """A client on the initialize handshake reads the same capabilities whether subscriptions are off or on."""
+    async with Client(_replica(subscriptions=False), mode="legacy") as off, Client(_replica(), mode="legacy") as on:
+        assert off.protocol_version == on.protocol_version
+        assert off.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
+        assert off.server_capabilities == on.server_capabilities

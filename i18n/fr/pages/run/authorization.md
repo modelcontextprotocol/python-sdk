@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d62c13457fc4a534, 80e73abaca6e0652, d1dc4c54cd00ec9c, 14ad3bc7904036bb, 5225f127bc1b9c77, fe1626fdd5aad1da, 4556cb7ea1a04a31]
+  sections: [d62c13457fc4a534, 80e73abaca6e0652, 128a492d18295f64, 14ad3bc7904036bb, 54a6697833fcc1d9, fe1626fdd5aad1da, 811d083c1da8bcf6]
   tool: 1
 ---
 # Autorisation {#authorization}
@@ -23,12 +23,12 @@ C’est tout le triangle. Toute cette page porte sur le point du milieu.
 
 Le SDK n’a aucun avis sur ce à quoi ressemble un jeton valide. C’est vous qui le lui dites, en implémentant **`TokenVerifier`** :
 
-```python title="server.py" hl_lines="12-14 19-24"
+```python title="server.py" hl_lines="14-16 21-27"
 --8<-- "docs_src/authorization/tutorial001.py"
 ```
 
 * `TokenVerifier` est un protocole avec une seule méthode asynchrone. `verify_token` reçoit le jeton brut de l’en-tête `Authorization` et renvoie un **`AccessToken`** s’il est valide, `None` sinon. Il n’y a rien d’autre à implémenter.
-* Celui-ci cherche le jeton dans une table. Un vérificateur réel vérifie la signature d’un JWT ou appelle le point de terminaison d’introspection de jetons du serveur d’autorisation. Ce code est le vôtre ; le SDK ne fait que l’appeler.
+* Celui-ci cherche le jeton dans une table ; chaque entrée consigne la ressource pour laquelle le jeton a été émis. Un vérificateur réel vérifie la signature d’un JWT ou appelle le point de terminaison d’introspection de jetons du serveur d’autorisation, et indique pour qui le jeton a été émis (son `aud`) dans `AccessToken.resource`. Ce code est le vôtre ; le SDK ne fait que l’appeler.
 * `token_verifier=` et `auth=` vont toujours de pair. Passez l’un sans l’autre et `MCPServer(...)` lève une `ValueError` avant même de servir la moindre requête.
 
 `AuthSettings` est la face publique de votre serveur de ressources :
@@ -36,6 +36,10 @@ Le SDK n’a aucun avis sur ce à quoi ressemble un jeton valide. C’est vous q
 * `issuer_url` : le serveur d’autorisation qui émet vos jetons.
 * `resource_server_url` : l’URL publique de ce point de terminaison MCP. Elle désigne *quelle* ressource un jeton vise, et c’est là que réside le document de découverte.
 * `required_scopes` : chaque jeton doit tous les porter.
+* `validate_token_resource` : refuser tout jeton dont `AccessToken.resource` n’est pas `resource_server_url`. Le laisser non défini alors que `resource_server_url` est défini produit un avertissement (`MCPDeprecationWarning`) et se comporte comme `False` ; la version 3.0 fait de `True` la valeur par défaut pour les serveurs de ressources.
+  * Activez-le lorsque votre serveur d’autorisation lie les jetons à la `resource` demandée par le client, que les clients MCP envoient toujours. Gardez dans `resource_server_url` l’URL exacte à laquelle les clients se connectent.
+  * Laissez-le désactivé lorsque votre serveur d’autorisation utilise ses propres identifiants d’audience (un identifiant d’API Auth0, un ID d’application Entra) et vérifiez plutôt `aud` dans votre vérificateur, en renvoyant `None` pour un jeton qui n’est pas destiné à ce serveur.
+  * Si `aud` est une liste, placez dans `resource` l’entrée égale à `resource_server_url`.
 
 !!! tip
     `examples/servers/simple-auth/` dans le dépôt du SDK contient un `IntrospectionTokenVerifier` qui appelle
@@ -91,7 +95,7 @@ C’est grâce à ce document qu’un client qui n’a jamais entendu parler de 
 
 Dans n’importe quel gestionnaire (handler), **`get_access_token()`** est l’objet `AccessToken` que votre vérificateur a renvoyé pour la requête en cours :
 
-```python title="server.py" hl_lines="4 32-35"
+```python title="server.py" hl_lines="4 35-38"
 --8<-- "docs_src/authorization/tutorial002.py"
 ```
 
@@ -125,6 +129,6 @@ Un serveur d’autorisation peut aussi accepter l’assertion signée d’un fou
 * `token_verifier=` et `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` vont toujours de pair.
 * Le SDK publie les métadonnées de ressource protégée (Protected Resource Metadata) de la [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) sur `/.well-known/oauth-protected-resource/...` et répond aux requêtes non authentifiées par un 401 dont l’en-tête `WWW-Authenticate` pointe vers elles. C’est tout le mécanisme de découverte.
 * `get_access_token()` dans n’importe quel gestionnaire indique qui appelle.
-* L’autorisation est une affaire de HTTP. `stdio` et le client en mémoire ne la voient jamais.
+* L’autorisation est une affaire de HTTP. `stdio` et le client de test en mémoire ne la voient jamais.
 
 La moitié client (découvrir votre serveur d’autorisation et récupérer le jeton pour vous), c’est **[Clients OAuth](../client/oauth-clients.md)**. Et un client qui *affirme* une identité au lieu d’en demander une à un utilisateur, c’est **[Assertion d’identité](../client/identity-assertion.md)**.

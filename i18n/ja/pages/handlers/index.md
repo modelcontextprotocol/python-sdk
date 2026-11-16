@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [424930166c4bc6f3]
+  sections: [22ca41e50cc1b536]
   tool: 1
 ---
 # ハンドラーの中で {#inside-your-handler}
@@ -18,6 +18,7 @@ translation:
 * **[エリシテーション（elicitation）](elicitation.md)** と、それを運ぶ 2026-07-28 のパターンである **[マルチラウンドトリップ（multi-round-trip）リクエスト](multi-round-trip.md)** を使って、ユーザーに追加の入力を求めます。
 * **[サンプリングとルート（roots）](sampling-and-roots.md)** を使って、クライアントに LLM の補完やワークスペースのフォルダーを要求します。非推奨ですが、引き続き提供されています。
 * 時間のかかる処理について **[進捗](progress.md)** を報告します。
+* **[キャンセル](cancellation.md)** で、クライアントが呼び出しを諦めたときに後片付けをしたり、処理を早めに打ち切ったりします。
 * **[ロギング](logging.md)** でログを書き出します（サーバーを運用する人に向けて、標準エラーに出力します）。
 * **[サブスクリプション](subscriptions.md)** で、購読中のクライアントに変更があったことを伝えます。
 

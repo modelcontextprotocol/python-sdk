@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, ffe823cb0fedd488, f33651add1b59094]
+  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, d30d3c20168b88b2, f5ef38dad59d6f76, 6e38a699ba57fbdf, 2b984a3bf37a0ddd]
   tool: 1
 ---
 # Prompts {#prompts}
@@ -139,9 +139,54 @@ L’entrée `prompts/list` contient désormais tout ce dont un client a besoin p
 ```
 
 !!! info
-    Si vous avez lu **[Outils](tools.md)**, vous connaissez déjà tout ce que contient cette page. Même décorateur, même
+    Si vous avez lu **[Outils](tools.md)**, vous connaissez déjà tout jusqu’ici. Même décorateur, même
     docstring servant de description, mêmes `Annotated`/`Field`. Seuls changent qui
     le déclenche (l’utilisateur) et où va le résultat (dans la conversation).
+
+## Au-delà du texte {#more-than-text}
+
+`UserMessage` et `AssistantMessage` acceptent aussi un bloc de contenu, ou un utilitaire `Image` / `Audio`, partout où ils acceptent une `str`. Deux cas se présentent dans les prompts : joindre un document et joindre une image.
+
+### Incorporer un fichier {#embedding-a-file}
+
+```python title="server.py" hl_lines="5 12 21 23"
+--8<-- "docs_src/prompts/tutorial004.py"
+```
+
+* Le guide de style est une ressource à l’adresse `style://python` (**[Ressources](resources.md)** traite de celles-ci), lue depuis un fichier `style-guide.md` placé à côté de `server.py`. Mettez-y n’importe quel fichier Markdown.
+* `EmbeddedResource(resource=TextResourceContents(...))`, tous deux issus de `mcp.types`, transporte le fichier avec son URI et son type MIME comme premier message ; la demande qui y fait référence suit sous forme de texte brut.
+* Incorporer le guide, plutôt que de le coller dans la f-string, permet au client de l’afficher comme pièce jointe et de rouvrir `style://python` plus tard, et le modèle reçoit le fichier tel quel. Pour un fichier binaire, utilisez `BlobResourceContents` avec un `blob` en base64.
+
+Une fois rendu, le `content` du premier message est un bloc `resource` :
+
+```json
+{"type": "resource", "resource": {"uri": "style://python", "mimeType": "text/markdown", "text": "* Prefer early returns.\n..."}}
+```
+
+### Joindre une image {#attaching-an-image}
+
+```python title="server.py" hl_lines="4 15"
+--8<-- "docs_src/prompts/tutorial005.py"
+```
+
+* `Image` est l’utilitaire de **[Images, audio et icônes](media.md)**. `UserMessage` le convertit en bloc `ImageContent` (le fichier encodé en base64, le type MIME deviné d’après `.png`) au moment du rendu du prompt ; `Audio` devient un `AudioContent` de la même façon.
+* Placez n’importe quel PNG nommé `architecture.png` à côté de `server.py`. Les arguments d’un prompt sont des chaînes, l’image vient donc toujours du serveur ; `component` ne fournit que les mots.
+
+```json
+{"type": "image", "data": "iVBORw0KGgoAAAANSUhEUg...", "mimeType": "image/png"}
+```
+
+## Modifier la liste à l’exécution {#changing-the-list-at-runtime}
+
+Des prompts peuvent être ajoutés pendant que des clients sont connectés, par exemple pour permettre à un utilisateur d’enregistrer une instruction comme entrée de menu bien à lui. Enregistrez le prompt, puis notifiez :
+
+```python title="server.py" hl_lines="5 23-27"
+--8<-- "docs_src/prompts/tutorial006.py"
+```
+
+* `mcp.add_prompt(Prompt.from_function(fn, name=..., description=...))` enregistre une fonction exactement comme le ferait `@mcp.prompt()`, et `mcp.remove_prompt(name)` fait l’inverse. `add_prompt` conserve une entrée existante du même nom au lieu de l’écraser ; l’outil supprime donc d’abord toute ancienne entrée pour que l’enregistrement soit un remplacement. `prompts/list` reflète le changement immédiatement.
+* `await ctx.notify_prompts_changed()` envoie `notifications/prompts/list_changed` à chaque client `2026-07-28` à l’écoute sur un flux `subscriptions/listen` (**[Abonnements](../handlers/subscriptions.md)**). `await ctx.session.send_prompt_list_changed()` l’envoie au client appelant lorsque celui-ci est antérieur à 2026 (**[Prendre en charge les clients historiques](../run/legacy-clients.md)**). Appelez les deux ; chacun ne fait rien quand il n’y a personne à prévenir.
+* Un client qui reçoit la notification appelle de nouveau `prompts/list`. Dans le `Client` Python, c’est `async with client.listen(prompts_list_changed=True) as sub:`, qui produit un événement `PromptsListChanged`.
 
 ## Récapitulatif {#recap}
 
@@ -151,5 +196,7 @@ L’entrée `prompts/list` contient désormais tout ce dont un client a besoin p
 * Renvoyez une `str` et elle devient un seul message utilisateur. Renvoyez une liste de `UserMessage` / `AssistantMessage` pour amorcer une conversation à plusieurs tours.
 * `title=` et `Field(description=...)` sont ce qu’un client affiche dans son interface.
 * Un argument obligatoire manquant fait échouer toute la requête. Il n’y a pas de résultat d’erreur par prompt.
+* Enveloppez un `EmbeddedResource` ou une `Image` dans un `UserMessage` pour joindre un document ou une image.
+* Ajoutez ou supprimez des prompts à l’exécution avec `mcp.add_prompt(...)` / `mcp.remove_prompt(...)`, puis `await ctx.notify_prompts_changed()` et `await ctx.session.send_prompt_list_changed()`.
 
 L’autocomplétion côté serveur des arguments d’un prompt (ou d’un modèle de ressource), c’est **[Complétions](completions.md)**.

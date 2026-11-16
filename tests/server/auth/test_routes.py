@@ -53,6 +53,7 @@ def test_auth_settings_preserves_path_less_issuer():
     settings = AuthSettings(
         issuer_url="https://as.example.com",  # type: ignore[arg-type]
         resource_server_url="https://rs.example.com",  # type: ignore[arg-type]
+        validate_token_resource=True,
     )
     assert str(settings.issuer_url) == "https://as.example.com"
     assert str(settings.resource_server_url) == "https://rs.example.com"
@@ -63,6 +64,7 @@ def test_build_metadata_serves_issuer_without_trailing_slash():
     settings = AuthSettings(
         issuer_url="https://as.example.com",  # type: ignore[arg-type]
         resource_server_url="https://rs.example.com",  # type: ignore[arg-type]
+        validate_token_resource=True,
     )
     metadata = build_metadata(settings.issuer_url, None, ClientRegistrationOptions(), RevocationOptions())
 

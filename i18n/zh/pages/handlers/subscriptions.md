@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [60a9de8a0bdaa531, 317bbe7e4355cdcc, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, 266f56fb798068a4, 7c0e57030b622139, df18d7c2417a9883]
+  sections: [60a9de8a0bdaa531, 6693607ea56d8bd6, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, b8bc624a627ead9b, 2139e68e36d9e621, 7c0e57030b622139, 34ab1af2b9ab5b45]
   tool: 1
 ---
 # 订阅 {#subscriptions}
@@ -22,7 +22,7 @@ translation:
 * 同类方法还有 `notify_prompts_changed()` 和 `notify_resources_changed()`。
 * 没有订阅者，就没有开销。向空闲的服务器发布是空操作，所以永远不需要检查有没有人在听。只管声明什么变了。
 
-`MCPServer` 替你处理 `subscriptions/listen`。线路上的义务（第一帧是确认、按流过滤、每一帧都带订阅 id）是 SDK 的事。
+`MCPServer` 替你处理 `subscriptions/listen`，除非你[把它关掉](#turning-it-off)。线路上的义务（第一帧是确认、按流过滤、每一帧都带订阅 id）是 SDK 的事。
 
 !!! check
     在线路上，一个过滤器里指定了 `board://sprint` 的流，在 `complete_task` 运行之后是这样的：
@@ -79,7 +79,32 @@ translation:
 
 发布通过一个 `SubscriptionBus` 从你的处理函数传到打开的流。默认是内存内的：一个进程，里面的每一个流。在你把多个副本放到负载均衡器后面之前，这就是正确答案；因为到那时，客户端的流被固定在一个副本上，而另一个副本上的发布必须能到达它。
 
-这个接缝由你来实现：在你的 pub/sub 后端之上写两个方法。
+用默认总线做不到，因为每个副本都有自己的总线：
+
+```mermaid
+flowchart LR
+    client[Client] --> lb[Load balancer]
+    lb --> stream
+    lb ~~~~ gap
+    lb --> tool
+    subgraph B [Replica B]
+        tool[tools/call] -- publishes --> busB[(bus B)]
+    end
+    gap[(no shared bus)]
+    subgraph A [Replica A]
+        stream[listen stream] -- subscribed --> busA[(bus A)]
+    end
+    style A fill:none
+    style B fill:none
+    style gap fill:none,stroke-dasharray:4 4
+```
+
+什么都不会报错：调用成功，流却保持沉默。所以在负载均衡器后面，二选一：
+
+* **需要变更通知。** 给每个副本同一个总线，做法见下文。
+* **不需要。** [关掉变更通知](#turning-it-off)，这样就不会有客户端被许诺了注定收不到的事件，也不会有客户端为这些事件一直开着流。
+
+共享总线由你来实现：在你的 pub/sub 后端之上写两个方法。
 
 ```python
 from collections.abc import Callable
@@ -128,6 +153,20 @@ async def tools_reloaded() -> None:
     await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
 
+## 关闭订阅 {#turning-it-off}
+
+目录从不变化的服务器没有什么可发布的。构建它的时候就说明这一点：
+
+```python title="server.py" hl_lines="3"
+--8<-- "docs_src/subscriptions/tutorial007.py"
+```
+
+* `2026-07-28` 客户端看不到任何变更通知的声明，`subscriptions/listen` 请求得到的是“Method not found”，而不是一个打开的流。
+* `ctx.notify_*` 仍然可用，只是谁也送达不到，所以处理函数不用改。
+* 使用更早协议版本的客户端看不出任何差别。
+
+打开的流是一个永远不会结束的请求，所以在按请求时长计费的托管平台上，这一点同样重要。
+
 ## 低层组合 {#the-low-level-composition}
 
 在低层的 `Server` 上没有任何预先接好的东西，同样的部件三行就能组装起来：
@@ -148,5 +187,6 @@ async def tools_reloaded() -> None:
 * 客户端这一端是 `async with client.listen(...)`：详见“客户端”下的 **[订阅](../client/subscriptions.md)**。
 * 在低层的 `Server` 上你自己组装同样的部件：一个总线、`ListenHandler(bus)`、`on_subscriptions_listen` 槽位。
 * 横向扩展意味着实现 `SubscriptionBus`，两个方法，然后作为 `MCPServer(subscriptions=...)` 传入。
+* 没有东西可发布，或者多个副本之间没有共享总线：`MCPServer(subscriptions=False)` 不声明任何变更通知，也不保持任何流。
 
 运行提供这一切的服务器，不管是一个副本还是二十个，见 **[部署与扩展](../run/deploy.md)**。

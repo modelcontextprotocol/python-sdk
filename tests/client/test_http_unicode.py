@@ -112,11 +112,9 @@ async def unicode_session() -> AsyncIterator[ClientSession]:
 
     async with (
         session_manager.run(),
-        # follow_redirects matches the SDK's own client factory; Starlette's Mount 307-redirects
-        # the bare /mcp path to /mcp/.
-        httpx2.AsyncClient(
-            transport=StreamingASGITransport(app), base_url=BASE_URL, follow_redirects=True
-        ) as http_client,
+        # Starlette's Mount 307-redirects the bare /mcp path to /mcp/; the transport follows that
+        # same-origin redirect itself.
+        httpx2.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
         streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
         ClientSession(read_stream, write_stream) as session,
     ):

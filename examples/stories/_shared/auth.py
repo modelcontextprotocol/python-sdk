@@ -169,4 +169,5 @@ def auth_settings(
         required_scopes=scopes,
         client_registration_options=ClientRegistrationOptions(enabled=True, valid_scopes=scopes, default_scopes=scopes),
         identity_assertion_enabled=identity_assertion_enabled,
+        validate_token_resource=True,
     )

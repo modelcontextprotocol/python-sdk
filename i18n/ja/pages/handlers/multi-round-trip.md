@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, 8dd027377d46448b, f81491125dcbfe8b]
+  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, b47667184ca5b516, f81491125dcbfe8b]
   tool: 1
 ---
 # マルチラウンドトリップ（multi-round-trip）リクエスト {#multi-round-trip-requests}
@@ -162,7 +162,7 @@ TTL、プリンシパルの束縛、リクエストの束縛はコーデック�
 
 ## 2026-07-28 の結果型 {#a-2026-07-28-result}
 
-`InputRequiredResult` はプロトコルバージョン **2026-07-28** にしか存在しません。インメモリの `Client(server)` はそれを代わりにネゴシエートしてくれます。通信路越しでは `mode="auto"` がそれを検出します。接続後、`client.protocol_version` で何が得られたかが分かります。
+`InputRequiredResult` はプロトコルバージョン **2026-07-28** にしか存在しません。`Client` のデフォルトの `mode="auto"` は、どの接続でもそれを検出します。接続後、`client.protocol_version` で何が得られたかが分かります。
 
 !!! warning
     2026 より前のセッションには `InputRequiredResult` を入れる場所がありません。`mode="legacy"` の接続でハンドラーからこれを返すと、ランナーはネゴシエートされたバージョンにシリアライズできず、クライアントには `-32603` *"Handler returned an invalid result"* エラーが返ります。両方の世代に対応するサーバーは、これを使う前に `ctx.protocol_version` をチェックしなければなりません。

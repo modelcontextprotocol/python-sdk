@@ -178,7 +178,7 @@ async def test_missing_file_error(temp_file: Path):
         name="test",
         path=missing,
     )
-    with pytest.raises(ValueError, match="Error reading file"):
+    with pytest.raises(FileNotFoundError):
         await resource.read()
 
 
@@ -192,7 +192,7 @@ async def test_permission_error(temp_file: Path):  # pragma: lax no cover
             name="test",
             path=temp_file,
         )
-        with pytest.raises(ValueError, match="Error reading file"):
+        with pytest.raises(PermissionError):
             await resource.read()
     finally:
         temp_file.chmod(0o644)  # Restore permissions

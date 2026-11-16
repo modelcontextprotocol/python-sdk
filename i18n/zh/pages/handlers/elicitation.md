@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
+  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 25b49f89c9e6f9d0, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
   tool: 1
 ---
 # 征询 {#elicitation}
@@ -83,7 +83,7 @@ translation:
 这个模式就是表单。`Field(description=...)` 是标签；默认值会预填输入框，并让该字段变成可选。这和 **[工具](../servers/tools.md)** 里描述的工具参数用的是同一套 Pydantic 转 JSON Schema 的机制。
 
 !!! warning
-    征询的模式不如工具的输入模式表达力强。只能是扁平的原始类型字段：`str`、`int`、`float`、`bool`，或字符串的 `Literal`（会变成 `enum`）。在模型里再放一个模型，`ctx.elicit` 会在任何东西发给客户端之前抛出异常：
+    征询的模式不如工具的输入模式表达力强。只能是扁平的原始类型字段：`str`、`int`、`float`、`bool`，或字符串的 `Literal`（会变成 `enum`）。在模型里再放一个模型，`ctx.elicit` 会在任何东西发给客户端之前抛出异常。工具调用以 `Error executing tool <name>` 失败，原因记在你的服务器日志里：
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -104,7 +104,7 @@ translation:
 拒绝不是错误。由工具决定拒绝意味着什么（这里是不订位），然后正常回答模型。
 
 !!! tip
-    答案在你的代码看到之前就已按你的模型验证过。一个给 `bool` 字段发来 `"maybe"` 的客户端不会弄坏你的订位：调用以模式不匹配的错误失败，你的 `if` 根本不会执行。
+    答案在你的代码看到之前就已按你的模型验证过。一个给 `bool` 字段发来 `"maybe"` 的客户端不会弄坏你的订位：`ctx.elicit` 抛出 `ValueError`，调用失败，你的 `if` 根本不会执行。
 
 ## 把用户引到一个 URL {#send-the-user-to-a-url}
 

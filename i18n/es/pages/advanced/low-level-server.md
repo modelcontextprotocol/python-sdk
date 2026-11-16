@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # El Server de bajo nivel {#the-low-level-server}
@@ -36,18 +36,22 @@ Cambiaron tres cosas, y son toda la API de bajo nivel:
 
 ### Pruébalo {#try-it}
 
-Aquí no hay Inspector: `mcp dev` y `mcp run` solo aceptan un `MCPServer`. Al `Client` en memoria le da igual; acepta un `Server` de bajo nivel exactamente igual que acepta un `MCPServer`:
+`mcp dev` y `mcp run` solo aceptan un `MCPServer`, así que este lo sirves por tu cuenta. La última línea de `server.py` construye una app ASGI común a partir de él, y uvicorn la ejecuta:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Apunta el Inspector, o cualquier cliente, a `http://localhost:8000/mcp`:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ El mismo texto que produjo la versión con `@mcp.tool()`. Dos diferencias honest
 
 * `result.structured_content` es `None`. El servidor de alto nivel envuelve un `-> str` en `{"result": ...}` por ti; aquí nadie construye lo que no construiste.
 * `list_tools` devuelve el esquema que escribiste **tú**, carácter por carácter. La versión de alto nivel tenía `"title": "Query"` en cada propiedad y un `"title": "search_booksArguments"` en la raíz: artefactos de Pydantic. Aquí abajo, si se transmite, es porque lo pusiste ahí.
+
+En una prueba te ahorras uvicorn y el puerto: `Client(server)` acepta un `Server` de bajo nivel en el mismo proceso exactamente igual que acepta un `MCPServer`, y **[Pruebas](../get-started/testing.md)** es ese patrón.
 
 ## Nada se comprueba por ti {#nothing-is-checked-for-you}
 
@@ -116,6 +122,17 @@ El bloque `_meta` es el sello de identidad del servidor: el SDK lo añade a cada
 
 El servidor nunca compara los dos campos. El `Client` de este SDK sí: devuelve un `structured_content` que no cumpla el `output_schema` que declaraste y `call_tool` lanza un `RuntimeError` que empieza por `Invalid structured content returned by tool search_books` y sigue citando el fallo de `jsonschema`. Prometer un esquema es barato; cumplirlo depende de ti. Toda la escalera de tipos de retorno y esquemas está en **[Salida estructurada](../servers/structured-output.md)**.
 
+## El dialecto es JSON Schema 2020-12 {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` y `output_schema` son JSON Schema, y la [especificación de MCP](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) fija el dialecto: un esquema sin clave `$schema` es **JSON Schema 2020-12**. Los esquemas que genera `MCPServer` se apoyan en ese valor por defecto (Pydantic escribe 2020-12 y omite la clave), y un dict escrito a mano también se rige por él, así que tienes disponible todo el vocabulario de 2020-12:
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* La raíz de `input_schema` debe ser `"type": "object"`. A su lado, `oneOf`, `additionalProperties`, `anyOf`, `if`/`then`/`else`, `prefixItems`, `$defs` con `$ref` locales y el resto de las palabras clave de 2020-12 llegan al cliente exactamente como las escribiste.
+* No hace falta ninguna clave `$schema`. Añade una solo para optar por un draft más antiguo: el `Client` de este SDK, que valida `structured_content` contra el `output_schema` de una herramienta, elige su validador según `$schema` y usa 2020-12 cuando no hay ninguna.
+
 ## `_meta`: para la aplicación, no para el modelo {#\_meta-for-the-application-not-the-model}
 
 `content` es la parte de la respuesta que lee el modelo. `structured_content` es la misma respuesta como datos tipados. `_meta` es el tercer canal: datos que viajan con el resultado para la **aplicación cliente**, sin formar parte de la respuesta en absoluto.
@@ -167,7 +184,7 @@ El constructor cubre los métodos que MCP define. `add_request_handler` cubre to
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* El primer argumento es la cadena del método. Las notificaciones tienen un gemelo, `add_notification_handler`.
+* El primer argumento es la cadena del método. Las notificaciones tienen un gemelo, `add_notification_handler`. Sus handlers se disparan en stdio y en conexiones HTTP de la generación del handshake; en la ruta Streamable HTTP de `2026-07-28`, el POST de notificación de un cliente se confirma con un `202` y no se despacha, porque esa revisión no define notificaciones de cliente a servidor sobre HTTP.
 * `params_type` es el modelo contra el que se validan los `params` entrantes **antes** de que se ejecute tu handler, así que los métodos personalizados *sí* reciben la validación que las herramientas no. Hereda de `RequestParams` para que el campo `_meta` se analice como el de cualquier otro método.
 * El handler devuelve un `BaseModel`, un `dict` o `None`. El SDK lo serializa en el resultado JSON-RPC.
 
@@ -192,6 +209,7 @@ Cada uno de estos es una idea para la que ya tienes el vocabulario; cada uno tie
 * `on_call_tool`, `on_get_prompt` y `on_read_resource` pueden devolver un `InputRequiredResult` en lugar de su resultado normal para pausar la llamada y pedir datos al cliente; consulta **[Solicitudes de varias idas y vueltas (multi-round-trip)](../handlers/multi-round-trip.md)**. Fiel a este nivel, nada se instala por ti: donde `MCPServer` sella `requestState` por defecto, aquí el `request_state` que estableces se transmite exactamente como lo escribiste hasta que optas por `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))`: una línea (ambos nombres se importan de `mcp.server.request_state`) para el mismo sellado y verificación que realiza `MCPServer` (**[Proteger `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt` y `on_completion` tienen la misma forma `(ctx, params) -> result` para las demás primitivas.
 * `on_subscriptions_listen` sirve el stream `subscriptions/listen` de 2026-07-28. Pasa un `ListenHandler` construido sobre un `SubscriptionBus` y publica eventos en el bus desde tus otros handlers; consulta **[Suscripciones](../handlers/subscriptions.md)** para la composición completa.
+* `get_tool_input_schema` mantiene `on_list_tools` fuera de la ruta de llamada; consulta **[Parámetros de encabezado](header-parameters.md#schemas-by-name)**.
 * `server.streamable_http_app()` devuelve la misma app de Starlette que la de `MCPServer`; despliégala como **[Ejecutar tu servidor](../run/index.md)** despliega cualquier otra app ASGI. Aquí abajo no hay `server.run(transport=...)`: `server.run(read_stream, write_stream, server.create_initialization_options())` conduce una conexión sobre un par de streams, y esa única línea es todo lo que hay.
 
 ## Resumen {#recap}
@@ -204,4 +222,4 @@ Cada uno de estos es una idea para la que ya tienes el vocabulario; cada uno tie
 * `add_request_handler(method, params_type, handler)` sirve cualquier método. `initialize` está reservado.
 * Las capacidades que anuncia un `Server` se derivan de los handlers que registraste.
 
-`Client(server)` trató a ambos servidores de forma idéntica porque *son* el mismo protocolo, que es justamente la idea. La siguiente capa hacia abajo no es una clase: es **[Middleware](middleware.md)**.
+El cliente trató a ambos servidores de forma idéntica porque *son* el mismo protocolo, que es justamente la idea. La siguiente capa hacia abajo no es una clase: es **[Middleware](middleware.md)**.

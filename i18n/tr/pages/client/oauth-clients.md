@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, 63878d29e87c3e73, 13175843d3588af4, e7e2b9fd516f77de, 758f06399b513c1f, a05d7278487d610b]
+  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, c2dae1ebe2ebd543, 13175843d3588af4, df06056fb16b3846, 758f06399b513c1f, a05d7278487d610b]
   tool: 1
 ---
 # OAuth istemcileri {#oauth-clients}
@@ -82,20 +82,22 @@ Gerçek bir istemci `input()` çağırmak yerine yönlendirme URI'si üzerinde k
 
 `Client` ilk kez bir istek gönderdiğinde sunucu `401` yanıtını verir. Sağlayıcı devralır:
 
-1. **Keşif.** `WWW-Authenticate` başlığını okur, sunucunun Protected Resource Metadata belgesini `/.well-known/oauth-protected-resource` adresinden alır, bu kaynağı hangi yetkilendirme sunucusunun koruduğunu öğrenir ve *o* sunucunun metadatasını alır.
+1. **Keşif.** `WWW-Authenticate` başlığını okur, sunucunun Protected Resource Metadata belgesini `/.well-known/oauth-protected-resource` adresinden alır, bu kaynağı hangi yetkilendirme sunucusunun koruduğunu öğrenir ve *o* sunucunun metadatasını alır. (Kaynak metadatası yayımlamayan daha eski bir sunucudan bunun yerine kendi kökeninde yetkilendirme sunucusu metadatası istenir.) Her iki durumda da metadata, `issuer` alanında hangi sunucu için alındıysa o sunucuyu belirtmelidir; başka her şey reddedilir.
 2. **Kayıt.** Depoda bir şey yok mu? `OAuthClientMetadata`'nızla sizi dinamik olarak kaydeder ve sonucu saklar.
 3. **Yetkilendirme.** PKCE çiftini ve bir `state` üretir, yetkilendirme URL'sini oluşturur, `redirect_handler`'ınızı await eder, ardından kod için `callback_handler`'ınızı await eder.
 4. **Değişim.** Kodu bir `OAuthToken` ile takas eder, onu saklar ve özgün isteğinizi `Authorization: Bearer ...` ile yeniden gönderir.
 
 Bundan sonra sessizdir. Token'lar depodan gelir, süresi dolmuş bir erişim token'ı yenileme token'ıyla yenilenir ve ancak bunların hiçbiri işe yaramadığında akışı yeniden çalıştırır.
 
+Bu isteklerin hepsi için tek bir aktarım kuralı geçerlidir: içinde çalıştıkları MCP isteği gibi, bir yönlendirmeyi yalnızca aynı kökende kalıyor ve metodu koruyorsa izlerler (örneğin sondaki eğik çizgi için bir 307/308); başka her yönlendirmeyi o URL yanıt vermiyormuş gibi ele alırlar.
+
 Bunların hiçbirini siz yazmadınız. Geriye iki anahtar sözcük argümanı kalır (`client_metadata_url` ve `validate_resource_url`) ve bu dosyanın ikisine de ihtiyacı yoktur. Bilmeye değer olanı `client_metadata_url`'dir; aşağıda kendi bölümü var.
 
 ### Deneyin {#try-it}
 
-Bu belgelerdeki örneklerin çoğunu bellek içi bir `Client(server)` ile sınayabilirsiniz. Bunu değil: akışın bütün amacı bir HTTP `401`'idir ve bellek içi bir istemci ile sunucusu arasında HTTP yoktur.
+Testlerinizin kullandığı bellek içi `Client(server)` burada işe yaramaz: akışın bütün amacı bir HTTP `401`'idir ve bellek içi bir istemci ile sunucusu arasında HTTP yoktur.
 
-Depo canlı sürümü içerir. `examples/servers/simple-auth/` bağımsız bir yetkilendirme sunucusu ile korumalı bir MCP sunucusu çalıştırır; `examples/clients/simple-auth-client/` ise bu sayfadaki istemcinin küçük bir CLI'a dönüşmüş hâlidir. README'sinde iki komut var: sunucuları başlatın, istemciyi onlara karşı çalıştırın ve dört adımın geçişini izleyin.
+Depo canlı sürümü içerir. `examples/servers/simple-auth/` bağımsız bir yetkilendirme sunucusu ile korumalı bir MCP sunucusu çalıştırır; `examples/clients/simple-auth-client/` ise bu sayfadaki istemcinin küçük bir CLI aracına dönüşmüş hâlidir. README'sinde iki komut var: sunucuları başlatın, istemciyi onlara karşı çalıştırın ve dört adımın geçişini izleyin.
 
 ## Client ID Metadata Documents {#client-id-metadata-documents}
 
@@ -111,13 +113,14 @@ Bir gece görevi, bir CI adımı, başka bir servis. Tarayıcı yok, "allow" dü
 
 `ClientCredentialsOAuthProvider` aynı `httpx2.Auth`'tur, insan hariç:
 
-```python title="client.py" hl_lines="4 27-33"
+```python title="client.py" hl_lines="4 27-34"
 --8<-- "docs_src/oauth_clients/tutorial002.py"
 ```
 
 Neler değişti:
 
 * `OAuthClientMetadata` yok, işleyiciler yok. `client_id` ve `client_secret` geçirirsiniz; sağlayıcı bunların etrafında asgari bir `client_credentials` kaydı oluşturur ve dinamik kaydı tamamen atlar.
+* `issuer`, bu kimlik bilgilerini veren yetkilendirme sunucusunu belirtir; onun `/.well-known/oauth-authorization-server` belgesinin döndürdüğü `issuer` değerini kullanın. Keşif yine yukarıdaki gibi çalışır, ancak token istekleri yalnızca *o* yayıncıya ait metadatadan oluşturulur; MCP sunucusu başka bir yeri gösteriyorsa akış bunun yerine bir `OAuthFlowError` ile durur. Bu parametreyi atlamak kullanım dışı bırakıldı ve 3.0 sürümünde zorunlu hâle gelir (bkz. **[Kullanım dışı özellikler](../deprecated.md#deprecated-sdk-helpers)**); o zamana kadar sağlayıcı uyarı verir ve keşif hangi yetkilendirme sunucusunu bulursa onu kullanır.
 * `scope`, boşlukla ayrılmış bir dizedir; OAuth'un iletilen verideki biçimi budur.
 * Bundan sonraki her şey aynıdır: aynı `TokenStorage`, aynı `httpx2.AsyncClient(auth=...)`, aynı `streamable_http_client`.
 
@@ -130,7 +133,7 @@ Varsayılan olarak sır, token isteğinde HTTP Basic kimlik doğrulaması olarak
     `mcp.client.auth.extensions.client_credentials` içinde bir sağlayıcı daha var:
     paylaşılan bir sır yerine JWT ile kimlik doğrulayan istemciler için **`PrivateKeyJWTOAuthProvider`**
     (`private_key_jwt`; anahtar çifti ve iş yükü kimliği türü). Aynı kalıbı izler:
-    bir tane oluşturun, `auth=`'a koyun. Aynı modül, onun assertion'ını oluşturan iki yardımcıyı da
+    bir tane oluşturun (aynı isteğe bağlı `issuer` parametresini alır), `auth=`'a koyun. Aynı modül, onun assertion'ını oluşturan iki yardımcıyı da
     sunar: `SignedJWTParameters` ve `static_assertion_provider`.
 
 İnsansız bir durum daha var: istemci, hangi MCP sunucularına erişebileceğine kullanıcının değil kimlik sağlayıcısının karar verdiği bir kuruluşa aittir. Bu, kendi güven modeli ve kendi sayfası olan farklı bir yetkilendirme türüdür: **[Kimlik beyanı](identity-assertion.md)**.

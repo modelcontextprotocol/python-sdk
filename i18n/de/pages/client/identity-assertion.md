@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, e7828fd2729b2c9d, a03ec26bfc678b65, 1034c653c0bcf1b0]
+  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, 7cf38181f6c99fd5, 37804d4fb36d6302, 1034c653c0bcf1b0]
   tool: 1
 ---
 # Identity Assertion {#identity-assertion}
@@ -66,7 +66,7 @@ Die Erweiterung verlangt das nicht; es ist eine bewusst strengere Entscheidung. 
 
 ### Ein vertraulicher Client {#a-confidential-client}
 
-`client_secret` ist erforderlich; ohne löst der Konstruktor einen `ValueError` aus. Das IETF-Profil unter [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) reserviert diesen Grant für vertrauliche Clients, SEP-990 verlangt, dass sich der Client authentifiziert, und dieses SDK setzt beides durch, indem es auf einem geteilten Secret besteht. `token_endpoint_auth_method` legt fest, wo es mitreist: `client_secret_post` (der Standardwert, im Formular-Body) oder `client_secret_basic` (ein HTTP-Basic-Header). Das Profil erlaubt außerdem `private_key_jwt`; dieser Provider unterstützt es nicht.
+`client_secret` ist erforderlich; ohne löst der Konstruktor einen `ValueError` aus. Das IETF-Profil unter [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) empfiehlt diesen Grant nur für vertrauliche Clients, und [RFC 7521](https://datatracker.ietf.org/doc/html/rfc7521) überlässt diese Richtlinie dem Autorisierungsserver. Dieses SDK wählt auf beiden Seiten die vorsichtige Lesart: Der eingebaute Autorisierungsserver weist einen Client ab, der kein geteiltes Secret hat, und dieser Provider besteht auf einem. `token_endpoint_auth_method` legt fest, wo es mitreist: `client_secret_post` (der Standardwert, im Formular-Body) oder `client_secret_basic` (ein HTTP-Basic-Header). Das Profil erlaubt außerdem `private_key_jwt`; dieser Provider unterstützt es nicht.
 
 !!! tip
     Lies `client_secret` aus der Umgebung oder einem Secret-Manager, nie aus der Versionsverwaltung.
@@ -93,6 +93,7 @@ Das SDK kann aber auch selbst der Autorisierungsserver *sein*: `create_auth_rout
 
 * `identity_assertion_enabled=True` schaltet alles frei. Ausgeschaltet – das ist der Standardwert – beantwortet `/token` diesen Grant mit `unsupported_grant_type`, selbst wenn du den Hook implementiert hast, und die Metadaten erwähnen ihn nicht. Eingeschaltet erhalten die Metadaten den Grant-Typ `jwt-bearer` und listen `urn:ietf:params:oauth:grant-profile:id-jag` in `authorization_grant_profiles_supported`, dem Feld, mit dem die Erweiterung Unterstützung bekannt gibt. (Der Client dieses SDK liest es nie: Er ist für genau einen Issuer eingerichtet und fragt einfach.)
 * **`exchange_identity_assertion`** ist der Hook. Bevor er läuft, hat das SDK den Client authentifiziert, öffentliche Clients abgewiesen und Clients abgewiesen, deren Registrierung den Grant nicht aufführt. Du bekommst ein `IdentityAssertionParams` (die rohe `assertion`, die angeforderten `scopes` und `resource`) und gibst ein schlichtes `OAuthToken` zurück.
+* Öffentliche Clients abzuweisen ist eine Richtlinie des SDK, keine Vorgabe der Spezifikation. Der eingebaute Server authentifiziert Clients nur per geteiltem Secret: Er unterstützt kein `private_key_jwt` und löst Client ID Metadata Documents noch nicht auf ([#1801](https://github.com/modelcontextprotocol/python-sdk/issues/1801)), deshalb kann ein Client, der sich über ein solches Dokument ausweist, diesen Grant hier nicht nutzen. Ein Deployment, das eine andere Richtlinie will, kann die `/token`-Route, die `create_auth_routes` zurückgibt, durch eine eigene ersetzen.
 * Die dynamische Client-Registrierung lehnt diesen Grant ausnahmslos ab, deshalb bedient `get_client` hier einen von Hand eingerichteten Client. Ein ID-JAG-Client kann sich nicht selbst ins Leben registrieren.
 * Die halbe Klasse besteht aus Ablehnungen. `OAuthAuthorizationServerProvider` ist der *ganze* Autorisierungsserver, also verlangt er auch den Authorization-Code-Flow; ein Server, der Personen zusätzlich anmeldet, implementiert diese Methoden wirklich, und dieser hier hat genau eine Tür.
 

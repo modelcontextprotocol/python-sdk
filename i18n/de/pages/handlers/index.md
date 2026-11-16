@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [424930166c4bc6f3]
+  sections: [22ca41e50cc1b536]
   tool: 1
 ---
 # Im Handler {#inside-your-handler}
@@ -18,6 +18,7 @@ Was er tun kann, während er läuft:
 * Die Person am Host um weitere Eingaben bitten – mit **[Elicitation](elicitation.md)** (Rückfrage bei der Person am Host) und **[Multi-Roundtrip-Requests](multi-round-trip.md)** (multi-round-trip requests), dem Muster aus 2026-07-28, das sie transportiert.
 * Den Client um die Antwort eines LLM oder um seine Arbeitsverzeichnisse bitten – mit **[Sampling und Roots](sampling-and-roots.md)**, veraltet, aber weiterhin bedient.
 * **[Fortschritt](progress.md)** bei etwas Langsamem melden.
+* Aufräumen oder vorzeitig aufhören, wenn der Client den Aufruf aufgibt – mit **[Abbruch](cancellation.md)**.
 * Logs schreiben (auf die Standardfehlerausgabe, für alle, die den Server betreiben) – mit **[Logging](logging.md)**.
 * Abonnierten Clients mitteilen, dass sich etwas geändert hat – mit **[Abonnements](subscriptions.md)**.
 

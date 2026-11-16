@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, 8dd027377d46448b, f81491125dcbfe8b]
+  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, b47667184ca5b516, f81491125dcbfe8b]
   tool: 1
 ---
 # 다중 왕복 요청 {#multi-round-trip-requests}
@@ -164,7 +164,7 @@ TTL, 주체 바인딩, 요청 바인딩은 코덱의 일이 **아닙니다**. SD
 
 ## 2026-07-28 전용 결과 {#a-2026-07-28-result}
 
-`InputRequiredResult`는 프로토콜 버전 **2026-07-28**에만 존재합니다. 인메모리 `Client(server)`는 이를 대신 협상하고, 네트워크를 통할 때는 `mode="auto"`가 이를 발견합니다. 연결한 뒤에는 `client.protocol_version`이 무엇을 얻었는지 알려 줍니다.
+`InputRequiredResult`는 프로토콜 버전 **2026-07-28**에만 존재합니다. `Client`의 기본값인 `mode="auto"`는 어떤 연결에서든 이를 발견합니다. 연결한 뒤에는 `client.protocol_version`이 무엇을 얻었는지 알려 줍니다.
 
 !!! warning
     2026 이전 세션에는 `InputRequiredResult`를 넣을 곳이 없습니다. `mode="legacy"` 연결에서

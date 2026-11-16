@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d1663c18edc824c, d4fd37009a13f03d, af9f398a5a8b679a, 470c2dd144294d69, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
+  sections: [3d1663c18edc824c, 90956965ae6a1ca1, af9f398a5a8b679a, 5ce83b1f9d88da62, 0d9b5d13fffc94e5, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
   tool: 1
 ---
 # レガシークライアントへの対応 {#serving-legacy-clients}
@@ -18,15 +18,25 @@ SDK はすべてのリクエストを `MCP-Protocol-Version` ヘッダーで振�
 
 ## 1 つのハンドラーで両方の世代 {#one-handler-both-eras}
 
-ユーザーに何かを尋ねる必要があるツールと、それを呼び出す両方の世代のクライアントを示します。
+ユーザーに何かを尋ねる必要があるツールを示します。
 
-```python title="server.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
 `reserve` には、モデルが渡してこなかったものが 1 つ必要です。何冊予約するかです。ツールはそれを `Annotated[..., Resolve(ask_quantity)]` で宣言します（詳しくは **[依存関係](../handlers/dependencies.md)** を参照してください）。`reserve` の中には、バージョンを指定する箇所も、ケイパビリティを確認する箇所も、分岐する箇所もありません。
 
-2 つのクライアントは同じ `mcp` オブジェクトに対して**同時に**開かれています。`mode="legacy"` は `initialize` ハンドシェイクを実行します。2026 年より前のクライアントが開くのとまったく同じ接続です。もう一方はデフォルトのままで、`2026-07-28` になります。
+これを HTTP で公開します。続いて、両方の世代のクライアントがそれを呼び出す様子です。
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+2 つのクライアントは、動作中の同じサーバーに対して**同時に**開かれています。`mode="legacy"` は `initialize` ハンドシェイクを実行します。2026 年より前のクライアントが開くのとまったく同じ接続です。もう一方はデフォルトのままで、`2026-07-28` になります。別のターミナルから `python client.py` を実行してください。
 
 ```text
 2025-11-25 {'result': "Reserved 2 of 'Dune'."}
@@ -53,6 +63,31 @@ SDK はすべてのリクエストを `MCP-Protocol-Version` ヘッダーで振�
 !!! warning
     `event_store=` は解決策に見えますが、そうではありません。これは**再開可能性**（「同じ」セッションに再接続するクライアントに、取りこぼした SSE イベントを再送する機能）であって、セッションストアではありません。別のプロセスからセッションに到達できるようにはしません。
 
+## セッションの有効期間と上限 {#session-lifetime-and-limits}
+
+レガシーセッションは永遠には生き続けませんし、1 つのプロセスが無制限にセッションを抱えることもありません。これを制御する設定が 2 つあります。どちらも `run()`、`streamable_http_app()`、`Server.streamable_http_app()` のキーワード引数です。モダンな（`2026-07-28` の）接続と `stateless_http=True` にはセッションがないため、どちらの設定も適用されません。
+
+| 設定 | デフォルト | 動作 | クライアントから見えるもの | 無効にするには |
+|---|---|---|---|---|
+| `session_idle_timeout` | `1800`（30 分） | 処理中のものが何もない状態がその時間続いたセッションを閉じます。 | `404 Session not found`。もう一度 `initialize` する必要があります。 | `None` |
+| `max_sessions` | `10_000` | その数を超えて新しいセッションを開くことを拒否します。既存のセッションには手を付けず、何も追い出しません。 | `503 Too many open sessions`、JSON-RPC コードは `-32603` です。 | `None` |
+
+「処理中」と見なされるものは次のとおりです。
+
+* 開いている `GET` ストリーム。SDK のクライアントは 1 本を開いたままにするため、接続中のクライアントのセッションが期限切れになることはありません。
+* まだ応答中のリクエスト。タイムアウトより長く動くツール呼び出しが中断されることはなく、カウントダウンはその呼び出しが終わってから始まります。
+* それ以外にはありません。リクエストとリクエストの間は時計が進みます。セッション上のどんなリクエストでも時計はリセットされ、`ping` も例外ではありません。一度期限切れになったセッションを復活させる手段はありません。
+
+`DELETE` でセッションを終了したクライアントは、そのセッションを即座に解放します。最初のリクエストが拒否されたクライアントも同様です。
+
+```python
+mcp.run(transport="streamable-http", session_idle_timeout=None, max_sessions=50_000)
+```
+
+どちらの出来事もサーバーのログに残ります。期限切れは `INFO` レベルの `Session <id> idle timeout` です。セッションを開くのを拒否した場合は `WARNING` レベルの `Refusing to open a new session: <n> sessions are already open` です。
+
+これらの上限はプロセスごとです。ワーカーが 4 つなら上限は `max_sessions` の 4 倍で、各ワーカーは自分のセッションだけを期限切れにします。
+
 ## 唯一のスイッチ：`stateless_http` {#the-one-knob-stateless_http}
 
 スティッキー性というコストを払いたくないなら、変更できるものがちょうど 1 つだけあります。
@@ -73,7 +108,7 @@ SDK はすべてのリクエストを `MCP-Protocol-Version` ヘッダーで振�
     `json_response=True` はそのスイッチではありませんが、「すべての」レガシーセッションで同じコストの半分を負います。1 つの JSON ボディで応答される `POST` にはリクエストスコープのチャネル用のストリームがないため、リクエスト途中の `ctx.elicit()` は同じ `NoBackChannelError` を送出し、そのリクエストに結び付いた通知は捨てられます。セッションのスタンドアロンストリームには影響しません。無関係な通知は引き続き届きます。
 
 !!! check
-    あえて間違ったことをしてみましょう。`reserve` は、先ほど両方のクライアントに応答したそのツールです。これを `stateless_http=True` でデプロイし、同じ 2 つのクライアントを HTTP で接続して、それぞれから呼び出してください。
+    あえて間違ったことをしてみましょう。`reserve` は、先ほど両方のクライアントに応答したそのツールです。これを `stateless_http=True` でデプロイし、同じ 2 つのクライアントを接続して、それぞれから呼び出してください。
 
     モダンなクライアントには引き続き `Reserved 2 of 'Dune'.` が返ります。モダンな経路は変わっていません。
 

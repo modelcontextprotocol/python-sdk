@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d62c13457fc4a534, 80e73abaca6e0652, d1dc4c54cd00ec9c, 14ad3bc7904036bb, 5225f127bc1b9c77, fe1626fdd5aad1da, 4556cb7ea1a04a31]
+  sections: [d62c13457fc4a534, 80e73abaca6e0652, 128a492d18295f64, 14ad3bc7904036bb, 54a6697833fcc1d9, fe1626fdd5aad1da, 811d083c1da8bcf6]
   tool: 1
 ---
 # 인가 {#authorization}
@@ -23,12 +23,12 @@ OAuth 용어로 말하면 서버는 **리소스 서버**입니다. 누구도 로
 
 SDK는 유효한 토큰이 어떤 모습인지에 대해 아무런 의견이 없습니다. **`TokenVerifier`**를 구현해서 알려 주면 됩니다.
 
-```python title="server.py" hl_lines="12-14 19-24"
+```python title="server.py" hl_lines="14-16 21-27"
 --8<-- "docs_src/authorization/tutorial001.py"
 ```
 
 * `TokenVerifier`는 async 메서드 하나를 가진 프로토콜입니다. `verify_token`은 `Authorization` 헤더에서 꺼낸 원시 토큰을 받아, 유효하면 **`AccessToken`**을, 유효하지 않으면 `None`을 반환합니다. 그 외에 구현할 것은 없습니다.
-* 이 예제는 테이블에서 토큰을 조회합니다. 실제 구현은 JWT 서명을 검증하거나 인가 서버의 토큰 인트로스펙션 엔드포인트를 호출합니다. 그 코드는 직접 작성하는 것이고, SDK는 호출만 합니다.
+* 이 예제는 테이블에서 토큰을 조회하며, 각 항목에는 그 토큰이 발급된 대상 리소스가 기록되어 있습니다. 실제 구현은 JWT 서명을 검증하거나 인가 서버의 토큰 인트로스펙션 엔드포인트를 호출하고, 토큰이 누구를 위해 발급되었는지(토큰의 `aud`)를 `AccessToken.resource`에 담아 알려 줍니다. 그 코드는 직접 작성하는 것이고, SDK는 호출만 합니다.
 * `token_verifier=`와 `auth=`는 항상 함께 다닙니다. 한쪽만 전달하면 `MCPServer(...)`가 요청을 하나도 처리하기 전에 `ValueError`를 발생시킵니다.
 
 `AuthSettings`는 리소스 서버의 공개 정보입니다.
@@ -36,6 +36,10 @@ SDK는 유효한 토큰이 어떤 모습인지에 대해 아무런 의견이 없
 * `issuer_url`: 토큰을 발급하는 인가 서버입니다.
 * `resource_server_url`: 이 MCP 엔드포인트의 공개 URL입니다. 토큰이 **어떤** 리소스를 위한 것인지 지칭하며, 디스커버리 문서가 위치하는 곳이기도 합니다.
 * `required_scopes`: 모든 토큰이 이 스코프를 전부 가지고 있어야 합니다.
+* `validate_token_resource`: `AccessToken.resource`가 `resource_server_url`이 아닌 토큰은 모두 거부합니다. `resource_server_url`은 설정하고 이 값을 설정하지 않은 채로 두면 경고(`MCPDeprecationWarning`)가 발생하며 `False`로 동작합니다. 3.0에서는 리소스 서버의 기본값이 `True`가 됩니다.
+  * 인가 서버가 클라이언트가 요청한 `resource`에 토큰을 묶어 발급한다면 이 옵션을 켜세요. MCP 클라이언트는 이 값을 항상 보냅니다. `resource_server_url`은 클라이언트가 실제로 연결하는 URL과 정확히 같게 유지하세요.
+  * 인가 서버가 자체 audience 식별자(Auth0 API 식별자, Entra 애플리케이션 ID)를 사용한다면 이 옵션을 끄고, 대신 검증기에서 `aud`를 확인해 이 서버를 위한 토큰이 아니면 `None`을 반환하세요.
+  * `aud` 값이 리스트라면 `resource_server_url`과 같은 항목을 `resource`에 넣으세요.
 
 !!! tip
     SDK 저장소의 `examples/servers/simple-auth/`에는 실제 인가 서버의
@@ -91,7 +95,7 @@ SDK는 유효한 토큰이 어떤 모습인지에 대해 아무런 의견이 없
 
 어떤 핸들러 안에서든 **`get_access_token()`**은 현재 요청에 대해 검증기가 반환한 `AccessToken`입니다.
 
-```python title="server.py" hl_lines="4 32-35"
+```python title="server.py" hl_lines="4 35-38"
 --8<-- "docs_src/authorization/tutorial002.py"
 ```
 
@@ -125,6 +129,6 @@ SDK는 리소스 서버 쪽 절반을 제공합니다. 검증하고, 알리고, 
 * `token_verifier=`와 `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])`는 항상 함께 다닙니다.
 * SDK는 `/.well-known/oauth-protected-resource/...`에 [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata를 게시하고, 인증되지 않은 요청에는 이 문서를 가리키는 `WWW-Authenticate` 헤더가 담긴 401로 응답합니다. 디스커버리는 이것이 전부입니다.
 * 어떤 핸들러에서든 `get_access_token()`이 곧 호출자입니다.
-* 인가는 HTTP의 관심사입니다. `stdio`와 인메모리 클라이언트에서는 인가가 전혀 보이지 않습니다.
+* 인가는 HTTP의 관심사입니다. `stdio`와 인메모리 테스트 클라이언트에서는 인가가 전혀 보이지 않습니다.
 
 클라이언트 쪽 절반(인가 서버를 찾아내고 토큰을 대신 가져오는 일)은 **[OAuth 클라이언트](../client/oauth-clients.md)**에서 확인하세요. 그리고 사용자에게 신원을 묻는 대신 신원을 **어설션**하는 클라이언트는 **[ID 어설션](../client/identity-assertion.md)**에서 확인하세요.

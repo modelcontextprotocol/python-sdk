@@ -69,12 +69,19 @@ class IntrospectionTokenVerifier(TokenVerifier):
                     logger.warning(f"Token resource validation failed. Expected: {self.resource_url}")
                     return None
 
+                # `aud` may be a string or a list; report the entry naming this server when there is
+                # one, otherwise what the token was issued for, so the server can compare it.
+                aud: str | list[str] | None = data.get("aud")
+                audiences = aud if isinstance(aud, list) else [aud] if aud else []
+                own = self.resource_url.rstrip("/")
+                resource = next((a for a in audiences if a.rstrip("/") == own), audiences[0] if audiences else None)
+
                 return AccessToken(
                     token=token,
                     client_id=data.get("client_id", "unknown"),
                     scopes=data.get("scope", "").split() if data.get("scope") else [],
                     expires_at=data.get("exp"),
-                    resource=data.get("aud"),  # Include resource in token
+                    resource=resource,
                     subject=data.get("sub"),  # RFC 7662 subject (resource owner)
                     claims=data,
                 )

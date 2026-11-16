@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
+  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 25b49f89c9e6f9d0, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
   tool: 1
 ---
 # Еліцитація {#elicitation}
@@ -89,7 +89,8 @@ translation:
 !!! warning
     Схема еліцитації не така виразна, як вхідна схема інструмента. Лише пласкі примітивні поля:
     `str`, `int`, `float`, `bool` або `Literal` з рядків (він стає `enum`).
-    Покладіть модель усередину моделі — і `ctx.elicit` викине виняток ще до того, як щось буде надіслано клієнтові:
+    Покладіть модель усередину моделі — і `ctx.elicit` викине виняток ще до того, як щось буде надіслано клієнтові.
+    Виклик інструмента завершується помилкою `Error executing tool <name>`, а причина — у лозі сервера:
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -112,8 +113,8 @@ translation:
 
 !!! tip
     Відповідь валідується за вашою моделлю, перш ніж її побачить ваш код. Клієнт, що надсилає
-    `"maybe"` для `bool`, не зіпсує бронювання: виклик завершується помилкою
-    невідповідності схемі, а ваш `if` так і не виконується.
+    `"maybe"` для `bool`, не зіпсує бронювання: `ctx.elicit` викидає `ValueError`, виклик
+    завершується помилкою, а ваш `if` так і не виконується.
 
 ## Перенаправлення користувача на URL {#send-the-user-to-a-url}
 

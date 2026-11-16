@@ -2,9 +2,9 @@
 
 These tests mount only the resource-server side of the auth wiring (a `StaticTokenVerifier`
 seeded with hand-built tokens, no authorization-server provider) and speak raw HTTP, since
-every assertion is about HTTP semantics the SDK `Client` cannot observe: the 401/403 status,
-the `WWW-Authenticate` header structure, and that a wrong-audience token reaches the MCP
-endpoint behind the gate. The flow side of the same 401 is `test_flow.py`'s flagship test.
+every assertion is about HTTP semantics the SDK `Client` cannot observe: the 401/403 status
+and the `WWW-Authenticate` header structure. The flow side of the same 401 is `test_flow.py`'s
+flagship test.
 """
 
 import time
@@ -24,15 +24,23 @@ from tests.interaction.auth._harness import StaticTokenVerifier, auth_settings
 pytestmark = pytest.mark.anyio
 
 REQUIRED_SCOPE = "mcp:read"
+RESOURCE = "http://127.0.0.1:8000/mcp"
 RESOURCE_METADATA_URL = "http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"
 
 _FUTURE = int(time.time()) + 3600
 _PAST = int(time.time()) - 3600
 
+
 TOKENS = {
-    "tok-valid": AccessToken(token="tok-valid", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE),
-    "tok-expired": AccessToken(token="tok-expired", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_PAST),
-    "tok-noscope": AccessToken(token="tok-noscope", client_id="c", scopes=["other:thing"], expires_at=_FUTURE),
+    "tok-valid": AccessToken(
+        token="tok-valid", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE, resource=RESOURCE
+    ),
+    "tok-expired": AccessToken(
+        token="tok-expired", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_PAST, resource=RESOURCE
+    ),
+    "tok-noscope": AccessToken(
+        token="tok-noscope", client_id="c", scopes=["other:thing"], expires_at=_FUTURE, resource=RESOURCE
+    ),
     "tok-wrong-aud": AccessToken(
         token="tok-wrong-aud",
         client_id="c",
@@ -40,6 +48,7 @@ TOKENS = {
         expires_at=_FUTURE,
         resource="https://other.example/mcp",
     ),
+    "tok-no-aud": AccessToken(token="tok-no-aud", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE),
 }
 
 
@@ -47,7 +56,7 @@ TOKENS = {
 async def protected() -> AsyncIterator[httpx2.AsyncClient]:
     """A bearer-gated streamable-HTTP app (resource server only) on the in-process bridge."""
     server = Server("rs")
-    settings = auth_settings(required_scopes=[REQUIRED_SCOPE])
+    settings = auth_settings(required_scopes=[REQUIRED_SCOPE], validate_token_resource=True)
     async with mounted_app(server, auth=settings, token_verifier=StaticTokenVerifier(TOKENS)) as (http, _):
         yield http
 
@@ -157,19 +166,38 @@ async def test_a_token_missing_a_required_scope_is_answered_403_insufficient_sco
 
 
 @requirement("hosting:auth:aud-validation")
-async def test_a_token_with_a_mismatched_audience_is_accepted(protected: httpx2.AsyncClient) -> None:
-    """A token whose `resource` does not match the server's resource identifier is accepted.
-
-    The spec mandates the resource server validate the token's audience; the bearer backend
-    never inspects `AccessToken.resource`, so the request passes the gate and the MCP endpoint
-    serves it. This pins current behaviour with the divergence recorded on the requirement.
+@pytest.mark.parametrize("bearer", ["tok-wrong-aud", "tok-no-aud"])
+async def test_a_token_not_issued_for_this_resource_is_answered_401(protected: httpx2.AsyncClient, bearer: str) -> None:
+    """Spec-mandated audience check, which the SDK performs when `AuthSettings.validate_token_resource`
+    is set (off by default, the recorded divergence): a token whose verifier-reported `resource`
+    (RFC 8707) is another URL, or absent, is answered 401 `invalid_token` like an unrecognized token.
     """
-    response = await post_mcp(protected, bearer="tok-wrong-aud")
+    response = await post_mcp(protected, bearer=bearer)
+
+    assert response.status_code == 401
+    assert parse_www_authenticate(response.headers["www-authenticate"])["error"] == "invalid_token"
+
+
+@requirement("hosting:auth:aud-validation")
+async def test_a_token_for_another_resource_is_served_when_validate_token_resource_is_off() -> None:
+    """The recorded divergence: with `AuthSettings` at their defaults the gate does not compare
+    `AccessToken.resource` with `resource_server_url`, so a token the verifier reports as issued
+    for another resource still reaches the MCP endpoint (SDK default; the check is the verifier's)."""
+    settings = auth_settings(required_scopes=[REQUIRED_SCOPE])
+    async with mounted_app(Server("rs"), auth=settings, token_verifier=StaticTokenVerifier(TOKENS)) as (http, _):
+        response = await post_mcp(http, bearer="tok-wrong-aud")
 
     assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/event-stream")
-    # The body is finite SSE: a result event followed by stream close. Pull the JSON-RPC response
-    # out of the buffered text to prove the MCP endpoint actually answered the initialize request.
+
+
+@requirement("hosting:auth:aud-validation")
+async def test_a_token_issued_for_this_resource_is_served(protected: httpx2.AsyncClient) -> None:
+    """The other half: a token the verifier reports as issued for `resource_server_url` passes the
+    gate and the MCP endpoint answers the initialize request."""
+    response = await post_mcp(protected, bearer="tok-valid")
+
+    assert response.status_code == 200
+    # Finite SSE body: pull out the JSON-RPC result to prove the endpoint actually answered.
     [data] = [line.removeprefix("data: ") for line in response.text.splitlines() if line.startswith("data: ")]
     assert "protocolVersion" in JSONRPCResponse.model_validate_json(data).result
 

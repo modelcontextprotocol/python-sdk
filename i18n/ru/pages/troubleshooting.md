@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 4835ed1772f1d113, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, 954dc21efdb532a3]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, fcf984fa0615ed11, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, cdc6d86a4dae8a34]
   tool: 1
 ---
 # Устранение неполадок {#troubleshooting}
@@ -13,6 +13,12 @@ translation:
 --8<-- "docs_src/troubleshooting/tutorial001.py"
 ```
 
+Эти записи обращаются к нему по адресу `http://localhost:8000/mcp`, так что оставьте его запущенным по HTTP:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
 Ошибки, которые цитирует эта страница, настоящие: собственный набор тестов SDK воспроизводит каждую из них.
 
 ## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)` {#exceptiongroup-unhandled-errors-in-a-taskgroup-1-sub-exception}
@@ -23,7 +29,7 @@ translation:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.read_resource("weather://Atlantis")
 ```
 
@@ -49,7 +55,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         try:
             await client.read_resource("weather://Atlantis")
         except MCPError as e:
@@ -67,7 +73,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    client = Client(mcp)
+    client = Client("http://localhost:8000/mcp")
     tools = await client.list_tools()  # RuntimeError
 ```
 
@@ -75,17 +81,17 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         tools = await client.list_tools()
 ```
 
 `__aexit__` — это отключение, и именно поэтому нет `client.close()`, который можно забыть вызвать. Страница **[Тестирование](get-started/testing.md)** построена ровно на этом шаблоне.
 
-## `Error executing tool <name>: <message>` и `Unknown tool: <name>` {#error-executing-tool-name-message-and-unknown-tool-name}
+## `Error executing tool <name>: <message>`, `Error executing tool <name>` и `Unknown tool: <name>` {#error-executing-tool-name-message-error-executing-tool-name-and-unknown-tool-name}
 
 Перед вами **результат**, а не исключение. `call_tool` ничего не выбросил и никогда не выбросит для инструмента, завершившегося с ошибкой.
 
-Вызовите `forecast` для города, которого сервер не знает, — и исключение, которое он выбрасывает, вернётся вместе с запросом, помеченным как *успешный*:
+Вызовите `forecast` для города, которого сервер не знает, — и `ToolError`, которое он выбрасывает, вернётся вместе с запросом, помеченным как *успешный*:
 
 ```python
 result.is_error  # True
@@ -96,6 +102,8 @@ result.structured_content  # None
 `Unknown tool: get_forecast` — та же форма для имени, которое сервер никогда не регистрировал, а неправильный аргумент отклоняется так же — по входной схеме инструмента, ещё до того, как ваша функция запустится.
 
 Исправление — на стороне клиента: **проверяйте `result.is_error`**. `try/except` вокруг `call_tool` не поймает ничего из этого, потому что ловить нечего. Так задумано, и это самая полезная мысль на всей странице, которую стоит усвоить: вызов выбрала *модель*, поэтому именно модель получает сообщение и шанс попробовать снова. Подробнее — на странице **[Обработка ошибок](servers/handling-errors.md)**, включая путь через `MCPError`, который *действительно* выбрасывает исключение.
+
+Краткая форма, `Error executing tool <name>` без сообщения, означает, что инструмент **упал**: из него вышло исключение, которого он не предусмотрел (или возвращённое значение не прошло выходную схему), и текст этого исключения в передаваемые данные не попадает. Трассировка — в **логе сервера** на уровне `ERROR`, в виде `Tool '<name>' raised an unexpected exception`.
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool` {#typeerror-the-tool-decorator-was-used-incorrectly-did-you-forget-to-call-it-use-tool-instead-of-tool}
 
@@ -119,6 +127,14 @@ TypeError: The @tool decorator was used incorrectly. Did you forget to call it? 
     у хоста, который показывает ваш сервер как *не запустившийся* (или *отключённый*), а не как
     подключённый с нулём инструментов, именно эта картина: запустите `python server.py` сами и
     прочитайте трассировку. Проверка типов тоже это ловит: функция — недопустимое значение для `name=`.
+
+## `InvalidSignature: Tool '<name>' has an invalid x-mcp-header annotation: <reason>` {#invalidsignature-tool-name-has-an-invalid-x-mcp-header-annotation-reason}
+
+Аргумент инструмента помечен `x-mcp-header` так, как спецификация не разрешает, а `<reason>` говорит, какое правило нарушено. Клиенты на `2026-07-28` не включили бы такой инструмент в свой список, поэтому SDK отказывается его регистрировать.
+
+Помечать можно только аргументы типов `str`, `int` и `bool`, а `str | None` не относится ни к одному из них. Как записать необязательный аргумент — на странице **[Параметры в заголовках](advanced/header-parameters.md)**.
+
+Как и в записи выше, исключение выбрасывается при **импорте** модуля, ещё до подключения любого клиента.
 
 ## `Tool already exists: <name>` {#tool-already-exists-name}
 
@@ -249,7 +265,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ## `MCPError: Session not found` {#mcperror-session-not-found}
 
-Сервер не узнаёт `Mcp-Session-Id`, который отправил клиент, — почти всегда потому, что сервер **перезапустился** (или вас направили на другой экземпляр). Сессии живут в памяти одного этого процесса.
+Сервер не узнаёт `Mcp-Session-Id`, который отправил клиент. Либо сервер **перезапустился** (или вас направили на другой экземпляр), либо сессия **истекла**, потому что в течение `session_idle_timeout` — по умолчанию 30 минут — не выполнялось ни одного запроса. См. раздел [Время жизни сессии и ограничения](run/legacy-clients.md#session-lifetime-and-limits). Сессии живут в памяти одного этого процесса.
 
 Искать ошибку в сервере незачем. HTTP-ответ — `404`, тело которого — *настоящий* JSON-RPC, поэтому, в отличие от `421` выше, `Client` на Python показывает его дословно:
 
@@ -259,9 +275,9 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 Исправление — переподключиться: выйти из блока `async with Client(...)` и войти в новый, который согласует свежую сессию. Для долгоживущего клиента это означает перехватывать `MCPError` вокруг вызовов и переподключаться по этому сообщению, а не повторять попытки внутри мёртвой сессии.
 
-Если это происходит *без* перезапуска, значит, у вас больше одного воркера без закрепления сессий за ними: каждый воркер держит собственную таблицу сессий, поэтому запрос, направленный не на тот воркер, оказывается здесь. Эта история и два её решения (маршрутизация с привязкой сессий или `stateless_http=True`) — на страницах **[Развёртывание и масштабирование](run/deploy.md)** и **[Обслуживание клиентов старого поколения](run/legacy-clients.md)**.
+Если это происходит *без* перезапуска и клиент не молчал так долго, значит, у вас больше одного воркера без закрепления сессий за ними: каждый воркер держит собственную таблицу сессий, поэтому запрос, направленный не на тот воркер, оказывается здесь. Эта история и два её решения (маршрутизация с привязкой сессий или `stateless_http=True`) — на страницах **[Развёртывание и масштабирование](run/deploy.md)** и **[Обслуживание клиентов старого поколения](run/legacy-clients.md)**.
 
-Для оператора сервера соответствующая строка лога — `Rejected request with unknown or expired session ID: <id>`. Она пишется на уровне `INFO`, поэтому при обычном пороге `WARNING` её не видно. Видеть её пачками сразу после развёртывания — нормально: все подключённые клиенты переподключаются.
+Для оператора сервера соответствующая строка лога — `Rejected request with unknown or expired session ID: <id>`. Она пишется на уровне `INFO`, поэтому при обычном пороге `WARNING` её не видно. Видеть её пачками сразу после развёртывания — нормально: все подключённые клиенты переподключаются. Если же сессия истекла, этой строке предшествует `Session <id> idle timeout`, тоже на уровне `INFO`.
 
 ## `MCPError: Method not found` {#mcperror-method-not-found}
 
@@ -273,7 +289,13 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 Сервер хочет что-то спросить у пользователя, а этот клиент никогда не говорил, что его можно спрашивать.
 
-Резолвер элицитации (elicitation) отказывает заранее, если подключённый клиент не объявил элицитацию через формы, и `e.error.data` называет ровно то, чего не хватает:
+Этот Bistro перед бронированием задаёт вопрос через резолвер:
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Запустите его вместо сервера Weather и вызовите `book_table` из клиента, который не передал `elicitation_callback`. Резолвер отказывает заранее, потому что подключённый клиент так и не объявил элицитацию (elicitation) через формы, а `e.error.data` называет ровно то, чего не хватает:
 
 ```json
 {
@@ -287,7 +309,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ```python
 async def main() -> None:
-    async with Client(mcp, elicitation_callback=handle_elicitation) as client:
+    async with Client("http://localhost:8000/mcp", elicitation_callback=handle_elicitation) as client:
         result = await client.call_tool("book_table", {"date": "Friday"})
 ```
 
@@ -312,14 +334,14 @@ async def main() -> None:
 
 Обработчик попытался обратиться к клиенту посреди запроса на подключении, где у вызова нет канала, способного донести запрос от сервера. В такое положение вызов ставят три конфигурации сервера.
 
-**Подключение `2026-07-28`: любой транспорт, всегда.** В современном протоколе вообще нет запросов, инициируемых сервером, поэтому сервер отказывает ещё до того, как что-либо отправлено. `ctx.elicit()` внутри инструмента — классический способ с этим столкнуться (в самом первом тесте в памяти, поскольку `Client(server)` согласовывает `2026-07-28`, не спрашивая), и передача `elicitation_callback=` ничего не меняет: никакой запрос до клиента не доходит, так что отвечать ему не на что:
+**Подключение `2026-07-28`: любой транспорт, всегда.** В современном протоколе вообще нет запросов, инициируемых сервером, поэтому сервер отказывает ещё до того, как что-либо отправлено. `ctx.elicit()` внутри инструмента — классический способ с этим столкнуться, обычно в самом первом **[тесте](get-started/testing.md)** этого инструмента в памяти, ведь `Client(mcp)` согласовывает `2026-07-28`, даже если его об этом не просили. Передача `elicitation_callback=` ничего не меняет: никакой запрос до клиента не доходит, так что отвечать ему не на что:
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
 ```
 
 ```python
-async def main() -> None:
+async def test_book_table() -> None:
     async with Client(mcp) as client:
         await client.call_tool("book_table", {"date": "Friday"})
 ```
@@ -361,7 +383,7 @@ mcp.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
 ```
 
@@ -409,12 +431,13 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## Итоги {#recap}
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` — никогда не сама ошибка. Читайте **последнюю строку**; перехват `MCPError` *внутри* блока `async with Client(...)` полностью избавляет от обёртки.
-* `call_tool` не выбрасывает исключение для инструмента, завершившегося с ошибкой. `Error executing tool ...` и `Unknown tool: ...` — это результаты: проверяйте `result.is_error`.
+* `call_tool` не выбрасывает исключение для инструмента, завершившегося с ошибкой. `Error executing tool ...` и `Unknown tool: ...` — это результаты: проверяйте `result.is_error`. Нет сообщения после имени инструмента — значит, он упал, а трассировка в логе сервера.
 * `Client must be used within an async context manager` -> используйте `async with`. `Use @tool() instead of @tool` -> добавьте скобки.
+* `has an invalid x-mcp-header annotation` -> помечать можно только аргументы типов `str`, `int` и `bool`.
 * `Tool already exists:` в логе сервера — единственный признак того, что два одноимённых инструмента схлопнулись в один.
 * Один 421, три написания: `Server returned an error response` (`Client` на Python), `421 Misdirected Request` / `Invalid Host header` (всё остальное), `Invalid Host header: <host>` (лог сервера). Исправление: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> смонтированное приложение, жизненный цикл хоста которого так и не вошёл в `mcp.session_manager.run()`.
-* `Session not found` -> сервер перезапустился; переподключитесь.
+* `Session not found` -> сервер перезапустился или сессия истекла (`session_idle_timeout`); переподключитесь.
 * `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` нужен канал от сервера к клиенту: у подключения `2026-07-28` его не бывает никогда, `stateless_http=True` отнимает его у подключений старого поколения, а `json_response=True` отнимает канал, привязанный к запросу. Используйте резолвер (клиенту старого поколения к тому же нужен сервер, который сохраняет канал). Соседнее `Method not found` — это запрос метода, которого нет в ревизии протокола другой стороны.
 * `Client did not declare the form elicitation capability ...` и `Elicitation not supported` -> у клиента не хватает `elicitation_callback=`.
 * `Invalid or expired requestState` никогда не говорит по сети, почему. Лог сервера говорит; `unknown key` означает, что `RequestStateSecurity(keys=[...])` нужно сделать общим для всех воркеров.

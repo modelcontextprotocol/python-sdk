@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ca6988b7503cd2d3]
+  sections: [348f8697c6b12cd0]
   tool: 1
 ---
 # 進階 {#advanced}
@@ -9,6 +9,7 @@ translation:
 
 * **[低階 Server](low-level-server.md)**：`MCPServer` 建構於其上的類別。手寫的 schema、`on_*` 處理函式、沒有任何東西會幫你檢查，還可以加上自訂的 JSON-RPC 方法。
 * **[分頁](pagination.md)** 和 **[中介軟體](middleware.md)**：兩件**只**能在低階 `Server` 上做的事。
+* **[標頭參數](header-parameters.md)**：讓閘道根據工具呼叫的其中一個引數來路由這次呼叫。
 * **[擴充功能](extensions.md)** 和 **[MCP Apps](apps.md)**：協定的擴充介面。把擴充功能套件組合進伺服器，或自己寫一個。
 
 有幾樣東西你可能理所當然會來這裡找，但它們其實放在實際會用到的地方：

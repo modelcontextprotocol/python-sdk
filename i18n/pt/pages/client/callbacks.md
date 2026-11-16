@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, e9be7a8d0eb0a456, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 90c6043be435fcb0]
+  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, 32ef568335dd95a7, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 0abc5ea5cb7ff6b3]
   tool: 1
 ---
 # Callbacks do cliente {#client-callbacks}
@@ -63,7 +63,7 @@ Um `tools/call` seu, um `elicitation/create` de volta do servidor, respondido pe
     O `mode="legacy"` na chamada `Client(...)` está fazendo trabalho de verdade. Por padrão, `Client(...)` negocia o caminho
     moderno do protocolo, e esse caminho não tem canal de retorno (back-channel) para requisições do servidor ao cliente: `ctx.elicit`
     falha antes mesmo de o seu callback rodar. Não é o transporte que decide isso; é o protocolo
-    negociado, tanto em memória quanto por uma URL. Fixe `mode="legacy"` sempre que o seu cliente tiver
+    negociado. Fixe `mode="legacy"` sempre que o seu cliente tiver
     que responder a uma; todos os testes por trás desta página fazem isso. **[Versões do protocolo](../protocol-versions.md)** tem a história completa.
 
     Em uma sessão 2026-07-28 o callback não está morto, ele é alimentado de outro jeito: quando uma ferramenta retorna um
@@ -151,4 +151,4 @@ Mais dois. Nenhum deles declara nada.
 * `sampling_callback` e `list_roots_callback` funcionam do mesmo jeito, mas atendem funcionalidades descontinuadas; servidores modernos usam requisições de múltiplas idas e voltas no lugar.
 * `logging_callback` e `message_handler` recebem notificações. Eles não declaram nada.
 
-O primeiro argumento de `Client(...)` é um objeto de transporte. **[Transportes do cliente](transports.md)** cobre todos os tipos.
+O primeiro argumento de `Client(...)` escolhe o transporte. **[Transportes do cliente](transports.md)** cobre todos os tipos.

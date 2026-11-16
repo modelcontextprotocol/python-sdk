@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f3ca8ac5f90f2dfa, 85a1ef3588ba0736, 563346d4d5804933, 9e3528340d0bab53]
+  sections: [f3ca8ac5f90f2dfa, 48e478ef7bd688b1, 563346d4d5804933, 52ac6a7734d6f581]
   tool: 1
 ---
 # Lifespan {#lifespan}
@@ -46,7 +46,7 @@ Nada de novo. `ctx` é um parâmetro **Context**, então o SDK o injeta e ele nu
 
 `genre` é o único argumento que o modelo pode passar. O lifespan é assunto do seu servidor.
 
-Funções `@mcp.resource()` e `@mcp.prompt()` também podem receber um parâmetro `ctx`, escrito como um `Context` puro por um motivo que a próxima seção explica. Tudo o que `ctx` carrega está em **[O Context](context.md)**.
+Funções `@mcp.resource()` e `@mcp.prompt()` também podem receber um parâmetro `ctx`. Tudo o que `ctx` carrega está em **[O Context](context.md)**.
 
 ### É tipado de verdade {#it-really-is-typed}
 
@@ -55,19 +55,6 @@ Olhe de novo a anotação: `ctx: Context[AppContext]`.
 Esse único parâmetro de tipo é o motivo pelo qual `ctx.request_context.lifespan_context` **é** um `AppContext` para o seu verificador de tipos. `.db` autocompleta; `.dbb` é um erro antes mesmo de você executar o servidor.
 
 Escreva um `Context` puro no lugar e `lifespan_context` passa a ser tipado como `dict[str, Any]`: o verificador de tipos não tem como saber o que o seu lifespan entregou. O objeto continua lá em tempo de execução; o que você perdeu foi a ajuda.
-
-!!! warning
-    `Context[AppContext]` é uma grafia **só para ferramentas**. Coloque-a em uma função
-    `@mcp.resource()` ou `@mcp.prompt()` e toda chamada a esse handler falha. O cliente recebe um
-    erro de volta, e o log do servidor mostra o porquê:
-
-    ```text
-    Context is not available outside of a request
-    ```
-
-    Em recursos e prompts, escreva o `ctx: Context` puro. O objeto que o seu lifespan entregou
-    continua sendo `ctx.request_context.lifespan_context` em tempo de execução; você abre mão do
-    parâmetro de tipo, não do objeto.
 
 !!! tip
     Sempre existe um lifespan. Se você não passar um, o padrão do SDK entrega um `dict` vazio,
@@ -101,7 +88,7 @@ Reduza o servidor só ao ciclo de vida: dê ao `Database` uma flag `connected`, 
 * O código antes do `yield` é a inicialização. O `finally` depois dele é o encerramento.
 * Ele executa uma vez, em torno da vida inteira do servidor, não a cada requisição.
 * O que você entregar no `yield` é `ctx.request_context.lifespan_context` em toda ferramenta, recurso e prompt.
-* `ctx: Context[AppContext]` deixa esse acesso totalmente tipado em ferramentas. Recursos e prompts recebem o `Context` puro.
+* `ctx: Context[AppContext]` deixa esse acesso totalmente tipado.
 * Não passar `lifespan=` significa um `dict` vazio, nunca `None`.
 
 Um handler que para no meio da chamada para perguntar ao usuário algo que só ele sabe é **[Elicitação (elicitation)](elicitation.md)**.

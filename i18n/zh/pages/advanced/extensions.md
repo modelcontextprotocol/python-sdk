@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 7ffc91f5e38bdfe0, 717d3f235a8333a7, f471a13b2fe5d737, ed6af2df4b656dff]
+  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 6eba6ce094f4417e, 125f28588c85dd7b, ddd8969b698ca11c, ed6af2df4b656dff]
   tool: 1
 ---
 # 扩展 {#extensions}
@@ -49,7 +49,7 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 最小的有用扩展就是一个工具加一份设置映射：
 
-```python title="server.py" hl_lines="17 19-20 22-23 26"
+```python title="server.py" hl_lines="16 18-19 21-22 25"
 --8<-- "docs_src/extensions/tutorial003.py"
 ```
 
@@ -57,17 +57,23 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 * `settings()` 是在 `capabilities.extensions["com.example/stamps"]` 处声明的值。返回 `{}`（默认值）表示声明该扩展但不带任何设置。
 * 扩展永远拿不到服务器。它以数据的形式声明贡献，由 `MCPServer` 消费。没有可供修改的 `self.server`。
 
-`main()` 就是证明：一个直接对着 `mcp` 的内存客户端：
+用 HTTP 提供服务，一个客户端就是证明：
 
-```python title="server.py" hl_lines="29-34"
---8<-- "docs_src/extensions/tutorial003.py"
+```console
+uv run mcp run server.py --transport streamable-http
 ```
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/extensions/tutorial003_client.py"
+```
+
+本页每个 `server.py` 都用这条命令启动，每个 `client.py` 都在另一个终端里用 `python client.py` 与它并行运行。
 
 ### 提供自己的方法 {#serving-your-own-methods}
 
 扩展可以注册**新的请求方法**：它自己的动词，与规范定义的方法并列提供：
 
-```python title="server.py" hl_lines="16-22 31 40-48"
+```python title="server.py" hl_lines="14-20 24 33-41"
 --8<-- "docs_src/extensions/tutorial004.py"
 ```
 
@@ -83,14 +89,15 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 ### 客户端一侧 {#the-client-side}
 
-同一个文件的 `main()` 就是客户端的全部内容，两半都在：
+客户端是一个独立的程序，客户端这一侧的两半都在里面：
 
-```python title="server.py" hl_lines="54-58"
---8<-- "docs_src/extensions/tutorial004.py"
+```python title="client.py" hl_lines="21-23 27-30"
+--8<-- "docs_src/extensions/tutorial004_client.py"
 ```
 
 * `Client(..., extensions=[advertise(EXTENSION_ID)])` 声明该扩展。这些声明会变成 `ClientCapabilities.extensions`：在 2026-07-28 连接上，该映射随每个请求的 `_meta` 信封传递，所以服务器在**每个**请求上都能看到它；在旧版连接上，它随 `initialize` 握手传递。服务器代码不用关心是哪一种：`require_client_extension(ctx, ...)` 和 `ctx.session.check_client_capability(...)` 在两条路径上都会读取正确的来源。
 * 厂商方法要往下一层，用 `client.session.send_request(...)`；`Client` 只为规范动词提供一等方法。`send_request` 接受任何 `Request` 子类，所以厂商请求原样传入即可。
+* `SearchRequest` 和它携带的两个模型是这个扩展的线路约定，所以客户端自己也声明一份。公开发布的扩展会把它们放进一个双方都导入的包里。
 
 ### 拦截 `tools/call` {#intercepting-toolscall}
 
@@ -109,10 +116,16 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 ## 使用客户端扩展 {#using-a-client-extension}
 
-**客户端扩展**是从消费一侧看的同一份约定：一组归在同一个标识符之下的客户端行为。把实例传给 `Client(extensions=[...])`，然后照常调用工具：
+**客户端扩展**是从消费一侧看的同一份约定：一组归在同一个标识符之下的客户端行为。这里的服务器回答 `buy` 时给的不是货物，而是一张待兑换的收据，而且只对声明了该扩展的客户端这样做：
 
-```python title="client.py" hl_lines="66-68"
+```python title="server.py" hl_lines="22-25"
 --8<-- "docs_src/extensions/tutorial006.py"
+```
+
+在客户端，把实例传给 `Client(extensions=[...])`，然后照常调用工具：
+
+```python title="client.py" hl_lines="33-35"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 `call_tool("buy", ...)` 返回一个普通的 `CallToolResult`，和其他任何调用一样。扩展改变的是：服务器现在可以用 `receipt` **结果形态**而不是最终结果来回答 `buy`，`Receipts` 会在 `call_tool` 返回之前把它完成（这里是用一次后续调用兑换收据）。调用处什么都不用动。
@@ -124,15 +137,15 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 ```python
 from mcp.client import advertise
 
-client = Client(mcp, extensions=[advertise("com.example/search")])
+client = Client("http://localhost:8000/mcp", extensions=[advertise("com.example/search")])
 ```
 
 ## 编写客户端扩展 {#writing-a-client-extension}
 
 继承 `ClientExtension`，只重写需要的部分。贡献分三类，各有默认实现：`settings()`、`claims()` 和 `notifications()`。
 
-```python title="client.py" hl_lines="17-18 43-44 46-47"
---8<-- "docs_src/extensions/tutorial006.py"
+```python title="client.py" hl_lines="16-17 25-26 28-29"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 * 标识符遵循与服务器端相同的语法，在类定义时校验。
@@ -153,10 +166,16 @@ def notifications(self) -> Sequence[NotificationBinding[Any]]:
 
 ### 扩展动词 {#extension-verbs}
 
-扩展自己的请求方法不需要在客户端注册。厂商请求类型继承 `mcp.types.Request`，通过 `client.session.send_request` 发送，如[提供自己的方法](#serving-your-own-methods)所示。补充一点：当某个参数键必须放进 `Mcp-Name` 头（tasks 之类的扩展规范对其动词有此要求）时，请求类型要声明 `name_param`：
+扩展自己的请求方法不需要在客户端注册。厂商请求类型继承 `mcp.types.Request`，通过 `client.session.send_request` 发送，如[提供自己的方法](#serving-your-own-methods)所示。以这样一个服务器为例，它的扩展提供一个与某个具名作业相关的动词：
 
-```python title="client.py" hl_lines="22-25 46-47"
+```python title="server.py" hl_lines="12-13 30"
 --8<-- "docs_src/extensions/tutorial007.py"
+```
+
+客户端上补充一点：当某个参数键必须放进 `Mcp-Name` 头（tasks 之类的扩展规范对其动词有此要求）时，请求类型要声明 `name_param`：
+
+```python title="client.py" hl_lines="20-23 28-29"
+--8<-- "docs_src/extensions/tutorial007_client.py"
 ```
 
 会话在每条发送路径上都会把 `params["jobId"]` 镜像到 `Mcp-Name` 中，值缺失时会明确报错，而不是悄悄漏掉一个必需的头。

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
+  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 317f4256a650cab6, 4b6c4a845438abc7, f98b46bafbee4acd]
   tool: 1
 ---
 # URI 템플릿과 경로 안전성 {#uri-templates-and-path-safety}
@@ -98,7 +98,7 @@ translation:
 
 내장 검사는 흔한 경우를 막아 주지만 샌드박스 경계까지는 알 수 없습니다. 파일시스템에 접근할 때는 `safe_join`으로 경로를 해석하고 기준 디렉터리 안에 머무르는지 확인하세요.
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -127,7 +127,7 @@ translation:
 이 검사는 휴리스틱 사전 필터입니다. 파일시스템 접근에서는 `safe_join`이 여전히 격리 경계입니다.
 
 !!! tip
-    핸들러가 요청을 처리할 수 없다면(파일이 없거나, id를 알 수 없는 경우) 예외를 발생시키세요. SDK가 이를 오류 응답으로 바꿉니다. 프로토콜 오류와 도구 오류의 차이는 **[오류 처리](handling-errors.md)**에서 확인하세요.
+    핸들러가 요청을 처리할 수 없다면(파일이 없거나, id를 알 수 없는 경우) 위의 `read_manual`처럼 `ResourceNotFoundError`를 발생시키세요. 클라이언트는 작성한 메시지와 URI가 담긴 `-32602` 오류를 받습니다. 예상치 못한 예외는 대신 일반적인 `-32603` 오류가 됩니다. **[오류 처리](handling-errors.md#a-resource-that-doesnt-exist)**를 참고하세요.
 
 ## 저수준 Server의 리소스 {#resources-on-the-low-level-server}
 

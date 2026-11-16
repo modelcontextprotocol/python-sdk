@@ -28,10 +28,9 @@ Here is the input schema `tools/list` reports for `reserve_book`:
 {
   "type": "object",
   "properties": {
-    "title": {"title": "Title", "type": "string"}
+    "title": {"type": "string"}
   },
-  "required": ["title"],
-  "title": "reserve_bookArguments"
+  "required": ["title"]
 }
 ```
 

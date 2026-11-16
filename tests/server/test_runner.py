@@ -537,8 +537,8 @@ async def test_runner_absent_wire_params_reaches_request_handler_as_defaults_mod
     """A request with no `params` member on the wire reaches the handler as
     the params model with its defaults, never `None`.
 
-    The in-SDK client always attaches `_meta`, so a middleware rewrites
-    `ctx.params` to `None` to model what an external client sends.
+    The in-SDK client attaches `_meta` under a live tracer, so a middleware
+    rewrites `ctx.params` to `None` to pin the absent case regardless.
     """
     seen: list[PaginatedRequestParams | None] = []
 

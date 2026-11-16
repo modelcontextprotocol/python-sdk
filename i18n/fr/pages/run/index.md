@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 7a53ead3e704a7f0, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 9fd2357154a5b7e7, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # Exécuter votre serveur {#running-your-server}
@@ -70,11 +70,16 @@ Chaque transport a ses propres arguments nommés, tous sur `run()` :
 
 * `host` / `port` : où écouter. Valeurs par défaut `127.0.0.1` et `8000`.
 * `streamable_http_path` : où se trouve le point de terminaison MCP. Valeur par défaut `/mcp`.
-* `json_response=True` : répondre à chaque POST par un corps JSON unique au lieu d’un flux SSE. Ce corps a de la place pour la réponse et rien d’autre : un outil qui rappelle le client en cours de requête (`ctx.elicit()`, échantillonnage) lève donc `NoBackChannelError` sur ce tronçon, et les notifications liées à l’appel en cours (la progression de `ctx.report_progress()`, les messages de journal par appel) sont abandonnées ; le flux `GET` autonome transporte toujours celles qui n’y sont pas liées.
+* `json_response=True` : répondre à chaque POST par un corps JSON unique au lieu d’un flux SSE. Ce corps a de la place pour la réponse et rien d’autre : un outil qui rappelle le client en cours de requête (`ctx.elicit()`, échantillonnage (sampling)) lève donc `NoBackChannelError` sur ce tronçon, et les notifications liées à l’appel en cours (la progression de `ctx.report_progress()`, les messages de journal par appel) sont abandonnées ; le flux `GET` autonome transporte toujours celles qui n’y sont pas liées.
 * `stateless_http=True` : un transport neuf par requête, sans suivi de session.
-* `max_request_body_size` : la taille maximale acceptée pour le corps d’un POST, en octets. Vaut 4 Mio par défaut ; les requêtes plus grandes
+* `max_request_body_size` : taille maximale acceptée pour le corps d’une requête, en octets. Vaut 4 Mio par défaut ; les requêtes plus grandes
   reçoivent un HTTP 413 avant toute analyse ou création de session. Ne l’augmentez que lorsque des messages MCP légitimes
   dépassent cette taille.
+* `session_idle_timeout` : nombre de secondes pendant lesquelles une session historique peut rester sans rien en cours avant que le
+  serveur ne la ferme. Valeur par défaut 1800. `None` le désactive. Voir
+  [Durée de vie des sessions et limites](legacy-clients.md#session-lifetime-and-limits).
+* `max_sessions` : nombre de sessions historiques qu’un même processus conserve simultanément. Valeur par défaut 10 000. `None`
+  supprime la limite. Traité dans la même section.
 * `event_store`, `retry_interval`, `transport_security` : reprise après coupure et protection contre le DNS rebinding. Ils peuvent attendre, jusqu’à ce que vous déployiez ailleurs que sur localhost ; **[Déployer et passer à l’échelle](deploy.md)** couvre `transport_security`.
 
 !!! warning

@@ -80,7 +80,7 @@ class TestFunctionResource:
 
     @pytest.mark.anyio
     async def test_error_handling(self):
-        """Test error handling in FunctionResource."""
+        """read() lets the function's own exception propagate; MCPServer.read_resource does the wrapping."""
 
         def failing_func() -> str:
             raise ValueError("Test error")
@@ -90,8 +90,9 @@ class TestFunctionResource:
             name="test",
             fn=failing_func,
         )
-        with pytest.raises(ValueError, match="Error reading resource function://test"):
+        with pytest.raises(ValueError) as exc:
             await resource.read()
+        assert str(exc.value) == "Test error"
 
     @pytest.mark.anyio
     async def test_basemodel_conversion(self):
@@ -258,6 +259,6 @@ async def test_read_rejects_an_input_required_result_from_a_static_function():
     with pytest.raises(ValueError) as exc:
         await resource.read()
     assert str(exc.value) == snapshot(
-        "Error reading resource resource://ask: static resources cannot return "
-        "InputRequiredResult; only resource template functions participate in the multi-round-trip flow"
+        "static resources cannot return InputRequiredResult; "
+        "only resource template functions participate in the multi-round-trip flow"
     )

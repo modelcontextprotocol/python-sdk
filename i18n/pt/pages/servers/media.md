@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 043f526230dd243d, 6ee3e9bcfd24047a]
+  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 864137b5e9c61e91, 043f526230dd243d, db1ef91db7d6b3f3]
   tool: 1
 ---
 # Mídia {#media}
@@ -86,6 +86,24 @@ Um sufixo não reconhecido cai no padrão `application/octet-stream`.
     `Audio` a partir de bytes MP3 desse jeito e o cliente recebe `mime_type="audio/wav"` e,
     confiando nisso, falha ao decodificar. Quando você passar `data=`, passe `format=`.
 
+## Embutindo um recurso {#embedding-a-resource}
+
+Uma ferramenta também pode retornar um documento: algum texto ou bytes junto com a URI onde ele mora e um tipo MIME. Isso é um **`EmbeddedResource`**, outro tipo de bloco de conteúdo. Diferente de uma `str` simples, ele diz ao cliente o que é o conteúdo, então o cliente pode mostrá-lo como anexo ou reconhecer um recurso que já conhece.
+
+```python title="server.py" hl_lines="7 14 16-18"
+--8<-- "docs_src/media/tutorial005.py"
+```
+
+* `brand://guidelines` é um recurso comum (**[Recursos](resources.md)** trata deles). A ferramenta entrega o mesmo documento ao modelo quando pedido, e chamar `guidelines()` diretamente mantém uma única fonte da verdade.
+* `EmbeddedResource` e `TextResourceContents` vêm de `mcp.types`. Não há um helper como há para imagens: o bloco que você monta entra no resultado sem alteração, e não há `structured_content`.
+* Use a URI sob a qual o recurso está registrado, para que um cliente consiga perceber que o anexo e `brand://guidelines` são o mesmo documento. Qualquer URI é válida, registrada ou não.
+
+```python
+result.content  # [EmbeddedResource(type="resource", resource=TextResourceContents(uri="brand://guidelines", mime_type="text/markdown", text="# Brand guidelines\n\n..."))]
+```
+
+Para conteúdo binário, use `BlobResourceContents(uri=..., mime_type=..., blob=...)` com os bytes codificados em base64 em `blob`, no lugar de `TextResourceContents`. Para enviar apenas um ponteiro que o cliente pode ler depois com `resources/read`, retorne um `ResourceLink(name=..., uri=...)`; ele também é um bloco de conteúdo.
+
 ## Ícones {#icons}
 
 Um `Icon` é metadado, não conteúdo. Ele não carrega a imagem; aponta para uma por meio de uma URI, e um cliente pode buscá-la e mostrá-la ao lado do nome do seu servidor, de uma ferramenta, de um recurso ou de um prompt.
@@ -115,6 +133,7 @@ Os ícones de uma ferramenta ficam no objeto `Tool` de `tools/list`; os de um re
 
 * Retorne uma `Image` ou um `Audio` de uma ferramenta e o cliente recebe um bloco `ImageContent` / `AudioContent`: seus bytes codificados em base64, com um tipo MIME.
 * Monte um a partir de um `path=` e deixe o sufixo decidir o tipo MIME, ou a partir de `data=` em memória mais um `format=` explícito.
+* Retorne um `EmbeddedResource` para colocar um documento (texto ou um blob em base64, com sua URI e tipo MIME) no resultado, ou um `ResourceLink` para enviar só o ponteiro.
 * Resultados de mídia não trazem `structured_content` nem schema de saída.
 * Um `Icon` é um ponteiro: uma URI `src` mais `mime_type`, `sizes` e `theme` opcionais.
 * `icons=[...]` funciona no servidor, em ferramentas, em recursos e em prompts, e os clientes os encontram nos objetos correspondentes.

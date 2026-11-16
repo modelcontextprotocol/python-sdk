@@ -141,3 +141,19 @@ async def test_json_post_answers_500_when_session_terminates_mid_request() -> No
 
     assert post.sent[0]["type"] == "http.response.start"
     assert post.sent[0]["status"] == 500
+
+
+@pytest.mark.anyio
+async def test_terminated_transport_answers_404() -> None:
+    """A request that still reaches a transport after its session was terminated is answered 404."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="sid")
+    post = _AsgiPost(
+        b'{"jsonrpc":"2.0","id":"req-1","method":"ping"}',
+        [(b"accept", b"application/json, text/event-stream"), (b"content-type", b"application/json")],
+    )
+    async with transport.connect():
+        await transport.terminate()
+        await transport.handle_request(post.scope, post.receive, post.send)
+
+    assert post.sent[0]["type"] == "http.response.start"
+    assert post.sent[0]["status"] == 404

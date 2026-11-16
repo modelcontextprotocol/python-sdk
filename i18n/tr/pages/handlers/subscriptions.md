@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [60a9de8a0bdaa531, 317bbe7e4355cdcc, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, 266f56fb798068a4, 7c0e57030b622139, df18d7c2417a9883]
+  sections: [60a9de8a0bdaa531, 6693607ea56d8bd6, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, b8bc624a627ead9b, 2139e68e36d9e621, 7c0e57030b622139, 34ab1af2b9ab5b45]
   tool: 1
 ---
 # Abonelikler {#subscriptions}
@@ -22,7 +22,7 @@ Size düşen tek satır: değişikliği yayımlayın.
 * Kardeş metotlar `notify_prompts_changed()` ve `notify_resources_changed()`.
 * Abone yoksa iş de yok. Boştaki bir sunucuda yayımlamak hiçbir şey yapmaz; bu yüzden kimsenin dinleyip dinlemediğini asla kontrol etmezsiniz. Neyin değiştiğini bildirirsiniz, o kadar.
 
-`MCPServer`, `subscriptions/listen`'ı sizin yerinize sunar. Protokol düzeyindeki yükümlülükler (ilk çerçeve olarak onay, akış başına filtreleme, her çerçevede abonelik kimliği) SDK'nın işidir.
+`MCPServer`, [kapatmadığınız](#turning-it-off) sürece `subscriptions/listen`'ı sizin yerinize sunar. Protokol düzeyindeki yükümlülükler (ilk çerçeve olarak onay, akış başına filtreleme, her çerçevede abonelik kimliği) SDK'nın işidir.
 
 !!! check
     Ağ üzerinde, filtresinde `board://sprint` geçen bir akış `complete_task` çalıştıktan sonra şöyle görünür:
@@ -79,7 +79,32 @@ Middleware sözleşmesinin tamamı, başka neleri sardığı ve neden geçici (p
 
 Yayımlar, işleyicinizden açık akışlara bir `SubscriptionBus` üzerinden gider. Varsayılanı bellek içidir: tek süreç, içindeki tüm akışlar. Bir yük dengeleyicinin arkasında replikalar çalıştırana kadar doğru yanıt budur; çünkü o noktada bir istemcinin akışı tek bir replikaya bağlı kalır ve başka bir replikadaki yayımın ona ulaşması gerekir.
 
-Bu birleşim noktasını siz uygularsınız: pub/sub arka ucunuzun üzerinde iki metot.
+Varsayılan veri yoluyla ulaşamaz, çünkü her replikanın kendi veri yolu vardır:
+
+```mermaid
+flowchart LR
+    client[Client] --> lb[Load balancer]
+    lb --> stream
+    lb ~~~~ gap
+    lb --> tool
+    subgraph B [Replica B]
+        tool[tools/call] -- publishes --> busB[(bus B)]
+    end
+    gap[(no shared bus)]
+    subgraph A [Replica A]
+        stream[listen stream] -- subscribed --> busA[(bus A)]
+    end
+    style A fill:none
+    style B fill:none
+    style gap fill:none,stroke-dasharray:4 4
+```
+
+Hiçbir şey hata vermez: çağrı başarılı olur, akış ise sessiz kalır. Bu yüzden bir yük dengeleyicinin arkasında ikisinden birini seçin:
+
+* **Değişiklik bildirimlerine ihtiyacınız var.** Aşağıdaki gibi her replikaya aynı veri yolunu verin.
+* **İhtiyacınız yok.** [Bildirimleri kapatın](#turning-it-off); böylece hiçbir istemciye kaçıracağı olaylar vaat edilmez ve hiçbir istemci bunlar için bir akışı açık tutmaz.
+
+Paylaşılan veri yolunu siz uygularsınız: pub/sub arka ucunuzun üzerinde iki metot.
 
 ```python
 from collections.abc import Callable
@@ -128,6 +153,20 @@ async def tools_reloaded() -> None:
     await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
 
+## Abonelikleri kapatma {#turning-it-off}
+
+Kataloğu hiç değişmeyen bir sunucunun yayımlayacak bir şeyi yoktur. Bunu sunucuyu oluştururken belirtin:
+
+```python title="server.py" hl_lines="3"
+--8<-- "docs_src/subscriptions/tutorial007.py"
+```
+
+* Bir `2026-07-28` istemcisi duyurulan hiçbir değişiklik bildirimi görmez; `subscriptions/listen` isteği de açık bir akış yerine *Method not found* hatasını alır.
+* `ctx.notify_*` çalışmaya devam eder ve kimseye ulaşmaz; bu yüzden işleyicileriniz değişmez.
+* Daha eski protokol sürümlerindeki istemciler hiçbir fark görmez.
+
+Açık bir akış, hiç bitmeyen bir istektir; bu yüzden bu ayar, istek süresine göre ücretlendiren bir barındırma hizmetinde de önemlidir.
+
 ## Düşük düzeyli bileşim {#the-low-level-composition}
 
 Düşük düzeyli `Server`'da önceden bağlanmış hiçbir şey yoktur; aynı parçalar üç satırda bir araya gelir:
@@ -148,5 +187,6 @@ Düşük düzeyli `Server`'da önceden bağlanmış hiçbir şey yoktur; aynı p
 * İstemci tarafı `async with client.listen(...)` bloğudur: ayrıntıları *İstemciler* altındaki **[Abonelikler](../client/subscriptions.md)** sayfasında.
 * Düşük düzeyli `Server`'da aynı parçaları kendiniz birleştirirsiniz: bir veri yolu, `ListenHandler(bus)`, `on_subscriptions_listen` yuvası.
 * Yatay ölçekleme, `SubscriptionBus`'ı (iki metot) uygulamak ve onu `MCPServer(subscriptions=...)` olarak geçirmek demektir.
+* Yayımlayacak bir şey yoksa ya da replikaların paylaşılan bir veri yolu yoksa: `MCPServer(subscriptions=False)` hiçbir değişiklik bildirimi duyurmaz ve hiçbir akışı açık tutmaz.
 
 Tüm bunları sunan sunucuyu ister tek replikanın ister yirmisinin arkasında çalıştırma konusu **[Dağıtım ve ölçekleme](../run/deploy.md)** sayfasında.

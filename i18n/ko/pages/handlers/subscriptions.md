@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [60a9de8a0bdaa531, 317bbe7e4355cdcc, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, 266f56fb798068a4, 7c0e57030b622139, df18d7c2417a9883]
+  sections: [60a9de8a0bdaa531, 6693607ea56d8bd6, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, b8bc624a627ead9b, 2139e68e36d9e621, 7c0e57030b622139, 34ab1af2b9ab5b45]
   tool: 1
 ---
 # 구독 {#subscriptions}
@@ -22,7 +22,7 @@ translation:
 * 형제 메서드로 `notify_prompts_changed()`와 `notify_resources_changed()`가 있습니다.
 * 구독자가 없으면 할 일도 없습니다. 유휴 상태의 서버에 게시하는 것은 아무 동작도 하지 않으므로, 누가 듣고 있는지 확인할 필요가 전혀 없습니다. 무엇이 바뀌었는지만 알리면 됩니다.
 
-`MCPServer`가 `subscriptions/listen`을 대신 처리합니다. 와이어 수준의 의무(첫 프레임으로 보내는 확인 응답, 스트림별 필터링, 모든 프레임에 붙는 구독 id)는 SDK의 몫입니다.
+[꺼 두지](#turning-it-off) 않는 한 `MCPServer`가 `subscriptions/listen`을 대신 처리합니다. 와이어 수준의 의무(첫 프레임으로 보내는 확인 응답, 스트림별 필터링, 모든 프레임에 붙는 구독 id)는 SDK의 몫입니다.
 
 !!! check
     와이어 위에서, 필터에 `board://sprint`를 지정한 스트림은 `complete_task`가 실행된 뒤 다음과 같이 보입니다.
@@ -79,7 +79,32 @@ translation:
 
 게시된 이벤트는 핸들러에서 열린 스트림까지 `SubscriptionBus`를 거쳐 이동합니다. 기본은 인메모리입니다. 프로세스 하나, 그 안의 모든 스트림입니다. 로드 밸런서 뒤에서 레플리카를 실행하기 전까지는 이것이 정답입니다. 그 이후에는 클라이언트의 스트림이 한 레플리카에 고정되고, 다른 레플리카에서 게시한 이벤트가 그 스트림에 도달해야 하기 때문입니다.
 
-그 이음매는 직접 구현할 부분입니다. 사용하는 pub/sub 백엔드 위에 메서드 두 개를 만들면 됩니다.
+기본 버스로는 그럴 수 없습니다. 레플리카마다 버스가 따로 있기 때문입니다.
+
+```mermaid
+flowchart LR
+    client[Client] --> lb[Load balancer]
+    lb --> stream
+    lb ~~~~ gap
+    lb --> tool
+    subgraph B [Replica B]
+        tool[tools/call] -- publishes --> busB[(bus B)]
+    end
+    gap[(no shared bus)]
+    subgraph A [Replica A]
+        stream[listen stream] -- subscribed --> busA[(bus A)]
+    end
+    style A fill:none
+    style B fill:none
+    style gap fill:none,stroke-dasharray:4 4
+```
+
+실패하는 것은 없습니다. 호출은 성공하고, 스트림은 조용합니다. 따라서 로드 밸런서 뒤에서는 둘 중 하나를 선택하세요.
+
+* **변경 알림이 필요한 경우.** 아래와 같이 모든 레플리카에 같은 버스를 제공하세요.
+* **필요하지 않은 경우.** [변경 알림을 끄세요](#turning-it-off). 그러면 어떤 클라이언트도 놓치게 될 이벤트를 약속받거나 그 이벤트를 기다리며 스트림을 열어 두지 않습니다.
+
+공유 버스는 직접 구현할 부분입니다. 사용하는 pub/sub 백엔드 위에 메서드 두 개를 만들면 됩니다.
 
 ```python
 from collections.abc import Callable
@@ -128,6 +153,20 @@ async def tools_reloaded() -> None:
     await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
 
+## 끄기 {#turning-it-off}
+
+카탈로그가 전혀 바뀌지 않는 서버는 게시할 것이 없습니다. 서버를 만들 때 그렇게 알려 주세요.
+
+```python title="server.py" hl_lines="3"
+--8<-- "docs_src/subscriptions/tutorial007.py"
+```
+
+* `2026-07-28` 클라이언트에는 변경 알림이 광고되지 않으며, `subscriptions/listen` 요청은 열린 스트림 대신 *Method not found*를 받습니다.
+* `ctx.notify_*` 메서드는 여전히 동작하지만 아무에게도 도달하지 않으므로, 핸들러는 그대로 두면 됩니다.
+* 이전 프로토콜 버전의 클라이언트에는 아무 차이가 없습니다.
+
+열린 스트림은 끝나지 않는 요청이므로, 요청 지속 시간에 따라 요금을 부과하는 호스트에서도 이 설정이 중요합니다.
+
 ## 저수준 구성 {#the-low-level-composition}
 
 저수준 `Server`에는 미리 연결된 것이 아무것도 없으며, 같은 부품이 세 줄로 조립됩니다.
@@ -148,5 +187,6 @@ async def tools_reloaded() -> None:
 * 클라이언트 쪽은 `async with client.listen(...)`입니다. 자세한 내용은 **클라이언트** 아래의 **[구독](../client/subscriptions.md)**에서 확인하세요.
 * 저수준 `Server`에서는 같은 부품을 직접 조립합니다. 버스, `ListenHandler(bus)`, `on_subscriptions_listen` 슬롯입니다.
 * 스케일 아웃은 메서드 두 개짜리 `SubscriptionBus`를 구현하고 `MCPServer(subscriptions=...)`로 전달하는 것을 뜻합니다.
+* 게시할 것이 없거나 레플리카 사이에 공유 버스가 없는 경우, `MCPServer(subscriptions=False)`는 변경 알림을 광고하지 않고 스트림도 열어 두지 않습니다.
 
 레플리카 하나 뒤에서든 스무 개 뒤에서든, 이 모든 것을 처리하는 서버를 실행하는 방법은 **[배포와 확장](../run/deploy.md)**에서 확인하세요.

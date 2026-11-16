@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, ffe823cb0fedd488, f33651add1b59094]
+  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, d30d3c20168b88b2, f5ef38dad59d6f76, 6e38a699ba57fbdf, 2b984a3bf37a0ddd]
   tool: 1
 ---
 # Prompt'lar {#prompts}
@@ -139,9 +139,54 @@ Sonuncusuna dikkat edin. Bir `assistant` turunu önceden doldurmak, yönlendirme
 ```
 
 !!! info
-    **[Araçlar](tools.md)** sayfasını okuduysanız bu sayfadaki her şeyi zaten biliyorsunuz. Aynı dekoratör,
+    **[Araçlar](tools.md)** sayfasını okuduysanız buraya kadarki her şeyi zaten biliyorsunuz. Aynı dekoratör,
     açıklama olarak aynı docstring, aynı `Annotated`/`Field`. Değişen tek şey onu kimin
     tetiklediği (kullanıcı) ve sonucun nereye gittiğidir (konuşmaya).
+
+## Metinden fazlası {#more-than-text}
+
+`UserMessage` ve `AssistantMessage`, `str` kabul ettikleri her yerde bir içerik bloğunu ya da bir `Image` / `Audio` yardımcısını da kabul eder. Prompt'larda iki durum öne çıkar: bir belge eklemek ve bir resim eklemek.
+
+### Dosya gömme {#embedding-a-file}
+
+```python title="server.py" hl_lines="5 12 21 23"
+--8<-- "docs_src/prompts/tutorial004.py"
+```
+
+* Stil kılavuzu `style://python` adresindeki bir kaynaktır (bunları **[Kaynaklar](resources.md)** sayfası anlatır) ve `server.py` dosyasının yanındaki `style-guide.md` dosyasından okunur. Oraya herhangi bir Markdown dosyası koyun.
+* Her ikisi de `mcp.types` modülünden gelen `EmbeddedResource(resource=TextResourceContents(...))`, dosyayı URI'si ve MIME türüyle birlikte ilk mesaj olarak taşır; ona atıfta bulunan istek düz metin olarak ardından gelir.
+* Kılavuzu f-string'e yapıştırmak yerine gömmek, istemcinin onu bir ek olarak göstermesini ve `style://python` kaynağını daha sonra yeniden açabilmesini sağlar; model de dosyayı olduğu gibi alır. İkili bir dosya için base64 `blob` içeren `BlobResourceContents` kullanın.
+
+İşlendiğinde ilk mesajın `content` alanı bir `resource` bloğudur:
+
+```json
+{"type": "resource", "resource": {"uri": "style://python", "mimeType": "text/markdown", "text": "* Prefer early returns.\n..."}}
+```
+
+### Görsel ekleme {#attaching-an-image}
+
+```python title="server.py" hl_lines="4 15"
+--8<-- "docs_src/prompts/tutorial005.py"
+```
+
+* `Image`, **[Görseller, ses ve simgeler](media.md)** sayfasındaki yardımcıdır. Prompt işlendiğinde `UserMessage` onu bir `ImageContent` bloğuna dönüştürür (dosya base64 ile kodlanır, MIME türü `.png` uzantısından tahmin edilir); `Audio` da aynı şekilde bir `AudioContent` olur.
+* `server.py` dosyasının yanına `architecture.png` adında herhangi bir PNG koyun. Prompt argümanları dizedir, bu yüzden resim her zaman sunucudan gelir; `component` yalnızca sözcükleri sağlar.
+
+```json
+{"type": "image", "data": "iVBORw0KGgoAAAANSUhEUg...", "mimeType": "image/png"}
+```
+
+## Listeyi çalışma zamanında değiştirme {#changing-the-list-at-runtime}
+
+İstemciler bağlıyken prompt eklenebilir; örneğin bir kullanıcının bir talimatı kendine ait bir menü girdisi olarak kaydetmesine izin vermek için. Prompt'u kaydedin, ardından bildirin:
+
+```python title="server.py" hl_lines="5 23-27"
+--8<-- "docs_src/prompts/tutorial006.py"
+```
+
+* `mcp.add_prompt(Prompt.from_function(fn, name=..., description=...))` bir fonksiyonu tıpkı `@mcp.prompt()`'un yapacağı gibi kaydeder; `mcp.remove_prompt(name)` ise bunun tersidir. `add_prompt` aynı ada sahip mevcut bir girdinin üzerine yazmak yerine onu korur; bu yüzden araç, kaydetmenin değiştirme anlamına gelmesi için önce varsa eskisini kaldırır. `prompts/list` değişikliği hemen yansıtır.
+* `await ctx.notify_prompts_changed()`, bir `subscriptions/listen` akışını dinleyen her `2026-07-28` istemcisine `notifications/prompts/list_changed` gönderir (**[Abonelikler](../handlers/subscriptions.md)**). `await ctx.session.send_prompt_list_changed()` ise çağıran istemci 2026 öncesiyse bildirimi ona gönderir (**[Eski nesil istemcilere hizmet verme](../run/legacy-clients.md)**). İkisini de çağırın; haber verecek kimse yoksa her biri hiçbir şey yapmaz.
+* Bildirimi alan bir istemci `prompts/list`'i yeniden çağırır. Python `Client`'ında bu, bir `PromptsListChanged` olayı üreten `async with client.listen(prompts_list_changed=True) as sub:` biçimindedir.
 
 ## Özet {#recap}
 
@@ -151,5 +196,7 @@ Sonuncusuna dikkat edin. Bir `assistant` turunu önceden doldurmak, yönlendirme
 * Bir `str` döndürün, tek bir kullanıcı mesajına dönüşür. Çok turlu bir konuşmanın temelini atmak için `UserMessage` / `AssistantMessage` listesi döndürün.
 * `title=` ve `Field(description=...)`, bir istemcinin arayüzüne koyduğu şeylerdir.
 * Eksik bir zorunlu argüman isteğin tamamını başarısız kılar. Prompt'a özgü bir hata sonucu yoktur.
+* Bir belge veya resim eklemek için bir `EmbeddedResource` ya da `Image` nesnesini `UserMessage` içine sarın.
+* Çalışma zamanında `mcp.add_prompt(...)` / `mcp.remove_prompt(...)` ile prompt ekleyin veya kaldırın, ardından `await ctx.notify_prompts_changed()` ve `await ctx.session.send_prompt_list_changed()` çağırın.
 
 Bir prompt'un (veya bir kaynak şablonunun) argümanları için sunucu tarafı otomatik tamamlama **[Tamamlamalar](completions.md)** sayfasındadır.

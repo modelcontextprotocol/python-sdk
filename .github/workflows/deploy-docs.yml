@@ -26,7 +26,12 @@ on:
 
 concurrency:
   group: deploy-docs
-  cancel-in-progress: false
+  # Newest run wins. build-docs.sh builds the tips of main and v1.x, not the
+  # triggering commit, so a newer run publishes everything an older one would,
+  # and Pages takes the site as one artifact, so a cancelled run leaves the live
+  # site as it was. With `false`, a run that never gets a runner holds the group
+  # and every later deploy waits behind it.
+  cancel-in-progress: true
 
 jobs:
   deploy-docs:
@@ -42,15 +47,15 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
 
       - name: Build combined docs (main at / and /v2/, v1.x at /v1/)
         run: bash scripts/build-docs.sh site
@@ -65,4 +70,4 @@ jobs:
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

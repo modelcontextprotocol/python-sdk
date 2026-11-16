@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, e9be7a8d0eb0a456, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 90c6043be435fcb0]
+  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, 32ef568335dd95a7, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 0abc5ea5cb7ff6b3]
   tool: 1
 ---
 # クライアントのコールバック {#client-callbacks}
@@ -58,7 +58,7 @@ result.content  # [TextContent(type='text', text='Card issued to Ada Lovelace.')
 こちらから `tools/call` が 1 回、サーバーからの折り返しの `elicitation/create` が 1 回、それに答えるのがこちらの関数です。すべてが 1 回のツール呼び出しの中で完結します。
 
 !!! info
-    `Client(...)` の呼び出しにある `mode="legacy"` は、実際に働いています。デフォルトでは `Client(...)` は新しいプロトコルの経路をネゴシエートしますが、その経路にはサーバーからクライアントへのリクエストのためのバックチャネル（back-channel）がありません。コールバックが動く前に `ctx.elicit` が失敗します。これを決めるのはトランスポートではなく、ネゴシエートされたプロトコルです。インメモリでも URL 越しでも同じです。クライアントがこうしたリクエストに答える必要があるときは、必ず `mode="legacy"` を指定してください。このページの裏にあるテストはすべてそうしています。詳しくは **[プロトコルバージョン](../protocol-versions.md)** を参照してください。
+    `Client(...)` の呼び出しにある `mode="legacy"` は、実際に働いています。デフォルトでは `Client(...)` は新しいプロトコルの経路をネゴシエートしますが、その経路にはサーバーからクライアントへのリクエストのためのバックチャネル（back-channel）がありません。コールバックが動く前に `ctx.elicit` が失敗します。これを決めるのはトランスポートではなく、ネゴシエートされたプロトコルです。クライアントがこうしたリクエストに答える必要があるときは、必ず `mode="legacy"` を指定してください。このページの裏にあるテストはすべてそうしています。詳しくは **[プロトコルバージョン](../protocol-versions.md)** を参照してください。
 
     2026-07-28 のセッションでもコールバックが使われなくなるわけではなく、呼ばれ方が変わります。ツールが `ElicitRequest` を含む `InputRequiredResult` を返すと、`Client` はそのエントリを同じ `elicitation_callback` に振り分け、呼び出しを再試行してくれます。この流れは **[マルチラウンドトリップ（multi-round-trip）リクエスト](../handlers/multi-round-trip.md)** で説明しています。
 
@@ -139,4 +139,4 @@ result.structured_content  # {'result': ['elicitation']}
 * `sampling_callback` と `list_roots_callback` も同じように動きますが、非推奨の機能のためのものです。新しいサーバーは代わりにマルチラウンドトリップリクエストを使います。
 * `logging_callback` と `message_handler` は通知を受け取ります。何も宣言しません。
 
-`Client(...)` の第 1 引数はトランスポートのオブジェクトです。すべての種類は **[クライアントのトランスポート](transports.md)** で扱っています。
+`Client(...)` の第 1 引数でトランスポートが決まります。すべての種類は **[クライアントのトランスポート](transports.md)** で扱っています。

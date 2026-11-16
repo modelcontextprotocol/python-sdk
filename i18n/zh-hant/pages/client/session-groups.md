@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, d18adbdbb835ea73]
+  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, ed4d17e894864056]
   tool: 1
 ---
 # 工作階段群組 {#session-groups}
@@ -76,7 +76,7 @@ translation:
 ## 重點回顧 {#recap}
 
 * `ClientSessionGroup` 握有多條伺服器連線，並把它們的工具、資源和提示詞各自合併成一個 `dict`。
-* 每台伺服器呼叫一次 `connect_to_server(params)`。它接受傳輸參數，絕不是 `Client` 接受的伺服器物件或 URL。
+* 每台伺服器呼叫一次 `connect_to_server(params)`。它接受傳輸參數，絕不是 `Client` 接受的 URL 或 `Transport`。
 * `group.call_tool(name, arguments)` 會替你轉送到擁有該工具的伺服器。
 * 名稱在整個群組內必須唯一；兩台都有 `search` 工具的伺服器無法原樣共存。
 * `component_name_hook=` 會改寫每個登記的名稱。dict 的鍵會變，線路上的名稱不變。

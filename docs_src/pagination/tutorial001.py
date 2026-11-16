@@ -17,3 +17,4 @@ async def list_books(ctx: ServerRequestContext[Any], params: PaginatedRequestPar
 
 
 server = Server("Bookshop", on_list_resources=list_books)
+app = server.streamable_http_app()

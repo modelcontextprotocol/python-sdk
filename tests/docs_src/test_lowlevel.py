@@ -11,6 +11,7 @@ from mcp_types import (
     RequestParams,
     TextContent,
 )
+from starlette.routing import Route
 
 from docs_src.lowlevel import tutorial001, tutorial002, tutorial003, tutorial004, tutorial005, tutorial006
 from mcp import Client, MCPError
@@ -43,6 +44,13 @@ async def test_the_client_does_not_care_which_server_class_it_connects_to() -> N
         assert not result.is_error
         assert result.content == [TextContent(type="text", text="Found 3 books matching 'dune' (showing up to 5).")]
         assert result.structured_content is None
+
+
+def test_the_last_line_is_an_asgi_app_uvicorn_can_serve() -> None:
+    """tutorial001: the Try-it's `uvicorn server:app` target is a Starlette app with one route at `/mcp`."""
+    (route,) = tutorial001.app.routes
+    assert isinstance(route, Route)
+    assert route.path == "/mcp"
 
 
 async def test_only_the_handlers_you_passed_become_capabilities() -> None:

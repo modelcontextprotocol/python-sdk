@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [424930166c4bc6f3]
+  sections: [22ca41e50cc1b536]
   tool: 1
 ---
 # 在處理函式內部 {#inside-your-handler}
@@ -18,6 +18,7 @@ translation:
 * 用 **[徵詢](elicitation.md)**（elicitation）向使用者要求更多輸入，以及承載它的 2026-07-28 模式 **[多輪往返請求](multi-round-trip.md)**（multi-round-trip）。
 * 用 **[取樣與根目錄](sampling-and-roots.md)**（sampling 與 roots）向用戶端要求 LLM 生成結果或它的工作區資料夾，這兩者已棄用但仍然提供。
 * 對耗時的工作回報 **[進度](progress.md)**。
+* 用戶端放棄這次呼叫時，用 **[取消](cancellation.md)** 清理善後，或提早停止。
 * 用 **[記錄](logging.md)** 寫入記錄（寫到標準錯誤輸出，給負責維運伺服器的人看）。
 * 用 **[訂閱](subscriptions.md)** 告訴已訂閱的用戶端有東西變了。
 

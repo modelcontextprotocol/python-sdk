@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [60a9de8a0bdaa531, 317bbe7e4355cdcc, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, 266f56fb798068a4, 7c0e57030b622139, df18d7c2417a9883]
+  sections: [60a9de8a0bdaa531, 6693607ea56d8bd6, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, b8bc624a627ead9b, 2139e68e36d9e621, 7c0e57030b622139, 34ab1af2b9ab5b45]
   tool: 1
 ---
 # Abonnements {#subscriptions}
@@ -22,7 +22,7 @@ Dein Anteil daran ist eine Zeile: Veröffentliche die Änderung.
 * Die Geschwister heißen `notify_prompts_changed()` und `notify_resources_changed()`.
 * Keine Abonnenten, keine Arbeit. Auf einem untätigen Server zu veröffentlichen ist ein No-op, deshalb prüfst du nie, ob jemand zuhört. Du gibst an, was sich geändert hat.
 
-`MCPServer` bedient `subscriptions/listen` für dich. Die Pflichten auf der Leitung (die Bestätigung als erster Frame, das Filtern pro Stream, die Abonnement-ID auf jedem Frame) sind Sache des SDK.
+`MCPServer` bedient `subscriptions/listen` für dich, es sei denn, du [schaltest es ab](#turning-it-off). Die Pflichten auf der Leitung (die Bestätigung als erster Frame, das Filtern pro Stream, die Abonnement-ID auf jedem Frame) sind Sache des SDK.
 
 !!! check
     Auf der Leitung sieht ein Stream, dessen Filter `board://sprint` nannte, so aus, nachdem `complete_task` gelaufen ist:
@@ -79,7 +79,32 @@ Beim Betreten von `client.listen(...)` wird der Request gesendet und auf deine B
 
 Veröffentlichungen wandern von deinem Handler über einen `SubscriptionBus` zu den offenen Streams. Der Standard arbeitet im Speicher: ein Prozess, jeder Stream darin. Das ist die richtige Antwort, bis du Replikate hinter einem Load Balancer betreibst, denn dann ist der Stream eines Clients an ein Replikat gebunden, und eine Veröffentlichung auf einem anderen Replikat muss ihn erreichen.
 
-Diese Nahtstelle implementierst du selbst: zwei Methoden über deinem Pub/Sub-Backend.
+Mit dem Standard-Bus kann sie das nicht, denn jedes Replikat hat seinen eigenen:
+
+```mermaid
+flowchart LR
+    client[Client] --> lb[Load balancer]
+    lb --> stream
+    lb ~~~~ gap
+    lb --> tool
+    subgraph B [Replica B]
+        tool[tools/call] -- publishes --> busB[(bus B)]
+    end
+    gap[(no shared bus)]
+    subgraph A [Replica A]
+        stream[listen stream] -- subscribed --> busA[(bus A)]
+    end
+    style A fill:none
+    style B fill:none
+    style gap fill:none,stroke-dasharray:4 4
+```
+
+Nichts schlägt fehl: Der Aufruf gelingt, und der Stream bleibt still. Entscheide dich hinter einem Load Balancer also für eines von beiden:
+
+* **Du brauchst Änderungsbenachrichtigungen.** Gib jedem Replikat denselben Bus, siehe unten.
+* **Du brauchst sie nicht.** [Schalte sie ab](#turning-it-off), damit keinem Client Ereignisse versprochen werden, die er verpassen wird, und keiner dafür einen Stream offen hält.
+
+Den gemeinsamen Bus implementierst du selbst: zwei Methoden über deinem Pub/Sub-Backend.
 
 ```python
 from collections.abc import Callable
@@ -128,6 +153,20 @@ async def tools_reloaded() -> None:
     await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
 
+## Abschalten {#turning-it-off}
+
+Ein Server, dessen Katalog sich nie ändert, hat nichts zu veröffentlichen. Sag das gleich, wenn du ihn erzeugst:
+
+```python title="server.py" hl_lines="3"
+--8<-- "docs_src/subscriptions/tutorial007.py"
+```
+
+* Ein `2026-07-28`-Client sieht keine angekündigten Änderungsbenachrichtigungen, und ein `subscriptions/listen`-Request bekommt *Method not found* statt eines offenen Streams.
+* `ctx.notify_*` funktioniert weiterhin und erreicht niemanden, deine Handler ändern sich also nicht.
+* Clients mit früheren Protokollversionen bemerken keinen Unterschied.
+
+Ein offener Stream ist ein Request, der nie endet. Das ist also auch auf einem Host relevant, der nach Request-Dauer abrechnet.
+
 ## Die Low-Level-Komposition {#the-low-level-composition}
 
 Unten auf dem Low-Level-`Server` ist nichts vorverdrahtet, und dieselben Teile setzen sich in drei Zeilen zusammen:
@@ -148,5 +187,6 @@ Unten auf dem Low-Level-`Server` ist nichts vorverdrahtet, und dieselben Teile s
 * Die Client-Seite ist `async with client.listen(...)`: Alles Weitere steht in **[Abonnements](../client/subscriptions.md)** unter *Clients*.
 * Auf dem Low-Level-`Server` setzt du dieselben Teile selbst zusammen: einen Bus, `ListenHandler(bus)`, den Slot `on_subscriptions_listen`.
 * Horizontal skalieren heißt, `SubscriptionBus` zu implementieren, zwei Methoden, und ihn als `MCPServer(subscriptions=...)` zu übergeben.
+* Nichts zu veröffentlichen oder Replikate ohne gemeinsamen Bus: `MCPServer(subscriptions=False)` kündigt keine Änderungsbenachrichtigungen an und hält keinen Stream.
 
 Den Server zu betreiben, der all das bedient, hinter einem Replikat oder zwanzig, ist **[Bereitstellen und skalieren](../run/deploy.md)**.

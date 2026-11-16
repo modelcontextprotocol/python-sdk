@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, 8dd027377d46448b, f81491125dcbfe8b]
+  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, b47667184ca5b516, f81491125dcbfe8b]
   tool: 1
 ---
 # Requêtes à plusieurs allers-retours (multi-round-trip) {#multi-round-trip-requests}
@@ -164,7 +164,7 @@ Le `Server` bas niveau est le niveau sans rien de fourni d’office : contrairem
 
 ## Un résultat de la version 2026-07-28 {#a-2026-07-28-result}
 
-`InputRequiredResult` n’existe qu’en version de protocole **2026-07-28**. Le `Client(server)` en mémoire la négocie pour vous ; sur la liaison, `mode="auto"` la découvre. Une fois connecté, `client.protocol_version` vous dit ce que vous avez obtenu.
+`InputRequiredResult` n’existe qu’en version de protocole **2026-07-28**. Le `mode="auto"` par défaut de `Client` la découvre sur n’importe quelle connexion. Une fois connecté, `client.protocol_version` vous dit ce que vous avez obtenu.
 
 !!! warning
     Une session antérieure à 2026 n’a nulle part où mettre un `InputRequiredResult`. Renvoyez-en

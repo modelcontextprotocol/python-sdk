@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 7ffc91f5e38bdfe0, 717d3f235a8333a7, f471a13b2fe5d737, ed6af2df4b656dff]
+  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 6eba6ce094f4417e, 125f28588c85dd7b, ddd8969b698ca11c, ed6af2df4b656dff]
   tool: 1
 ---
 # 擴充功能 {#extensions}
@@ -49,7 +49,7 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 最小的有用擴充功能是一個工具加上一個設定對映表：
 
-```python title="server.py" hl_lines="17 19-20 22-23 26"
+```python title="server.py" hl_lines="16 18-19 21-22 25"
 --8<-- "docs_src/extensions/tutorial003.py"
 ```
 
@@ -57,17 +57,23 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 * `settings()` 是在 `capabilities.extensions["com.example/stamps"]` 宣告的值。回傳 `{}`（預設值）表示宣告這個擴充功能但不帶任何設定。
 * 擴充功能永遠不會拿到伺服器。它以資料的形式宣告貢獻，由 `MCPServer` 取用。沒有 `self.server` 可以修改。
 
-而 `main()` 就是證明，一個記憶體內用戶端直接連上 `mcp`：
+透過 HTTP 提供服務，用戶端就是證明：
 
-```python title="server.py" hl_lines="29-34"
---8<-- "docs_src/extensions/tutorial003.py"
+```console
+uv run mcp run server.py --transport streamable-http
 ```
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/extensions/tutorial003_client.py"
+```
+
+本頁每個 `server.py` 都用這個指令提供服務，每個 `client.py` 則在第二個終端機用 `python client.py` 與它並行執行。
 
 ### 提供自己的方法 {#serving-your-own-methods}
 
 擴充功能可以註冊**新的請求方法**：屬於它自己的動詞，和規格定義的方法並列提供：
 
-```python title="server.py" hl_lines="16-22 31 40-48"
+```python title="server.py" hl_lines="14-20 24 33-41"
 --8<-- "docs_src/extensions/tutorial004.py"
 ```
 
@@ -83,14 +89,15 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 ### 用戶端這一側 {#the-client-side}
 
-同一個檔案的 `main()` 就是完整的用戶端故事，兩半都在裡面：
+用戶端是獨立的程式，用戶端故事的兩半都在裡面：
 
-```python title="server.py" hl_lines="54-58"
---8<-- "docs_src/extensions/tutorial004.py"
+```python title="client.py" hl_lines="21-23 27-30"
+--8<-- "docs_src/extensions/tutorial004_client.py"
 ```
 
 * `Client(..., extensions=[advertise(EXTENSION_ID)])` 宣告這個擴充功能。這些宣告會變成 `ClientCapabilities.extensions`：在 2026-07-28 連線上，這個對映表隨著每個請求的 `_meta` 信封傳送，所以伺服器在**每一個**請求上都看得到它；在舊版連線上，它則搭著 `initialize` 交握傳送。伺服器程式碼不用在意是哪一種：`require_client_extension(ctx, ...)` 和 `ctx.session.check_client_capability(...)` 在兩條路徑上都會讀取正確的來源。
 * 廠商方法要往下一層用 `client.session.send_request(...)`；`Client` 只會為規格動詞長出一級方法。`send_request` 接受任何 `Request` 子類別，所以廠商請求原樣傳遞即可。
+* `SearchRequest` 和它攜帶的兩個模型是這個擴充功能的線路契約，所以用戶端自己宣告一份。正式發布的擴充功能會把它們放進一個套件，讓兩端都匯入。
 
 ### 攔截 `tools/call` {#intercepting-toolscall}
 
@@ -109,10 +116,16 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 ## 使用用戶端擴充功能 {#using-a-client-extension}
 
-**用戶端擴充功能**是從使用端看的同一份契約：掛在單一識別碼之下的一組用戶端行為。把實例傳給 `Client(extensions=[...])`，然後照常呼叫工具：
+**用戶端擴充功能**是從使用端看的同一份契約：掛在單一識別碼之下的一組用戶端行為。這裡的伺服器回應 `buy` 時給的不是貨品，而是一張待兌換的收據，而且只對宣告了這個擴充功能的用戶端這樣做：
 
-```python title="client.py" hl_lines="66-68"
+```python title="server.py" hl_lines="22-25"
 --8<-- "docs_src/extensions/tutorial006.py"
+```
+
+在用戶端，把實例傳給 `Client(extensions=[...])`，然後照常呼叫工具：
+
+```python title="client.py" hl_lines="33-35"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 `call_tool("buy", ...)` 回傳普通的 `CallToolResult`，和其他所有呼叫一樣。擴充功能改變的是：伺服器現在可以用 `receipt` **結果形狀**來回應 `buy`，而不是最終結果，而 `Receipts` 會在 `call_tool` 回傳之前把它完成（這裡是透過後續呼叫兌換收據）。呼叫端的程式碼完全不用動。
@@ -124,15 +137,15 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 ```python
 from mcp.client import advertise
 
-client = Client(mcp, extensions=[advertise("com.example/search")])
+client = Client("http://localhost:8000/mcp", extensions=[advertise("com.example/search")])
 ```
 
 ## 撰寫用戶端擴充功能 {#writing-a-client-extension}
 
 繼承 `ClientExtension`，只覆寫需要的部分。三種貢獻類型，各有預設實作：`settings()`、`claims()` 和 `notifications()`。
 
-```python title="client.py" hl_lines="17-18 43-44 46-47"
---8<-- "docs_src/extensions/tutorial006.py"
+```python title="client.py" hl_lines="16-17 25-26 28-29"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 * 識別碼遵循和伺服器相同的語法，在類別定義時驗證。
@@ -153,10 +166,16 @@ def notifications(self) -> Sequence[NotificationBinding[Any]]:
 
 ### 擴充功能動詞 {#extension-verbs}
 
-擴充功能自己的請求方法不需要用戶端註冊。廠商請求型別繼承 `mcp.types.Request`，並透過 `client.session.send_request` 送出，如[提供自己的方法](#serving-your-own-methods)所示。多一件事：當某個參數鍵必須搭上 `Mcp-Name` 標頭時（像 tasks 這類擴充功能規格對它們的動詞有此要求），請求型別要宣告 `name_param`：
+擴充功能自己的請求方法不需要用戶端註冊。廠商請求型別繼承 `mcp.types.Request`，並透過 `client.session.send_request` 送出，如[提供自己的方法](#serving-your-own-methods)所示。以一個伺服器為例，它的擴充功能提供一個和具名工作有關的動詞：
 
-```python title="client.py" hl_lines="22-25 46-47"
+```python title="server.py" hl_lines="12-13 30"
 --8<-- "docs_src/extensions/tutorial007.py"
+```
+
+用戶端多一件事：當某個參數鍵必須搭上 `Mcp-Name` 標頭時（像 tasks 這類擴充功能規格對它們的動詞有此要求），請求型別要宣告 `name_param`：
+
+```python title="client.py" hl_lines="20-23 28-29"
+--8<-- "docs_src/extensions/tutorial007_client.py"
 ```
 
 工作階段會在每一條送出路徑上把 `params["jobId"]` 鏡射到 `Mcp-Name`，而缺少值時會明確失敗，而不是默默省略必要的標頭。

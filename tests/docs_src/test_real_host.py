@@ -18,12 +18,7 @@ async def test_the_host_sees_exactly_what_the_decorators_registered() -> None:
         assert search.name == "search_books"
         assert search.description == "Search the catalog by title or author."
         assert search.input_schema == snapshot(
-            {
-                "type": "object",
-                "properties": {"query": {"title": "Query", "type": "string"}},
-                "required": ["query"],
-                "title": "search_booksArguments",
-            }
+            {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
         )
         assert get.name == "get_author"
 

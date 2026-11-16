@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, d18adbdbb835ea73]
+  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, ed4d17e894864056]
   tool: 1
 ---
 # Groupes de sessions {#session-groups}
@@ -78,7 +78,7 @@ Si vous détenez déjà une `ClientSession` connectée (`Client.session` en est 
 ## Récapitulatif {#recap}
 
 * `ClientSessionGroup` détient de nombreuses connexions serveur et fusionne leurs outils, ressources et prompts en un `dict` chacun.
-* `connect_to_server(params)` par serveur. Il prend des paramètres de transport, jamais l’objet serveur ni l’URL que prend un `Client`.
+* `connect_to_server(params)` par serveur. Il prend des paramètres de transport, jamais l’URL ni le `Transport` que prend un `Client`.
 * `group.call_tool(name, arguments)` achemine l’appel vers le serveur propriétaire à votre place.
 * Les noms doivent être uniques dans tout le groupe ; deux serveurs dotés d’un outil `search` ne peuvent pas coexister tels quels.
 * `component_name_hook=` réécrit chaque nom enregistré. La clé du dict change, pas le nom sur la liaison.

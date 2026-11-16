@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a9aba7a026c7bd85, ed32bda7ba9ae33a, 7e64cc5646abb91f, 22a0129ee78b3c63, d875373c06d8d2f9]
+  sections: [a9aba7a026c7bd85, 83e2a08b9d46a398, 9fd8a0aa384b3257, 22a0129ee78b3c63, d875373c06d8d2f9]
   tool: 1
 ---
 # Sayfalama {#pagination}
@@ -31,9 +31,13 @@ Sayfalama, kaynak listesi aslında bir veritabanı olan sunucu içindir: tek yan
 
 ### Deneyin {#try-it}
 
-`Client(server)`, düşük seviyeli bir `Server`'a bellek içinde, bir `MCPServer`'a bağlandığı gibi bağlanır.
+`mcp run` yalnızca bir `MCPServer` kabul eder; bu yüzden bunu kendiniz sunarsınız. `server.py` dosyasının son satırı `Server`'dan sıradan bir ASGI uygulaması oluşturur, uvicorn da onu çalıştırır:
 
-`list_resources()`'ı argümansız çağırın. `book-1`'den `book-10`'a kadar on kaynak alırsınız ve `next_cursor`, `"10"` dizgesidir.
+```console
+uvicorn server:app --port 8000
+```
+
+Herhangi bir istemciyi (**[İstemci](../client/index.md)** ya da Inspector) `http://localhost:8000/mcp` adresine yönlendirin ve `list_resources()`'ı argümansız çağırın. `book-1`'den `book-10`'a kadar on kaynak alırsınız ve `next_cursor`, `"10"` dizgesidir.
 
 Bunu `list_resources(cursor="10")` ile geri verin; ilk kaynak `book-11`, yeni `next_cursor` ise `"20"` olur.
 
@@ -43,7 +47,7 @@ Onuncu sayfa, `next_cursor` değeri `None` olarak döner. Bitti.
 
 `Client` üzerindeki her `list_*` metodu (`list_tools`, `list_resources`, `list_resource_templates`, `list_prompts`) bir `cursor=` anahtar kelimesi alır. Sayfalanmış bir listeyi sonuna kadar okumak tek bir `while True`'dur:
 
-```python title="client.py" hl_lines="26-32"
+```python title="client.py" hl_lines="9-15"
 --8<-- "docs_src/pagination/tutorial002.py"
 ```
 
@@ -51,7 +55,7 @@ Onuncu sayfa, `next_cursor` değeri `None` olarak döner. Bitti.
 * `next_cursor`'a bakmadan **önce** listeyi genişletin: son sayfada da kaynaklar vardır.
 * Çıkış koşulu `next_cursor is None`'dır. Bunun dışındaki her şey, dokunulmadan doğrudan `cursor=`'a geri gider.
 
-`main()`'ini çalıştırın; `100 resources` yazdırır: on tane onluk sayfa, on sayfa olduğundan hiç haberi olmayan bir döngü tarafından birleştirilmiş.
+uvicorn hâlâ `server.py` dosyasını sunarken ikinci bir terminalde `python client.py` komutunu çalıştırın. `100 resources` yazdırır: on tane onluk sayfa; bunları, on sayfa olduğundan hiç haberi olmayan bir döngü birleştirir.
 
 Bu, **[İstemci](../client/index.md)** sayfasının her `list_*` fiili için gösterdiği döngünün aynısıdır ve sayfalamayan bir sunucuya karşı hiçbir maliyeti yoktur: ilk yanıtta `next_cursor`, `None` olur ve döngü bir kez çalışır.
 

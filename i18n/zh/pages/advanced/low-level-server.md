@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # 底层 Server {#the-low-level-server}
@@ -36,18 +36,22 @@ translation:
 
 ### 试一试 {#try-it}
 
-这个没有 Inspector 可用：`mcp dev` 和 `mcp run` 只接受 `MCPServer`。内存中的 `Client` 不在乎；它接收底层 `Server` 的方式和接收 `MCPServer` 完全一样：
+`mcp dev` 和 `mcp run` 只接受 `MCPServer`，所以这个服务器要自己来跑。`server.py` 的最后一行用它构建了一个普通的 ASGI 应用，交给 uvicorn 运行：
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+把 Inspector 或任何客户端指向 `http://localhost:8000/mcp`：
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ asyncio.run(main())
 
 * `result.structured_content` 是 `None`。高层服务器会替你把 `-> str` 包装成 `{"result": ...}`；在这里，你没构建的东西没人替你构建。
 * `list_tools` 返回的是**你**敲进去的模式，一字不差。高层版本在每个属性上都有 `"title": "Query"`，根上还有一个 `"title": "search_booksArguments"`：Pydantic 的产物。在这一层，线路上有什么，都是你放上去的。
+
+在测试里可以跳过 uvicorn 和端口：`Client(server)` 在进程内接收底层 `Server` 的方式和接收 `MCPServer` 完全一样，**[测试](../get-started/testing.md)** 讲的就是这个模式。
 
 ## 没有替你做任何检查 {#nothing-is-checked-for-you}
 
@@ -116,6 +122,17 @@ asyncio.run(main())
 
 服务器从不比较这两个字段。本 SDK 的 `Client` 会：返回的 `structured_content` 不满足你声明的 `output_schema` 时，`call_tool` 会抛出一个 `RuntimeError`，开头是 `Invalid structured content returned by tool search_books`，后面引用 `jsonschema` 的失败信息。承诺一个模式很便宜；信守它是你的事。返回类型和模式的完整阶梯详见 **[结构化输出](../servers/structured-output.md)**。
 
+## 方言是 JSON Schema 2020-12 {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` 和 `output_schema` 是 JSON Schema，而 [MCP 规范](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) 固定了方言：没有 `$schema` 键的模式就是 **JSON Schema 2020-12**。`MCPServer` 生成的模式依赖这个默认值（Pydantic 写的是 2020-12 并省略该键），手写的 dict 也按同样的标准对待，所以完整的 2020-12 词汇表都可以用：
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* `input_schema` 的根必须是 `"type": "object"`。在它旁边，`oneOf`、`additionalProperties`、`anyOf`、`if`/`then`/`else`、`prefixItems`、带本地 `$ref` 的 `$defs`，以及其余 2020-12 关键字，都会一字不差地到达客户端。
+* 不需要 `$schema` 键。只有想选用更早的草案时才加：本 SDK 的 `Client` 会按工具的 `output_schema` 校验 `structured_content`，它根据 `$schema` 选择校验器，没有时就用 2020-12。
+
 ## `_meta`：给应用程序，不是给模型 {#\_meta-for-the-application-not-the-model}
 
 `content` 是答案里模型读取的部分。`structured_content` 是同一个答案的类型化数据形式。`_meta` 是第三条通道：随结果一起传递、面向**客户端应用程序**的数据，根本不属于答案的一部分。
@@ -166,7 +183,7 @@ asyncio.run(main())
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* 第一个参数是方法字符串。通知有一个对应的 `add_notification_handler`。
+* 第一个参数是方法字符串。通知有一个对应的 `add_notification_handler`。它的处理函数在 stdio 和握手时代的 HTTP 连接上触发；在 `2026-07-28` 的 Streamable HTTP 路径上，客户端发来的通知 POST 会得到 `202` 确认但不会分发，因为那个修订版没有定义通过 HTTP 的客户端到服务器通知。
 * `params_type` 是传入的 `params` 在处理函数运行**之前**校验所依据的模型，所以自定义方法**确实**得到了工具没有的校验。继承 `RequestParams`，这样 `_meta` 字段的解析方式和其他方法一样。
 * 处理函数返回 `BaseModel`、`dict` 或 `None`。SDK 把它序列化进 JSON-RPC 结果。
 
@@ -191,6 +208,7 @@ use Server.middleware to observe or wrap initialization
 * `on_call_tool`、`on_get_prompt` 和 `on_read_resource` 可以返回 `InputRequiredResult` 而不是正常结果，来暂停调用并向客户端索要输入；见 **[多轮往返（multi-round-trip）请求](../handlers/multi-round-trip.md)**。符合这一层的风格，没有任何东西替你装好：`MCPServer` 默认会密封 `requestState`，而在这里，你设置的 `request_state` 按原样穿过线路，直到你用 `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))` 主动启用：一行代码（两个名字都从 `mcp.server.request_state` 导入），得到和 `MCPServer` 完全相同的密封与验证（**[保护 `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**）。
 * `on_list_resources`、`on_read_resource`、`on_list_prompts`、`on_get_prompt`、`on_completion` 是针对其他原语的同样 `(ctx, params) -> result` 形状。
 * `on_subscriptions_listen` 提供 2026-07-28 的 `subscriptions/listen` 流。传入一个构建在 `SubscriptionBus` 之上的 `ListenHandler`，并从其他处理函数向总线发布事件；完整的组合方式见 **[订阅](../handlers/subscriptions.md)**。
+* `get_tool_input_schema` 让 `on_list_tools` 不出现在调用路径上；见 **[请求头参数](header-parameters.md#schemas-by-name)**。
 * `server.streamable_http_app()` 返回的 Starlette 应用和 `MCPServer` 的一样；按 **[运行你的服务器](../run/index.md)** 部署任何其他 ASGI 应用的方式部署它。这一层没有 `server.run(transport=...)`：`server.run(read_stream, write_stream, server.create_initialization_options())` 在一对流上驱动一个连接，整件事就是这一行。
 
 ## 回顾 {#recap}
@@ -203,4 +221,4 @@ use Server.middleware to observe or wrap initialization
 * `add_request_handler(method, params_type, handler)` 提供任意方法。`initialize` 是保留的。
 * `Server` 公布的能力由你注册了哪些处理函数推导而来。
 
-`Client(server)` 对两种服务器一视同仁，因为它们**就是**同一个协议，这正是关键所在。再往下一层根本不是一个类：它是 **[中间件](middleware.md)**。
+客户端对两种服务器一视同仁，因为它们**就是**同一个协议，这正是关键所在。再往下一层根本不是一个类：它是 **[中间件](middleware.md)**。

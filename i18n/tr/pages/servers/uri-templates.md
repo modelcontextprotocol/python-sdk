@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
+  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 317f4256a650cab6, 4b6c4a845438abc7, f98b46bafbee4acd]
   tool: 1
 ---
 # URI şablonları ve yol güvenliği {#uri-templates-and-path-safety}
@@ -169,7 +169,7 @@ Yerleşik denetimler yaygın durumları durdurur ama sizin sandbox sınırınız
 bilemez. Dosya sistemi erişimi için yolu çözümlemek ve temel dizininizin
 içinde kaldığını doğrulamak üzere `safe_join` kullanın:
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -209,10 +209,11 @@ Bu denetimler sezgisel bir ön süzgeçtir; dosya sistemi erişimi için
 kapsama sınırı `safe_join` olmaya devam eder.
 
 !!! tip
-    İşleyiciniz isteği karşılayamıyorsa (dosya yok, kimlik bilinmiyor) bir
-    istisna fırlatın. SDK bunu bir hata yanıtına dönüştürür. Protokol hatası
-    ile araç hatası arasındaki fark için **[Hataları ele alma](handling-errors.md)**
-    sayfasına bakın.
+    İşleyiciniz isteği karşılayamıyorsa (dosya yok, kimlik bilinmiyor), yukarıda
+    `read_manual`'ın yaptığı gibi `ResourceNotFoundError` fırlatın. İstemci,
+    mesajınız ve URI ile birlikte `-32602` alır. Beklenmedik bir istisna ise
+    bunun yerine genel bir `-32603` olur. Bkz.
+    **[Hataları ele alma](handling-errors.md#a-resource-that-doesnt-exist)**.
 
 ## Düşük seviyeli Server üzerinde kaynaklar {#resources-on-the-low-level-server}
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d1663c18edc824c, d4fd37009a13f03d, af9f398a5a8b679a, 470c2dd144294d69, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
+  sections: [3d1663c18edc824c, 90956965ae6a1ca1, af9f398a5a8b679a, 5ce83b1f9d88da62, 0d9b5d13fffc94e5, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
   tool: 1
 ---
 # 服務舊版用戶端 {#serving-legacy-clients}
@@ -18,15 +18,25 @@ SDK 依每個請求的 `MCP-Protocol-Version` 標頭來路由。標明 `2026-07-
 
 ## 一個處理函式，兩個世代 {#one-handler-both-eras}
 
-下面是一個必須問使用者問題的工具，以及兩個世代的用戶端呼叫它：
+下面是一個必須問使用者問題的工具：
 
-```python title="server.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
 `reserve` 需要一樣模型沒有提供的東西：要幾本。`Annotated[..., Resolve(ask_quantity)]` 就是工具宣告這件事的方式（完整說明請見 **[相依性](../handlers/dependencies.md)**）。`reserve` 裡沒有任何地方指名版本、檢查能力或做分支。
 
-兩個用戶端**同時**開著，連到同一個 `mcp` 物件。`mode="legacy"` 會執行 `initialize` 交握：正是 2026 之前的用戶端會開啟的那種連線。另一個用預設值，落在 `2026-07-28`。
+透過 HTTP 提供服務，下面是兩個世代的用戶端呼叫它：
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+兩個用戶端**同時**開著，連到同一個正在執行的伺服器。`mode="legacy"` 會執行 `initialize` 交握：正是 2026 之前的用戶端會開啟的那種連線。另一個用預設值，落在 `2026-07-28`。從第二個終端機執行 `python client.py`：
 
 ```text
 2025-11-25 {'result': "Reserved 2 of 'Dune'."}
@@ -53,6 +63,31 @@ SDK 依每個請求的 `MCP-Protocol-Version` 標頭來路由。標明 `2026-07-
 !!! warning
     `event_store=` 看起來像解法，但不是。它是**可恢復性**（把漏掉的 SSE 事件重播給重新連回**同一個**工作階段的用戶端），不是工作階段儲存區。它永遠不會讓工作階段能從另一個處理程序存取到。
 
+## 工作階段的存活時間與上限 {#session-lifetime-and-limits}
+
+舊版工作階段不會永遠活著，單一處理程序也不會持有無限多個。有兩個設定控制這件事，兩者都是 `run()`、`streamable_http_app()` 和 `Server.streamable_http_app()` 上的關鍵字引數。現代（`2026-07-28`）連線和 `stateless_http=True` 都沒有工作階段，所以這兩個設定對它們都不適用。
+
+| 設定 | 預設值 | 作用 | 用戶端看到什麼 | 關閉方式 |
+|---|---|---|---|---|
+| `session_idle_timeout` | `1800`（30 分鐘） | 關閉一個已經那麼久沒有任何進行中事項的工作階段。 | `404 Session not found`。必須重新 `initialize`。 | `None` |
+| `max_sessions` | `10_000` | 超過這個數量就拒絕再開新的工作階段。既有的工作階段不受影響，也不會驅逐任何一個。 | `503 Too many open sessions`，JSON-RPC 錯誤碼 `-32603`。 | `None` |
+
+什麼算「進行中」：
+
+* 一條開著的 `GET` 串流。SDK 的用戶端會保持一條開著，所以已連線的用戶端，它的工作階段永遠不會過期。
+* 還在回應中的請求。執行時間超過逾時的工具呼叫不會被中斷，倒數要等它結束後才開始。
+* 沒有別的了。請求與請求之間，時鐘照跑。工作階段上的任何請求都會讓它重新起算，`ping` 也算。工作階段一旦過期，沒有任何東西能讓它復活。
+
+用 `DELETE` 結束工作階段的用戶端會立刻釋放它。開頭請求被拒絕的用戶端也是。
+
+```python
+mcp.run(transport="streamable-http", session_idle_timeout=None, max_sessions=50_000)
+```
+
+兩種事件都會出現在伺服器記錄裡。過期是 `INFO` 層級的 `Session <id> idle timeout`。拒絕開啟是 `WARNING` 層級的 `Refusing to open a new session: <n> sessions are already open`。
+
+上限是以處理程序為單位。四個 worker 時，上限是 `max_sessions` 的四倍，每個 worker 各自讓自己的工作階段過期。
+
 ## 唯一的開關：`stateless_http` {#the-one-knob-stateless_http}
 
 如果黏性是你不願付的代價，能改的東西剛好只有一樣。
@@ -73,7 +108,7 @@ SDK 依每個請求的 `MCP-Protocol-Version` 標頭來路由。標明 `2026-07-
     `json_response=True` 不是那個開關，但它在**每個**舊版工作階段上都會付出一半同樣的代價：用單一 JSON 本體回應的 `POST` 沒有串流可供請求範圍的通道使用，所以請求途中的 `ctx.elicit()` 會引發同樣的 `NoBackChannelError`，綁在該請求上的通知則被丟掉。工作階段的獨立串流不受影響：不相關的通知照樣送達。
 
 !!! check
-    故意做錯一次。`reserve` 正是剛剛服務了兩個用戶端的那個工具。用 `stateless_http=True` 部署它，透過 HTTP 連上同樣的兩個用戶端，從各自呼叫它。
+    故意做錯一次。`reserve` 正是剛剛服務了兩個用戶端的那個工具。用 `stateless_http=True` 部署它，連上同樣的兩個用戶端，從各自呼叫它。
 
     現代用戶端還是得到 `Reserved 2 of 'Dune'.`，現代路徑沒變。
 

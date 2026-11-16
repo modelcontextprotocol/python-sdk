@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 11d93f1fa09eadf5, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, bd42ee3a268f6ea4, 875eb2889263424e]
   tool: 1
 ---
 # Was ist neu in v2 {#whats-new-in-v2}
@@ -42,13 +42,13 @@ Nicht alles, was ein Tool braucht, sollte vom Modell kommen. Neu in v2: Ein Tool
 
 v1 gab dir drei verschachtelte Schichten: einen Transport-Kontextmanager, der rohe Streams liefert, eine darum gewickelte `ClientSession` und ein von Hand aufgerufenes `await session.initialize()`. v2 hat ein einziges Objekt:
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client` nimmt ein Server-Objekt (im Speicher, ohne Transport: das ist der Testansatz), eine URL (Streamable HTTP) oder einen beliebigen Transport-Kontextmanager wie `stdio_client(...)`. Das Betreten von `async with` verbindet und handelt die Protokollversion aus, welche Generation der Server auch spricht; `client.server_capabilities` und `client.protocol_version` sind danach einfach da, ebenso `client.server_info`, wenn der Server sich zu erkennen gibt (das ist jetzt `Implementation | None`, weil die Identität in der 2026er-Generation optional ist). Die Sampling- und Elicitation-Callbacks, die du in v1 registriert hast, funktionieren weiter (ihre Bodies sehen dieselbe Umbenennung der Attribute auf snake_case wie alles andere auf dieser Seite), sie beantworten jetzt außerdem die Requests-in-Results im 2026er-Stil (unten), und sie laufen nebenläufig statt nacheinander. `ClientSession` liegt für alle, die die Low-Level-Oberfläche wollen, weiterhin darunter, und `client.session` reicht sie dir; auch sie hat sich bewegt (sie läuft auf der neuen Dispatcher-Engine, und einige ihrer eigenen Signaturen haben sich geändert), lies also den **[Migrationsleitfaden](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**, bevor du hinabsteigst.
+`Client` nimmt eine URL (Streamable HTTP), ein `StdioServerParameters` (ein stdio-Subprozess), einen beliebigen anderen Transport-Kontextmanager wie `sse_client(...)` oder, in Tests, das Server-Objekt selbst (im Speicher, ohne Transport). Das Betreten von `async with` verbindet und handelt die Protokollversion aus, welche Generation der Server auch spricht; `client.server_capabilities` und `client.protocol_version` sind danach einfach da, ebenso `client.server_info`, wenn der Server sich zu erkennen gibt (das ist jetzt `Implementation | None`, weil die Identität in der 2026er-Generation optional ist). Die Sampling- und Elicitation-Callbacks, die du in v1 registriert hast, funktionieren weiter (ihre Bodies sehen dieselbe Umbenennung der Attribute auf snake_case wie alles andere auf dieser Seite), sie beantworten jetzt außerdem die Requests-in-Results im 2026er-Stil (unten), und sie laufen nebenläufig statt nacheinander. `ClientSession` liegt für alle, die die Low-Level-Oberfläche wollen, weiterhin darunter, und `client.session` reicht sie dir; auch sie hat sich bewegt (sie läuft auf der neuen Dispatcher-Engine, und einige ihrer eigenen Signaturen haben sich geändert), lies also den **[Migrationsleitfaden](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**, bevor du hinabsteigst.
 
-**[Der Client](client/index.md)** stellt ihn vor, **[Client-Transporte](client/transports.md)** behandelt die drei Verbindungsformen, **[Client-Callbacks](client/callbacks.md)** die Callbacks selbst, und **[Testen](get-started/testing.md)** zeigt das In-Memory-Muster, das den Helfer `create_connected_server_and_client_session()` aus v1 ersetzt.
+**[Der Client](client/index.md)** stellt ihn vor, **[Client-Transporte](client/transports.md)** behandelt die vier Verbindungsformen, **[Client-Callbacks](client/callbacks.md)** die Callbacks selbst, und **[Testen](get-started/testing.md)** zeigt das In-Memory-Muster, das den Helfer `create_connected_server_and_client_session()` aus v1 ersetzt.
 
 ### Der Low-Level-`Server` wurde neu gebaut, nicht umbenannt {#the-low-level-server-was-rebuilt-not-renamed}
 
@@ -113,7 +113,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentB
 
 Das Beispiel ist das Muster. Allgemeiner: Jeder Handler hat dieselbe Form, mit typisierten Params hinein und einem vollständigen Result-Typ hinaus; die alte jsonschema-Prüfung der Tool-Argumente ist entfernt; eine Exception ist ein Protokollfehler, nie ein Tool-Result mit `is_error=True`; und die umgebende ContextVar `server.request_context` ist entfernt. Eigene Methoden mit Vendor-Namespace sind über `add_request_handler(method, params_type, handler)` vollwertig unterstützt; das validiert eingehende Params gegen dein Modell, bevor dein Handler läuft. Und eine `middleware`-Liste (bewusst als vorläufig markiert) umhüllt jede eingehende Nachricht und ersetzt die privaten `_handle_*`-Methoden, die früher überschrieben wurden.
 
-Unter der Haube wurde die `BaseSession`-Empfangsschleife aus v1 durch eine Dispatcher-Engine ersetzt, die Client und Server sich jetzt teilen, und sie macht mehrere Dinge auf dieser Seite gleichzeitig wahr: Ein einziges `Server`-Objekt bedient beide Protokollgenerationen, `Client(server)` dispatcht im Prozess ohne JSON-RPC-Framing, und ein Client-Request, der in den Timeout läuft, bricht jetzt tatsächlich den serverseitigen Handler ab.
+Unter der Haube wurde die `BaseSession`-Empfangsschleife aus v1 durch eine Dispatcher-Engine ersetzt, die Client und Server sich jetzt teilen, und sie macht mehrere Dinge auf dieser Seite gleichzeitig wahr: Ein einziges `Server`-Objekt bedient beide Protokollgenerationen, `Client(server)` verteilt Requests direkt im Prozess, ohne JSON-RPC-Framing, und ein Client-Request, der in den Timeout läuft, bricht jetzt tatsächlich den serverseitigen Handler ab.
 
 Die Seite dazu ist **[Der Low-Level-Server](advanced/low-level-server.md)**; der **[Migrationsleitfaden](migration.md#lowlevel-server-decorator-based-handlers-replaced-with-constructor-on_-params)** geht jeden entfernten Hook durch. Wenn du nie unter `MCPServer` hinabgestiegen bist, betrifft dich nichts davon.
 
@@ -134,7 +134,7 @@ Bei `MCPServer(...)` geht es darum, was dein Server *ist*: sein Name, seine Inst
 Die Umbenennungen machen sich selbst bemerkbar. Diese Änderungen nicht:
 
 * **Synchrone Funktionen laufen auf einem Worker-Thread.** Ein `def`-Tool (oder eine Ressource, ein Prompt oder ein Resolver) blockiert die Event-Loop nicht mehr; der Preis dafür ist, dass sein Body nicht mehr *auf* dem Event-Loop-Thread läuft, was für threadgebundenen Code eine Rolle spielt. `async def`-Handler sind nicht betroffen. **[Migrationsleitfaden](migration.md#sync-handler-functions-now-run-on-a-worker-thread)**.
-* **Ein in einem Tool ausgelöster `MCPError` (in v1 `McpError`) ist jetzt ein Protokollfehler.** Das Modell sieht ihn nie. Jede andere Exception wird weiterhin zu einem Result mit `is_error=True`, das das Modell lesen und auf das es reagieren kann. Die Aufteilung steht in **[Fehler behandeln](servers/handling-errors.md)**.
+* **Ein in einem Tool ausgelöster `MCPError` (in v1 `McpError`) ist jetzt ein Protokollfehler.** Das Modell sieht ihn nie. Jede andere Exception wird weiterhin zu einem Result mit `is_error=True`, aber nur die Meldung eines `ToolError` erreicht das Modell: Jede andere Exception lautet jetzt `Error executing tool <name>`, der Traceback steht in deinem Server-Log. Die Aufteilung steht in **[Fehler behandeln](servers/handling-errors.md)**.
 * **Results werden validiert, bevor sie hinausgehen.** Ein von Hand gebautes `Tool`, dessen `input_schema` `{}` ist, lässt jetzt `tools/list` fehlschlagen (die Spezifikation verlangt `"type": "object"`). Server, die auf `@mcp.tool()` aufbauen, sehen das nie; das SDK schreibt ihre Schemas.
 * **Dein Client validiert, was er empfängt.** `list_tools()` und `call_tool()` prüfen die Antwort des Servers gegen die ausgehandelte Protokollversion, sodass ein nicht ganz valider Server, den das nachsichtige Parsen von v1 tolerierte, jetzt `pydantic.ValidationError` auslöst. Wenn du dich mit Servern verbindest, die du nicht kontrollierst, rechne damit, dass du sie findest; die Details stehen im **[Migrationsleitfaden](migration.md#client-validates-inbound-traffic-against-the-protocol-schema)**.
 * **URI-Templates sind jetzt echtes RFC 6570.** `{+path}`, `{?query}` und Verwandte funktionieren, der Abgleich ist exakt statt Regex-locker, und Path Traversal in extrahierten Werten wird standardmäßig abgelehnt. Strengere Templates schlagen beim Dekorieren fehl, nicht beim ersten Request. **[URI-Templates](servers/uri-templates.md)**.
@@ -171,11 +171,15 @@ Jeder vom Server ausgehende Request ist bei 2026-07-28 entfernt: Push-Elicitatio
 
 Der Ersatz dreht den Aufruf um. Ein Tool, das etwas von der Person am Host braucht, *gibt* die Frage *zurück* (`InputRequiredResult`), der Client beantwortet sie mit denselben Callbacks, die er schon immer hatte, und der Aufruf wird mit angehängten Antworten erneut versucht. `Client` treibt diese Schleife für dich. Auf dem Server baust du das Result selten selbst, weil eine **[Abhängigkeit](handlers/dependencies.md)** das übernimmt: Annotiere einen Parameter mit `Resolve(ask_quantity)`, wobei `ask_quantity` eine gewöhnliche Funktion ist, die du schreibst, und das SDK fragt über den Mechanismus, den die Verbindung unterstützt – ein Live-Elicitation-Request auf einer Legacy-Session oder ein Multi-Roundtrip bei 2026. Ein Tool-Body, beide Generationen:
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-Diese Datei ist das ganze Versprechen an einem Ort: ein Server, ein Tool mit `Resolve` dahinter, und ein Legacy-Client plus ein moderner Client, die beide ihre Antwort bekommen, im Speicher. **[Multi-Roundtrip-Requests](handlers/multi-round-trip.md)** erklärt den Mechanismus (einschließlich `request_state`, den das SDK für dich versiegelt und verifiziert); **[Elicitation](handlers/elicitation.md)** behandelt das Fragen.
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+Diese beiden Dateien sind das ganze Versprechen: ein Server, ein Tool mit `Resolve` dahinter, und ein Legacy-Client plus ein moderner Client, die beide ihre Antwort von demselben laufenden Server bekommen (**[Legacy-Clients unterstützen](run/legacy-clients.md)** geht sie durch). **[Multi-Roundtrip-Requests](handlers/multi-round-trip.md)** erklärt den Mechanismus (einschließlich `request_state`, den das SDK für dich versiegelt und verifiziert); **[Elicitation](handlers/elicitation.md)** behandelt das Fragen.
 
 !!! warning "Das ist die eine Stelle, an der ein portierter v1-Server sein Verhalten ändert"
     Deine eigenen Tests treffen es zuerst: `Client(mcp)` handelt gegen deinen v2-Server standardmäßig
@@ -200,7 +204,7 @@ Bei 2026-07-28 werden der eigenständige HTTP-GET-Stream und `resources/subscrib
 ### Der Rest, in Kürze {#the-rest-quickly}
 
 * **Identität ist optionale Metadaten pro Nachricht.** Der `_meta`-Schlüssel `clientInfo` auf der Request-Seite ist optional (das Pflichtpaar ist `protocolVersion` + `clientCapabilities`), und `serverInfo` ist aus dem Result-Body von `server/discover` ausgezogen: Server stempeln es stattdessen in das `_meta` jedes Results der 2026er-Generation ([Spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). Das SDK stempelt immer; `client.server_info` ist `None`, wenn ein Server sich nicht zu erkennen gibt (zum Beispiel, weil eine Middleware den Schlüssel entfernt hat). **[Der Low-Level-Server](advanced/low-level-server.md)** zeigt den Stempel auf der Leitung.
-* **Requests lassen sich routen, ohne Bodies zu parsen.** Moderne HTTP-Requests tragen `Mcp-Method` (und für die drei Tool-artigen Aufrufe `Mcp-Name`); eine Eigenschaft im Eingabeschema eines Tools, die mit `x-mcp-header` annotiert ist, wird in einen `Mcp-Param-*`-Header gespiegelt und vom Server gegengeprüft ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Gateways und Rate-Limiter können allein anhand der Header routen; die Regeln stehen im **[Migrationsleitfaden](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)**.
+* **Requests lassen sich routen, ohne Bodies zu parsen.** Moderne HTTP-Requests tragen `Mcp-Method` (und für die drei Tool-artigen Aufrufe `Mcp-Name`); eine Eigenschaft im Eingabeschema eines Tools, die mit `x-mcp-header` annotiert ist, wird in einen `Mcp-Param-*`-Header gespiegelt und vom Server gegengeprüft ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Gateways und Rate-Limiter können allein anhand der Header routen. **[Header-Parameter](advanced/header-parameters.md)** zeigt, wie du ein Argument markierst.
 * **Results tragen Cache-Hinweise.** List- und Read-Results deklarieren `ttlMs` und `cacheScope` ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)); du setzt sie pro Methode mit `cache_hints=`, und `Client` beachtet sie mit einem eingebauten Response-Cache. Ein Server, der keine Hinweise sendet (jeder Server vor 2026), sieht identischen, ungecachten Verkehr. **[Caching-Hinweise](client/caching.md)**.
 * **Erweiterungen sind vollwertig.** Server und Clients deklarieren optionale Capability-Bündel unter Reverse-DNS-Bezeichnern ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)); die eingebaute Erweiterung `Apps` (MCP Apps) ist die Referenz. **[Erweiterungen](advanced/extensions.md)** und **[MCP Apps](advanced/apps.md)**.
 * **Fehlercodes wurden standardisiert.** Eine fehlende Ressource ist `-32602` mit dem URI in `error.data`, und die neuen von der Spezifikation reservierten Codes erscheinen als `-32020` (Header-Abweichung), `-32021` (fehlende erforderliche Capability) und `-32022` (nicht unterstützte Protokollversion). **[Fehlerbehebung](troubleshooting.md)** ist nach den exakten Meldungen geordnet.

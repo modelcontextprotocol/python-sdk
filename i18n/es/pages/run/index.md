@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 7a53ead3e704a7f0, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 9fd2357154a5b7e7, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # Ejecutar el servidor {#running-your-server}
@@ -72,9 +72,14 @@ Cada transporte tiene sus propios argumentos nombrados, todos en `run()`:
 * `streamable_http_path`: dónde vive el endpoint MCP. Por defecto `/mcp`.
 * `json_response=True`: responde a cada POST con un único cuerpo JSON en lugar de un flujo SSE. Ese cuerpo tiene sitio para la respuesta y nada más, así que una herramienta que llama de vuelta al cliente a mitad de solicitud (`ctx.elicit()`, muestreo (sampling)) lanza `NoBackChannelError` en este tramo, y las notificaciones ligadas a la llamada en curso (el progreso de `ctx.report_progress()`, los mensajes de log por llamada) se descartan; el flujo `GET` independiente sigue llevando las que no están relacionadas.
 * `stateless_http=True`: un transporte nuevo por solicitud, sin seguimiento de sesión.
-* `max_request_body_size`: el cuerpo POST más grande que se acepta, en bytes. Es 4 MiB por defecto; las solicitudes mayores
+* `max_request_body_size`: el cuerpo de solicitud más grande que se acepta, en bytes. Es 4 MiB por defecto; las solicitudes mayores
   reciben HTTP 413 antes del análisis o de la creación de la sesión. Súbelo solo cuando los mensajes MCP legítimos
   superen ese tamaño.
+* `session_idle_timeout`: segundos que una sesión heredada puede pasar sin nada en curso antes de que el
+  servidor la cierre. Por defecto 1800. `None` lo desactiva. Consulta
+  [Duración de la sesión y límites](legacy-clients.md#session-lifetime-and-limits).
+* `max_sessions`: cuántas sesiones heredadas mantiene un proceso a la vez. Por defecto 10 000. `None`
+  quita el límite. Se trata en la misma sección.
 * `event_store`, `retry_interval`, `transport_security`: reanudabilidad y protección contra DNS rebinding. Pueden esperar hasta que despliegues en algún lugar que no sea localhost; **[Desplegar y escalar](deploy.md)** cubre `transport_security`.
 
 !!! warning

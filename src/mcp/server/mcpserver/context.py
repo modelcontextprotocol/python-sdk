@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, Generic, cast
+from typing import TYPE_CHECKING, Any, Generic, Self, cast
 
 from mcp_types import ClientCapabilities, InputRequiredResult, InputResponseRequestParams, InputResponses, LoggingLevel
-from pydantic import AnyUrl, BaseModel
+from pydantic import AnyUrl, BaseModel, ModelWrapValidatorHandler, model_validator
 from typing_extensions import deprecated
 
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
@@ -83,6 +83,13 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         self._mcp_server = mcp_server
         self._input_params = input_params
         self._subscriptions = subscriptions
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _keep_instance(cls, value: Any, handler: ModelWrapValidatorHandler[Self]) -> Self:
+        """Validate an existing `Context` to itself. `Context[T]` is a separate class at runtime, so
+        pydantic would otherwise rebuild an instance of plain `Context` without its request state."""
+        return cast(Self, value) if isinstance(value, Context) else handler(value)
 
     @property
     def mcp_server(self) -> MCPServer:
@@ -169,8 +176,12 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             The resource content as either text or bytes
 
         Raises:
-            ResourceNotFoundError: If no resource or template matches the URI.
-            ResourceError: If template creation or resource reading fails.
+            ResourceNotFoundError: If no resource or template matches the URI, or the
+                handler raised it.
+            ResourceError: If the resource or template function raises `ResourceError`.
+            UnexpectedResourceError: If the resource or template function raises anything
+                else. `__cause__` is the original exception. Left uncaught in a tool, this
+                is logged as the tool's crash, while the two above are not.
             RuntimeError: If the resource returned an `InputRequiredResult`.
         """
         assert self._mcp_server is not None, "Context is not available outside of a request"

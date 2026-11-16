@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # Низькорівневий Server {#the-low-level-server}
@@ -36,18 +36,22 @@ translation:
 
 ### Спробуйте самі {#try-it}
 
-Inspector тут не допоможе: `mcp dev` і `mcp run` приймають лише `MCPServer`. `Client`, що працює в пам'яті, до цього байдужий: низькорівневий `Server` він приймає так само, як і `MCPServer`:
+`mcp dev` і `mcp run` приймають лише `MCPServer`, тож цей сервер доведеться запускати самостійно. Останній рядок `server.py` будує з нього звичайний ASGI-застосунок, а uvicorn його запускає:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Спрямуйте Inspector або будь-який клієнт на `http://localhost:8000/mcp`:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ asyncio.run(main())
 
 * `result.structured_content` дорівнює `None`. Високорівневий сервер загортає `-> str` у `{"result": ...}` за вас; тут ніхто не будує того, чого не побудували ви.
 * `list_tools` повертає схему, яку набрали **ви**, символ у символ. У високорівневій версії на кожній властивості було `"title": "Query"`, а в корені — `"title": "search_booksArguments"`: артефакти Pydantic. Тут, якщо щось є в переданих даних, — це ви його туди поклали.
+
+У тесті uvicorn і порт не потрібні: `Client(server)` приймає низькорівневий `Server` у тому ж процесі так само, як і `MCPServer`, — саме цей підхід описано на сторінці **[Тестування](../get-started/testing.md)**.
 
 ## Ніхто нічого не перевіряє за вас {#nothing-is-checked-for-you}
 
@@ -116,6 +122,17 @@ asyncio.run(main())
 
 Сервер ніколи не порівнює ці два поля. `Client` цього SDK — порівнює: поверніть `structured_content`, що не відповідає оголошеній вами `output_schema`, і `call_tool` викине `RuntimeError`, який починається з `Invalid structured content returned by tool search_books` і далі цитує помилку `jsonschema`. Пообіцяти схему легко; дотримати її — ваша справа. Уся драбина типів повернення та схем — на сторінці **[Структурований вивід](../servers/structured-output.md)**.
 
+## Діалект — JSON Schema 2020-12 {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` і `output_schema` — це JSON Schema, а [специфікація MCP](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) фіксує діалект: схема без ключа `$schema` — це **JSON Schema 2020-12**. Схеми, які генерує `MCPServer`, покладаються на це типове значення (Pydantic пише 2020-12 і пропускає ключ), і написаний вручну словник теж має його дотримуватися, тож доступний увесь набір ключових слів 2020-12:
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* Корінь `input_schema` мусить бути `"type": "object"`. Поруч із ним `oneOf`, `additionalProperties`, `anyOf`, `if`/`then`/`else`, `prefixItems`, `$defs` з локальними `$ref` та решта ключових слів 2020-12 доходять до клієнта точно так, як написано.
+* Ключ `$schema` не потрібен. Додавайте його лише щоб перейти на давнішу чернетку стандарту: `Client` цього SDK, який перевіряє `structured_content` за `output_schema` інструмента, обирає валідатор за `$schema` і використовує 2020-12, коли ключа немає.
+
 ## `_meta`: для застосунку, а не для моделі {#\_meta-for-the-application-not-the-model}
 
 `content` — це частина відповіді, яку читає модель. `structured_content` — та сама відповідь у вигляді типізованих даних. `_meta` — третій канал: дані, що їдуть разом із результатом для **клієнтського застосунку** і взагалі не є частиною відповіді.
@@ -167,7 +184,7 @@ asyncio.run(main())
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* Перший аргумент — рядок методу. Для сповіщень є близнюк — `add_notification_handler`.
+* Перший аргумент — рядок методу. Для сповіщень є близнюк — `add_notification_handler`. Його обробники спрацьовують на stdio та на HTTP-з'єднаннях покоління рукостискання; на шляху Streamable HTTP версії `2026-07-28` POST-запит клієнта зі сповіщенням підтверджується кодом `202` і не диспетчеризується, бо ця редакція не визначає сповіщень від клієнта до сервера через HTTP.
 * `params_type` — це модель, за якою вхідні `params` перевіряються **до** запуску вашого обробника, тож власні методи *отримують* перевірку, якої інструменти не мають. Успадковуйтеся від `RequestParams`, щоб поле `_meta` розбиралося так само, як у кожного іншого методу.
 * Обробник повертає `BaseModel`, `dict` або `None`. SDK серіалізує це в результат JSON-RPC.
 
@@ -192,6 +209,7 @@ use Server.middleware to observe or wrap initialization
 * `on_call_tool`, `on_get_prompt` і `on_read_resource` можуть повернути `InputRequiredResult` замість звичайного результату, щоб призупинити виклик і попросити клієнта про введення; див. **[Багатораундові запити](../handlers/multi-round-trip.md)** (multi-round-trip). Як і годиться цьому рівню, нічого не встановлюється за вас: якщо `MCPServer` за замовчуванням запечатує `requestState`, то тут заданий вами `request_state` передається мережею точно так, як написано, доки ви не ввімкнете захист через `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))`: один рядок (обидва імені імпортуються з `mcp.server.request_state`) — і отримуєте те саме запечатування й перевірку, що їх виконує `MCPServer` (**[Захист `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion` — та сама форма `(ctx, params) -> result` для інших примітивів.
 * `on_subscriptions_listen` обслуговує потік `subscriptions/listen` версії 2026-07-28. Передайте `ListenHandler`, побудований поверх `SubscriptionBus`, і публікуйте події в шину з інших обробників; повну композицію див. на сторінці **[Підписки](../handlers/subscriptions.md)**.
+* `get_tool_input_schema` прибирає `on_list_tools` зі шляху виклику; див. **[Параметри в заголовках](header-parameters.md#schemas-by-name)**.
 * `server.streamable_http_app()` повертає той самий Starlette-застосунок, що й у `MCPServer`; розгортайте його так, як **[Запуск сервера](../run/index.md)** розгортає будь-який інший ASGI-застосунок. `server.run(transport=...)` тут немає: `server.run(read_stream, write_stream, server.create_initialization_options())` веде одне з'єднання через пару потоків, і цей один рядок — оце й усе.
 
 ## Підсумки {#recap}
@@ -204,4 +222,4 @@ use Server.middleware to observe or wrap initialization
 * `add_request_handler(method, params_type, handler)` обслуговує будь-який метод. `initialize` зарезервовано.
 * Можливості, які оголошує `Server`, виводяться з того, які обробники ви зареєстрували.
 
-`Client(server)` поводився з обома серверами однаково, бо вони *і є* тим самим протоколом — у цьому й увесь сенс. Наступний шар нижче — взагалі не клас: це **[Middleware](middleware.md)**.
+Клієнт поводився з обома серверами однаково, бо вони *і є* тим самим протоколом — у цьому й увесь сенс. Наступний шар нижче — взагалі не клас: це **[Middleware](middleware.md)**.

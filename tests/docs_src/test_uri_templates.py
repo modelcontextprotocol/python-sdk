@@ -139,6 +139,19 @@ async def test_safe_join_serves_a_file_inside_the_base_directory(
         assert content.text == "# Printer setup"
 
 
+async def test_a_missing_manual_is_resource_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """tutorial002 and the closing tip: a path with no file behind it is `-32602` with the handler's message."""
+    monkeypatch.setattr(tutorial002, "DOCS_ROOT", tmp_path)
+    async with Client(tutorial002.mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("manuals://printing/missing.md")
+    assert exc.value.error == ErrorData(
+        code=INVALID_PARAMS,
+        message="No manual at 'printing/missing.md'.",
+        data={"uri": "manuals://printing/missing.md"},
+    )
+
+
 def test_safe_join_raises_when_the_resolved_path_escapes_the_base(tmp_path: Path) -> None:
     """tutorial002: a path that climbs out of `DOCS_ROOT` raises `PathEscapeError`."""
     with pytest.raises(PathEscapeError):

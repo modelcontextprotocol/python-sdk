@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
+  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, 4cc0a00347c3f534, 4a0391691a674ae4, 2df5cd279eabf9f5]
   tool: 1
 ---
 # Logging {#logging}
@@ -53,6 +53,8 @@ Você não precisa chamar `logging.basicConfig()` por conta própria. Construir 
 O padrão é `"INFO"`.
 
 `logging.basicConfig()` nunca substitui handlers que já existem. Se você configurar o logging por conta própria antes de criar o servidor, sua configuração vence.
+
+Você também não precisa de um `try`/`except` em cada handler só para registrar falhas. Quando uma função de ferramenta ou de recurso levanta uma exceção, o SDK faz o log para você. **[Tratando erros](../servers/handling-errors.md#any-other-exception)** explica o que é registrado e em qual nível.
 
 ## Experimente {#try-it}
 

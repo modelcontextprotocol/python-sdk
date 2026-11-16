@@ -430,6 +430,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
     ),
+    "lifecycle:discover:fallback-silence": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/stdio#backward-compatibility",
+        behavior=(
+            "When server/discover goes unanswered for the probe deadline, an auto-negotiating client falls "
+            "back to the legacy initialize handshake."
+        ),
+        added_in="2026-07-28",
+        note="The spec states the timeout rule for stdio only; the SDK applies it on every transport.",
+    ),
     "lifecycle:discover:network-error-raises": Requirement(
         source="sdk",
         behavior=(
@@ -1016,8 +1025,9 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:tool:handler-throws": Requirement(
         source="sdk",
         behavior=(
-            "An exception raised by a tool function (ToolError or otherwise) is caught and returned as a "
-            "tool result with isError true and the failure text in content; it does not become a JSON-RPC error."
+            "An exception raised by a tool function is caught and returned as a tool result with isError true, "
+            "never a JSON-RPC error; a ToolError carries its message in content, any other exception carries only "
+            "the generic 'Error executing tool <name>'."
         ),
     ),
     "mcpserver:tool:input-validation": Requirement(
@@ -1307,8 +1317,15 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:resource:read-throws-surfaced": Requirement(
         source="sdk",
         behavior=(
-            "A resource function that raises is surfaced to the caller as a JSON-RPC error response "
-            "(-32603 Internal error), with the original exception text withheld."
+            "A resource function that raises an unexpected exception is surfaced to the caller as a JSON-RPC "
+            "error response (-32603 Internal error), with the original exception text withheld."
+        ),
+    ),
+    "mcpserver:resource:static-not-found": Requirement(
+        source="sdk",
+        behavior=(
+            "A static (fixed-URI) resource function that raises ResourceNotFoundError is surfaced as -32602 "
+            "with the handler's message and the URI in data, the same as from a template function."
         ),
     ),
     "mcpserver:resource:static": Requirement(
@@ -1355,13 +1372,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "prompts:get:missing-required-args": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
         behavior="prompts/get omitting a required argument returns JSON-RPC error -32602 (Invalid params).",
-        divergence=Divergence(
-            note=(
-                "MCPServer's prompt renderer raises a plain ValueError before the prompt function runs, "
-                "which the low-level server converts to error code 0 with the exception text as the message."
-            ),
-        ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     "prompts:get:multi-message": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#getting-a-prompt",
@@ -1430,13 +1440,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:prompt:unknown-name": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
         behavior="prompts/get for a name that was never registered returns JSON-RPC error -32602 (Invalid params).",
-        divergence=Divergence(
-            note=(
-                "The spec's example uses -32602 Invalid params for unknown prompts; MCPServer raises "
-                "ValueError, which the low-level server converts to error code 0."
-            ),
-        ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Completion
@@ -2840,11 +2843,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/authorization#access-token-usage",
         behavior="The resource server validates that the token audience matches its resource identifier.",
         transports=("streamable-http",),
-        note="Auth is enforced at the HTTP layer.",
+        note="Auth is enforced at the HTTP layer; the conformant tests enable AuthSettings.validate_token_resource.",
         divergence=Divergence(
             note=(
-                "BearerAuthBackend never inspects AccessToken.resource; a token issued for a different "
-                "resource is accepted. Spec MUST."
+                "Off by default: without AuthSettings.validate_token_resource the bearer gate does not compare "
+                "AccessToken.resource with resource_server_url and the check is the token verifier's. Spec MUST."
             ),
         ),
     ),
@@ -3616,6 +3619,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: headers are derived from the cached tool schema at the seam.",
     ),
+    "client-transport:http:header-mismatch-recovery": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#client-behavior",
+        behavior=(
+            "When the server rejects a tools/call with HeaderMismatch, the client calls tools/list for the "
+            "tool's current inputSchema and retries the call once with the Mcp-Param-* headers that schema "
+            "asks for. A second rejection is raised to the caller."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Client.call_tool only: ClientSession.call_tool sends once and leaves the recovery to its caller.",
+    ),
     "client-transport:http:vendor-name-param-header": Requirement(
         source="sdk",
         behavior=(
@@ -3804,6 +3818,25 @@ REQUIREMENTS: dict[str, Requirement] = {
     "client-auth:invalid-grant-clears-tokens": Requirement(
         source="sdk",
         behavior="An invalid-grant error during authorization invalidates only the stored tokens.",
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:login-time:not-counted": Requirement(
+        source="issue:#3601",
+        behavior=(
+            "The time OAuthClientProvider spends awaiting redirect_handler and callback_handler does not count "
+            "against the timeout of the request that was challenged; afterwards the timeout resumes with the "
+            "budget that was left. The provider's own HTTP calls do count."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:login-time:other-requests-keep-counting": Requirement(
+        source="sdk",
+        behavior=(
+            "A login suspends the timeout of the challenged request only: a request queued behind it in the "
+            "provider still times out on its own clock."
+        ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 7ffc91f5e38bdfe0, 717d3f235a8333a7, f471a13b2fe5d737, ed6af2df4b656dff]
+  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 6eba6ce094f4417e, 125f28588c85dd7b, ddd8969b698ca11c, ed6af2df4b656dff]
   tool: 1
 ---
 # 확장 {#extensions}
@@ -49,7 +49,7 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 쓸모 있는 가장 작은 확장은 도구 하나와 설정 맵 하나입니다.
 
-```python title="server.py" hl_lines="17 19-20 22-23 26"
+```python title="server.py" hl_lines="16 18-19 21-22 25"
 --8<-- "docs_src/extensions/tutorial003.py"
 ```
 
@@ -57,17 +57,23 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 * `settings()`는 `capabilities.extensions["com.example/stamps"]`에 광고되는 값입니다. 설정 없이 확장을 광고하려면 `{}`(기본값)을 반환하세요.
 * 확장은 서버를 절대 전달받지 않습니다. 기여할 내용을 데이터로 선언하고, `MCPServer`가 이를 소비합니다. 변경할 `self.server` 같은 것은 없습니다.
 
-그리고 `main()`이 그 증거입니다. `mcp`에 바로 연결하는 인메모리 클라이언트입니다.
+HTTP로 서비스하면, 클라이언트가 곧 그 증거가 됩니다.
 
-```python title="server.py" hl_lines="29-34"
---8<-- "docs_src/extensions/tutorial003.py"
+```console
+uv run mcp run server.py --transport streamable-http
 ```
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/extensions/tutorial003_client.py"
+```
+
+이 페이지의 모든 `server.py`는 이 명령으로 서비스하고, 모든 `client.py`는 두 번째 터미널에서 `python client.py`로 그 옆에서 실행합니다.
 
 ### 자체 메서드 제공하기 {#serving-your-own-methods}
 
 확장은 **새로운 요청 메서드**를 등록할 수 있습니다. 사양의 동사 옆에서 함께 서비스되는 자체 동사입니다.
 
-```python title="server.py" hl_lines="16-22 31 40-48"
+```python title="server.py" hl_lines="14-20 24 33-41"
 --8<-- "docs_src/extensions/tutorial004.py"
 ```
 
@@ -83,14 +89,15 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 ### 클라이언트 측 {#the-client-side}
 
-같은 파일의 `main()`이 클라이언트 쪽 이야기의 전부이며, 두 부분을 모두 담고 있습니다.
+클라이언트는 독립된 프로그램이며, 클라이언트 쪽 이야기의 두 부분을 모두 담고 있습니다.
 
-```python title="server.py" hl_lines="54-58"
---8<-- "docs_src/extensions/tutorial004.py"
+```python title="client.py" hl_lines="21-23 27-30"
+--8<-- "docs_src/extensions/tutorial004_client.py"
 ```
 
 * `Client(..., extensions=[advertise(EXTENSION_ID)])`가 확장을 선언합니다. 선언은 `ClientCapabilities.extensions`가 됩니다. 2026-07-28 연결에서는 이 맵이 요청별 `_meta` 봉투에 실려 이동하므로 서버는 **모든** 요청에서 이를 봅니다. 레거시 연결에서는 `initialize` 핸드셰이크에 실립니다. 서버 코드는 어느 쪽인지 신경 쓰지 않습니다. `require_client_extension(ctx, ...)`와 `ctx.session.check_client_capability(...)`는 두 경로 모두에서 올바른 출처를 읽습니다.
 * 벤더 메서드는 한 계층 아래인 `client.session.send_request(...)`로 내려갑니다. `Client`는 사양 동사에 대해서만 일급 메서드를 갖춥니다. `send_request`는 모든 `Request` 서브클래스를 받으므로 벤더 요청은 그대로 통과합니다.
+* `SearchRequest`와 여기에 실리는 두 모델은 확장의 와이어 계약이므로 클라이언트가 직접 선언합니다. 공개 배포되는 확장이라면 양쪽이 함께 임포트하는 패키지에 담아 제공합니다.
 
 ### `tools/call` 가로채기 {#intercepting-toolscall}
 
@@ -109,10 +116,16 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 ## 클라이언트 확장 사용하기 {#using-a-client-extension}
 
-**클라이언트 확장**은 소비하는 쪽에서 본 같은 계약으로, 하나의 식별자 아래 묶인 클라이언트 측 동작의 묶음입니다. `Client(extensions=[...])`에 인스턴스를 전달하고 평소처럼 도구를 호출하세요.
+**클라이언트 확장**은 소비하는 쪽에서 본 같은 계약으로, 하나의 식별자 아래 묶인 클라이언트 측 동작의 묶음입니다. 여기서 서버는 `buy`에 상품 대신 정산할 영수증으로 응답하며, 그것도 확장을 선언한 클라이언트에게만 그렇게 합니다.
 
-```python title="client.py" hl_lines="66-68"
+```python title="server.py" hl_lines="22-25"
 --8<-- "docs_src/extensions/tutorial006.py"
+```
+
+클라이언트에서는 `Client(extensions=[...])`에 인스턴스를 전달하고 평소처럼 도구를 호출하세요.
+
+```python title="client.py" hl_lines="33-35"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 `call_tool("buy", ...)`은 다른 모든 호출처럼 평범한 `CallToolResult`를 반환합니다. 확장이 바꾼 것은 이렇습니다. 이제 서버는 `buy`에 최종 결과 대신 `receipt` **결과 형태**로 응답할 수 있고, `call_tool`이 반환하기 전에 `Receipts`가 이를 마무리합니다(여기서는 후속 호출로 영수증을 정산합니다). 호출 지점에서는 아무것도 달라지지 않습니다.
@@ -124,15 +137,15 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 ```python
 from mcp.client import advertise
 
-client = Client(mcp, extensions=[advertise("com.example/search")])
+client = Client("http://localhost:8000/mcp", extensions=[advertise("com.example/search")])
 ```
 
 ## 클라이언트 확장 작성하기 {#writing-a-client-extension}
 
 `ClientExtension`을 서브클래싱하고 필요한 것만 재정의하세요. 기여 종류는 세 가지이며 각각 기본 구현이 있습니다. `settings()`, `claims()`, `notifications()`입니다.
 
-```python title="client.py" hl_lines="17-18 43-44 46-47"
---8<-- "docs_src/extensions/tutorial006.py"
+```python title="client.py" hl_lines="16-17 25-26 28-29"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 * 식별자는 서버의 것과 같은 문법을 따르며 클래스가 정의될 때 검증됩니다.
@@ -153,10 +166,16 @@ def notifications(self) -> Sequence[NotificationBinding[Any]]:
 
 ### 확장 동사 {#extension-verbs}
 
-확장의 자체 요청 메서드에는 클라이언트 측 등록이 필요 없습니다. 벤더 요청 타입은 `mcp.types.Request`를 서브클래싱하고, [자체 메서드 제공하기](#serving-your-own-methods)에서처럼 `client.session.send_request`를 거칩니다. 한 가지가 더 있습니다. params 키가 `Mcp-Name` 헤더에 실려야 할 때(tasks 같은 확장 사양은 자신의 동사에 이를 요구합니다) 요청 타입이 `name_param`을 선언합니다.
+확장의 자체 요청 메서드에는 클라이언트 측 등록이 필요 없습니다. 벤더 요청 타입은 `mcp.types.Request`를 서브클래싱하고, [자체 메서드 제공하기](#serving-your-own-methods)에서처럼 `client.session.send_request`를 거칩니다. 확장이 이름 붙은 작업에 관한 동사 하나를 서비스하는 서버를 예로 들어 보겠습니다.
 
-```python title="client.py" hl_lines="22-25 46-47"
+```python title="server.py" hl_lines="12-13 30"
 --8<-- "docs_src/extensions/tutorial007.py"
+```
+
+클라이언트 쪽에는 한 가지가 추가됩니다. params 키가 `Mcp-Name` 헤더에 실려야 할 때(tasks 같은 확장 사양은 자신의 동사에 이를 요구합니다) 요청 타입이 `name_param`을 선언합니다.
+
+```python title="client.py" hl_lines="20-23 28-29"
+--8<-- "docs_src/extensions/tutorial007_client.py"
 ```
 
 세션은 모든 전송 경로에서 `params["jobId"]`를 `Mcp-Name`에 반영하며, 값이 없으면 필수 헤더를 조용히 빠뜨리는 대신 명시적으로 실패합니다.

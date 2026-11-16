@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [478fd619e5f90ef8, aef094a00e44e248, bab8cbf3449fa7e9, df1809b15a58335b, 5f9d8c2336ed0239, f54974398e43ddef, b24443dd78584870]
+  sections: [d98e337bf28845e0, dd642acbba36f615, f547b3e76da19c94, 149513378588da5c, 4e149ed992046709, f54974398e43ddef, b24443dd78584870]
   tool: 1
 ---
 # Versões do protocolo {#protocol-versions}
@@ -11,9 +11,17 @@ Os servidores lançados antes de 2026-07-28 abrem toda conexão com o **handshak
 
 Você quase nunca precisa se preocupar com isso, porque o `Client` negocia por você. Esta página trata do único argumento do construtor que controla isso, `mode=`, e das três situações em que você o altera.
 
+Cada trecho de código desta página é um `client.py` que conversa com o `server.py` da Bookshop de **[O cliente](client/index.md)**. Inicie esse servidor em um terminal:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+Depois execute cada trecho em um segundo terminal com `python client.py`.
+
 ## `mode="auto"` {#modeauto}
 
-```python title="client.py" hl_lines="14-15"
+```python title="client.py" hl_lines="7-8"
 --8<-- "docs_src/protocol_versions/tutorial001.py"
 ```
 
@@ -31,13 +39,14 @@ De um jeito ou de outro você sai conectado, e `client.protocol_version` diz qua
 A funcionalidade inteira é essa. Um `Client`, qualquer era de servidor, sem ramificações no seu código.
 
 !!! info
-    O `MCPServer` responde a `server/discover` em todos os transportes — em memória, stdio, streamable
-    HTTP — então, contra o seu próprio servidor, `auto` sempre chega em `2026-07-28`. O fallback só
-    dispara contra um servidor real anterior a 2026, que é exatamente quando você quer que ele dispare.
+    O `MCPServer` responde a `server/discover` em todos os transportes — Streamable HTTP, stdio e a
+    conexão no mesmo processo que os seus testes usam —, então, contra o seu próprio servidor, `auto`
+    sempre chega em `2026-07-28`. O fallback só dispara contra um servidor real anterior a 2026, que é
+    exatamente quando você quer que ele dispare.
 
 ## `mode="legacy"` {#modelegacy}
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial002.py"
 ```
 
@@ -61,7 +70,7 @@ Em 2026-07-28 ele não existe mais. O servidor *retorna* suas perguntas e você 
 
 `mode` também aceita uma string de versão moderna do protocolo. Hoje esse conjunto é exatamente `["2026-07-28"]`.
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial003.py"
 ```
 
@@ -94,7 +103,7 @@ A sondagem é barata, mas ainda é uma ida e volta que você paga a cada reconex
 
 Então guarde-a. Depois de uma conexão `auto`, `client.session.discover_result` contém o `DiscoverResult` exato que o servidor enviou: seu `supported_versions`, seu `capabilities`, seu `instructions` e a identidade que o servidor carimbou no `_meta` do resultado. Passe-o de volta como `prior_discover=` na próxima vez:
 
-```python title="client.py" hl_lines="15 17"
+```python title="client.py" hl_lines="8 10"
 --8<-- "docs_src/protocol_versions/tutorial004.py"
 ```
 

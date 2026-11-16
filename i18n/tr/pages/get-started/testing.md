@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: [5d13c2f0ba42c0d2, c52a1de2b6b32f40, 8e792bf8c7489ec6, 38552ea228b0a04f]
   tool: 1
 ---
 # Test etme {#testing}
 
-Python SDK, **bellek içi aktarıma** sahip bir `Client` sınıfıyla gelir: ona sunucu nesnenizi geçirirsiniz, o da doğrudan bağlanır.
+SDK'nın `Client` sınıfı, yani bir URL'ye bağlanan ya da bir alt süreç başlatan sınıfın ta kendisi, **bellek içinde** de bağlanır: ona sunucu nesnenizi geçirin, o da sunucuyla doğrudan konuşur.
 
-Alt süreç yok. Port yok. Hiç aktarım yok. FastAPI'nin `TestClient`'ıyla aynı fikir.
+Alt süreç yok. Port yok. Ağ üzerinden giden hiçbir şey yok. FastAPI'nin `TestClient`'ıyla aynı fikir.
 
 ## Temel kullanım {#basic-usage}
 
@@ -85,9 +85,9 @@ async def test_call_add_tool(client: Client):
 İki farklı şey ters gidebilir ve bu bayrak yalnızca birine dokunur.
 
 **Araçlarınızdan** birinin içindeki bir istisna, protokol hatası değildir. `is_error=True` taşıyan
-normal bir sonuca dönüşür ve model mesajı okur. `raise_exceptions` bunu değiştirmez: onunla da
-onsuz da `call_tool` aynı `is_error=True` sonucunu döndürür. Bu konuda ayrı bir sayfa var:
-**[Hataları ele alma](../servers/handling-errors.md)**.
+normal bir sonuca dönüşür (istisna bir `ToolError` ise model sizin mesajınızı okur). `raise_exceptions`
+bunu değiştirmez: onunla da onsuz da `call_tool` aynı `is_error=True` sonucunu döndürür. Bu konuda
+ayrı bir sayfa var: **[Hataları ele alma](../servers/handling-errors.md)**.
 
 Araç gövdesinin **dışındaki** bir hata ise farklıdır. `Client(mcp)`'nin size verdiği bağlantıda
 sunucu, istemci görmeden önce onu genel bir `"Internal server error"` mesajına dönüştürerek
@@ -97,7 +97,7 @@ budur: testiniz temizlenmiş mesaj yerine gerçek mesajı görür.
 
 Testlerde açık bırakın. Üretim kodunda bir anlamı yoktur.
 
-## Varsayılan olarak süreç içi {#in-process-by-default}
+## Varsayılan olarak nesilden bağımsız {#era-neutral-by-default}
 
 !!! note
     `Client(mcp)` süreç içinde bağlanır ve varsayılan olarak **nesilden bağımsızdır**: sunucuyu

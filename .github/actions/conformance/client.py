@@ -20,7 +20,7 @@ Scenarios:
     json-schema-ref-no-deref                - Connect, list tools (no $ref deref)
     json-schema-2020-12-preservation        - List tools, echo the focal inputSchema back verbatim
     request-metadata                        - Connect with all callbacks; client stamps _meta
-    http-standard-headers                   - Connect, call a tool (Mcp-* headers checked)
+    http-standard-headers                   - Tool, resource and prompt round-trips (Mcp-* headers checked)
     http-invalid-tool-headers               - List tools, call every surfaced tool (x-mcp-header filter)
     http-custom-headers                     - Replay the harness's toolCalls (x-mcp-header -> Mcp-Param-*)
     elicitation-sep1034-client-defaults     - Elicitation with default accept callback
@@ -311,11 +311,24 @@ async def run_request_metadata(server_url: str) -> None:
 
 @register("http-standard-headers")
 async def run_http_standard_headers(server_url: str) -> None:
-    """Connect on the modern path so Mcp-Method / Mcp-Name / MCP-Protocol-Version are sent (SEP-2243)."""
+    """Touch tools, resources and prompts on the modern path so each standard header is checked (SEP-2243).
+
+    The scenario inspects Mcp-Method on each request and Mcp-Name on tools/call,
+    resources/read and prompts/get, and reports methods the client never sent as
+    SKIPPED rather than failed, so exercise one of each. initialize and
+    notifications/initialized stay SKIPPED: the modern path discovers via
+    server/discover and never sends them.
+    """
     async with Client(server_url, mode=client_mode()) as client:
-        await client.list_tools()
-        result = await client.call_tool("add_numbers", {"a": 5, "b": 3})
-        logger.debug(f"add_numbers result: {result}")
+        tools = await client.list_tools()
+        if tools.tools:
+            await client.call_tool(tools.tools[0].name, _stub_required_args(tools.tools[0].input_schema))
+        resources = await client.list_resources()
+        if resources.resources:
+            await client.read_resource(resources.resources[0].uri)
+        prompts = await client.list_prompts()
+        if prompts.prompts:
+            await client.get_prompt(prompts.prompts[0].name)
 
 
 def _stub_required_args(input_schema: dict[str, Any]) -> dict[str, Any]:

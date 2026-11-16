@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3c4f2f06b4e978b6, 22520eecae3d1961, f4e1709db18d635a, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
+  sections: [3c4f2f06b4e978b6, 51ea5fbcb0e93563, 32d8808606ffdae0, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
   tool: 1
 ---
 # 실제 호스트에 연결하기 {#connect-to-a-real-host}
@@ -11,7 +11,7 @@ translation:
 
 ## 서버 하나, 모든 호스트 {#one-server-every-host}
 
-```python title="server.py" hl_lines="3 33-34"
+```python title="server.py" hl_lines="4 34-35"
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
@@ -50,8 +50,8 @@ uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py
 
     그리고 호스트란 MCP 클라이언트를 품은 애플리케이션에 지나지 않으므로, 직접 작성한 Python
     코드도 호스트 역할을 할 수 있습니다. **[클라이언트 트랜스포트](../client/transports.md)**에서는
-    `stdio_client(...)`로 같은 파일을 서브프로세스로 실행하고, **[테스트](testing.md)**에서는
-    프로세스 없이 인메모리로 연결합니다.
+    `Client(StdioServerParameters(...))` 호출로 같은 파일을 서브프로세스로 실행하고,
+    **[테스트](testing.md)**에서는 프로세스 없이 인메모리로 연결합니다.
 
 ## Claude Desktop {#claude-desktop}
 

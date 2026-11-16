@@ -64,9 +64,13 @@ async def test_the_handler_value_wins_over_the_map_per_field() -> None:
 async def test_the_client_program_on_the_page_makes_three_fetches_for_four_calls(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """tutorial003: a cache hit, an expiry, and `cache_mode="refresh"` make four calls cost three fetches."""
-    await tutorial003.main()
-    assert capsys.readouterr().out == "4 calls, 3 fetches\n"
+    """tutorial003's four calls, driven in-process against tutorial002's server with the demo's own
+    clock: a cache hit, an expiry, and `cache_mode="refresh"` make them cost three fetches, each one
+    a line the server printed. The first result carries the handler's TTL and the map's scope."""
+    async with Client(tutorial002.server, cache=CacheConfig(clock=lambda: tutorial003.clock.now)) as client:
+        tools = await tutorial003.run(client)
+    assert (tools.ttl_ms, tools.cache_scope) == (1_000, "public")
+    assert capsys.readouterr().out == "tools/list served\n" * 3
 
 
 def _counting_tools_server(*, ttl_ms: int | None = 60_000) -> tuple[Server[Any], list[str | None]]:

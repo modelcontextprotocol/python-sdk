@@ -11,9 +11,12 @@ from docs_src.extensions import (
     tutorial002,
     tutorial003,
     tutorial004,
+    tutorial004_client,
     tutorial005,
     tutorial006,
+    tutorial006_client,
     tutorial007,
+    tutorial007_client,
 )
 from mcp import Client, MCPError
 from mcp.client import advertise
@@ -42,13 +45,15 @@ def test_a_prefixless_identifier_fails_at_class_definition() -> None:
 
 
 async def test_extension_settings_advertised_under_capabilities() -> None:
-    """tutorial003: `settings()` becomes the entry at `capabilities.extensions[identifier]`."""
+    """tutorial003: `settings()` becomes the entry at `capabilities.extensions[identifier]`,
+    which is the first line tutorial003_client prints."""
     async with Client(tutorial003.mcp) as client:
         assert client.server_capabilities.extensions == {"com.example/stamps": {"sealed": True}}
 
 
 async def test_contributed_tool_is_listed_and_callable() -> None:
-    """tutorial003: a `ToolBinding` registers like any `add_tool` call: listed and callable."""
+    """tutorial003: a `ToolBinding` registers like any `add_tool` call: listed and callable,
+    with the content tutorial003_client prints."""
     async with Client(tutorial003.mcp) as client:
         listed = await client.list_tools()
         assert [tool.name for tool in listed.tools] == ["stamp"]
@@ -56,28 +61,23 @@ async def test_contributed_tool_is_listed_and_callable() -> None:
     assert result.content == [TextContent(type="text", text="[stamped] hello")]
 
 
-async def test_the_stamps_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial003: `main()` is the literal client program on the page; both printed
-    lines match the page's comments."""
-    await tutorial003.main()
-    out = capsys.readouterr().out
-    assert "{'com.example/stamps': {'sealed': True}}" in out
-    assert "[stamped] hello" in out
-
-
-async def test_the_search_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial004: `main()` declares the extension and gets the vendor method's result."""
-    await tutorial004.main()
-    assert "['mcp-0', 'mcp-1', 'mcp-2']" in capsys.readouterr().out
+async def test_declaring_client_gets_the_vendor_method_result() -> None:
+    """tutorial004_client's request against tutorial004's server, driven in-process: a client
+    that advertises the extension gets the vendor method's typed result, and the client's
+    own copy of the wire types agrees with the server's."""
+    async with Client(tutorial004.mcp, extensions=[advertise(tutorial004_client.EXTENSION_ID)]) as client:
+        request = tutorial004_client.SearchRequest(params=tutorial004_client.SearchParams(query="mcp", limit=3))
+        result = await client.session.send_request(request, tutorial004_client.SearchResult)
+    assert result.items == ["mcp-0", "mcp-1", "mcp-2"]
 
 
 async def test_vendor_method_rejects_a_non_declaring_client_with_32021() -> None:
     """tutorial004: `require_client_extension` answers a non-declaring client with `-32021`
     and the machine-readable `requiredCapabilities` payload."""
     async with Client(tutorial004.mcp) as client:
-        request = tutorial004.SearchRequest(params=tutorial004.SearchParams(query="mcp"))
+        request = tutorial004_client.SearchRequest(params=tutorial004_client.SearchParams(query="mcp"))
         with pytest.raises(MCPError) as exc_info:
-            await client.session.send_request(request, tutorial004.SearchResult)
+            await client.session.send_request(request, tutorial004_client.SearchResult)
     assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
     assert exc_info.value.error.data == {"requiredCapabilities": {"extensions": {"com.example/search": {}}}}
 
@@ -85,10 +85,12 @@ async def test_vendor_method_rejects_a_non_declaring_client_with_32021() -> None
 async def test_version_pinned_method_is_not_found_on_a_legacy_connection() -> None:
     """tutorial004: `protocol_versions={"2026-07-28"}` makes the method METHOD_NOT_FOUND
     at any other wire version; for a legacy client it doesn't exist."""
-    async with Client(tutorial004.mcp, mode="legacy", extensions=[advertise(tutorial004.EXTENSION_ID)]) as client:
-        request = tutorial004.SearchRequest(params=tutorial004.SearchParams(query="mcp"))
+    async with Client(
+        tutorial004.mcp, mode="legacy", extensions=[advertise(tutorial004_client.EXTENSION_ID)]
+    ) as client:
+        request = tutorial004_client.SearchRequest(params=tutorial004_client.SearchParams(query="mcp"))
         with pytest.raises(MCPError) as exc_info:
-            await client.session.send_request(request, tutorial004.SearchResult)
+            await client.session.send_request(request, tutorial004_client.SearchResult)
     assert exc_info.value.code == METHOD_NOT_FOUND
 
 
@@ -104,10 +106,12 @@ async def test_interceptor_observes_the_call_and_passes_the_result_through(
     assert messages == ["tool 'add' called"]
 
 
-async def test_the_receipts_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial006: `main()` runs as printed and the output is the redeemed result, never the claimed shape."""
-    await tutorial006.main()
-    assert "goods for r-117" in capsys.readouterr().out
+async def test_declaring_client_receives_the_redeemed_result_not_the_claimed_shape() -> None:
+    """tutorial006_client's `Receipts` against tutorial006's server, driven in-process:
+    `call_tool("buy")` returns what the resolver redeemed, never the claimed receipt shape."""
+    async with Client(tutorial006.mcp, extensions=[tutorial006_client.Receipts()]) as client:
+        result = await client.call_tool("buy", {"item": "lamp"})
+    assert result.content == [TextContent(type="text", text="goods for r-117")]
 
 
 async def test_a_client_without_the_extension_is_refused_by_the_gate() -> None:
@@ -120,13 +124,17 @@ async def test_a_client_without_the_extension_is_refused_by_the_gate() -> None:
 
 async def test_session_tier_allow_claimed_returns_the_raw_shape() -> None:
     """The page's escape hatch: `allow_claimed=True` returns the parsed claim model, not the resolved result."""
-    async with Client(tutorial006.mcp, extensions=[tutorial006.Receipts()]) as client:
+    async with Client(tutorial006.mcp, extensions=[tutorial006_client.Receipts()]) as client:
         result = await client.session.call_tool("buy", {"item": "lamp"}, allow_claimed=True)
-    assert isinstance(result, tutorial006.ReceiptResult)
+    assert isinstance(result, tutorial006_client.ReceiptResult)
     assert result.receipt_token == "r-117"
 
 
-async def test_the_jobs_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial007: a vendor request with `name_param` round-trips `send_request` with no registration."""
-    await tutorial007.main()
-    assert "job-7 is running" in capsys.readouterr().out
+async def test_name_param_request_round_trips_with_no_client_registration() -> None:
+    """tutorial007_client's `JobStatusRequest` against tutorial007's server, driven in-process:
+    a vendor request declaring `name_param` round-trips `send_request` with no client-side
+    registration."""
+    async with Client(tutorial007.mcp, extensions=[advertise(tutorial007_client.EXTENSION_ID)]) as client:
+        request = tutorial007_client.JobStatusRequest(params=tutorial007_client.JobParams(job_id="job-7"))
+        result = await client.session.send_request(request, tutorial007_client.JobStatus)
+    assert result.status == "job-7 is running"

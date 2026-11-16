@@ -182,6 +182,7 @@ def auth_settings(
     required_scopes: Sequence[str] = ("mcp",),
     valid_scopes: Sequence[str] | None = None,
     identity_assertion_enabled: bool = False,
+    validate_token_resource: bool = False,
 ) -> AuthSettings:
     """Build `AuthSettings` for the co-hosted authorization + resource server.
 
@@ -194,7 +195,8 @@ def auth_settings(
 
     `identity_assertion_enabled` advertises and accepts the SEP-990 ID-JAG grant (RFC 7523
     jwt-bearer); the provider must implement `exchange_identity_assertion` for the endpoint to
-    issue tokens.
+    issue tokens. `validate_token_resource` makes the bearer gate refuse tokens whose verifier
+    does not report them as issued for the resource URL.
     """
     required = list(required_scopes)
     valid = list(valid_scopes) if valid_scopes is not None else required
@@ -202,6 +204,7 @@ def auth_settings(
         issuer_url=AnyHttpUrl(BASE_URL),
         resource_server_url=AnyHttpUrl(f"{BASE_URL}/mcp"),
         required_scopes=required,
+        validate_token_resource=validate_token_resource,
         client_registration_options=ClientRegistrationOptions(
             enabled=True, valid_scopes=valid, default_scopes=required
         ),
@@ -415,6 +418,9 @@ async def connect_with_oauth(
     verify_tokens: bool = True,
     app_shim: Callable[[ASGIApp], ASGIApp] | None = None,
     on_request: Callable[[httpx2.Request], None] | None = None,
+    mode: str = "legacy",
+    read_timeout_seconds: float | None = None,
+    json_response: bool = False,
 ) -> AsyncIterator[tuple[Client, HeadlessOAuth]]:
     """Connect a `Client` to a server's bearer-gated streamable-HTTP app, completing OAuth in process.
 
@@ -452,6 +458,7 @@ async def connect_with_oauth(
     )
 
     app: ASGIApp = server.streamable_http_app(
+        json_response=json_response,
         auth=settings,
         token_verifier=ProviderTokenVerifier(provider) if verify_tokens else None,
         auth_server_provider=provider,
@@ -478,7 +485,11 @@ async def connect_with_oauth(
         )
         headless.bind(http_client)
         client = await stack.enter_async_context(
-            # The auth flow tests snapshot the legacy initialize-handshake HTTP shape.
-            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client), mode="legacy")
+            # The auth flow tests snapshot the legacy initialize-handshake HTTP shape, hence the default mode.
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client),
+                mode=mode,
+                read_timeout_seconds=read_timeout_seconds,
+            )
         )
         yield client, headless

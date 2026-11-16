@@ -1,13 +1,16 @@
 """`docs/client/transports.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
+from typing import Any
 
+import httpx2
 import pytest
 
-from docs_src.client_transports import tutorial001, tutorial004
+from docs_src.client_transports import tutorial001, tutorial002, tutorial003, tutorial004
 from mcp import Client
 from mcp.client.stdio import get_default_environment
 from mcp.client.streamable_http import streamable_http_client
+from mcp.server import MCPServer
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -37,8 +40,47 @@ async def test_constructing_a_client_does_not_connect_it() -> None:
 
 
 async def test_streamable_http_configuration_lives_on_the_httpx_client() -> None:
-    """tutorial003: `streamable_http_client` takes `http_client=`; there is no `headers=` or any other HTTP knob."""
-    assert list(inspect.signature(streamable_http_client).parameters) == ["url", "http_client", "terminate_on_close"]
+    """tutorial003: HTTP settings use `http_client=`, while SSE event size is a transport setting."""
+    assert list(inspect.signature(streamable_http_client).parameters) == [
+        "url",
+        "http_client",
+        "terminate_on_close",
+        "max_sse_event_size",
+    ]
+
+
+async def test_the_timeout_on_the_page_is_the_sdk_clients_and_a_client_without_one_has_five_seconds(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """tutorial002 and tutorial003: the `timeout=` tutorial003 passes is what `Client(url)` builds for itself
+    (30 seconds, 300 for reads); an `httpx2.AsyncClient` built without one has httpx2's 5-second default."""
+    async with httpx2.AsyncClient() as bare:
+        assert bare.timeout == httpx2.Timeout(5.0)
+
+    mcp = MCPServer("Bookshop")
+
+    @mcp.tool()
+    def search_books(query: str) -> str:
+        """Search the catalog."""
+        raise NotImplementedError
+
+    app = mcp.streamable_http_app()
+    built: list[httpx2.Timeout] = []
+
+    class InProcessClient(httpx2.AsyncClient):
+        """Every `httpx2.AsyncClient` the two programs build, routed to the server above."""
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(transport=httpx2.ASGITransport(app=app), **kwargs)
+            built.append(self.timeout)
+
+    monkeypatch.setattr(httpx2, "AsyncClient", InProcessClient)
+    async with mcp.session_manager.run():
+        await tutorial002.main()
+        await tutorial003.main()
+
+    assert capsys.readouterr().out == "['search_books']\n['search_books']\n"
+    assert built == [httpx2.Timeout(30.0, read=300.0), httpx2.Timeout(30.0, read=300.0)]
 
 
 async def test_stdio_parameters_go_straight_to_client() -> None:

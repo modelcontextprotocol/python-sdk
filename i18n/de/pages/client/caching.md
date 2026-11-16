@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9e7b9a1710e5aeba, b74ca4c1d2ddddee, fa8714e61bf90c5a, 04db67a886b7271c, 857690fb8f876800]
+  sections: [9e7b9a1710e5aeba, 66a2e9acc9101d54, d3d25aa802f5145a, 04db67a886b7271c, 857690fb8f876800]
   tool: 1
 ---
 # Caching-Hinweise {#caching-hints}
@@ -31,7 +31,7 @@ Ohne weitere Konfiguration sagt jedes Ergebnis `ttlMs: 0, cacheScope: "private"`
 
 Auf dem Low-Level-`Server` bauen Handler ihre Ergebnisse von Hand, und `ttl_ms` / `cache_scope` sind einfach Felder der Ergebnismodelle. Ein Handler, der sie explizit setzt, gewinnt immer gegen die Map aus dem Konstruktor, Feld für Feld:
 
-```python title="server.py" hl_lines="10 16"
+```python title="server.py" hl_lines="11 17"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -45,9 +45,23 @@ Ein Vorbehalt bei paginierten Listen: Das Protokoll verlangt **denselben `cacheS
 
 In einer 2026-07-28-Session beachtet `Client` die Hinweise für dich: Er hat einen eingebauten Response-Cache, der standardmäßig aktiv ist. Ein Ergebnis, das mit einem `ttlMs` ankommt, wird gespeichert, und ein identischer Aufruf innerhalb dieser TTL wird ohne Roundtrip aus dem Cache bedient. Ein Ergebnis, das *keinen* Hinweis trägt, wird nicht gecacht: Ergebnisse ohne Hinweis bekommen `CacheConfig.default_ttl_ms`, dessen Standardwert `0` ist (sofort abgelaufen), sodass ein Server, der nichts deklariert, Aufruf für Aufruf genau denselben Verkehr sieht wie schon immer.
 
-```python title="client.py" hl_lines="33 35 38"
+Um das zu beobachten, stelle die `server.py` aus dem vorigen Abschnitt mit uvicorn bereit (ihre letzte Zeile baut die ASGI-App). Der Handler gibt jedes Mal eine Zeile aus, wenn er tatsächlich läuft:
+
+```console
+uvicorn server:app --port 8000
+```
+
+```python title="client.py" hl_lines="20 23 28"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
+
+Führe `python client.py` in einem zweiten Terminal aus. Es gibt die Hinweise aus, die das erste Ergebnis trug: das `ttlMs` des Handlers neben dem `cacheScope` der Map:
+
+```text
+1000 public
+```
+
+Das Terminal des Servers erzählt den Rest: Zwischen den Request-Logs von uvicorn erscheint `tools/list served` dreimal.
 
 Vier Aufrufe, drei Abrufe. Der zweite Aufruf fand einen frischen Eintrag und erreichte den Server nie; die (injizierte) Uhr über die TTL hinaus vorzustellen ließ den dritten wieder abrufen; der vierte gab `cache_mode="refresh"` an. Dieses Keyword-Argument gibt es auf den fünf cachenden Verben (`list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, `read_resource`):
 
@@ -57,7 +71,7 @@ Vier Aufrufe, drei Abrufe. Der zweite Aufruf fand einen frischen Eintrag und err
 
 Eine Regel steht über `"use"`: **Aufrufe mit `meta` erreichen immer den Server.** Ein Request mit gesetztem `meta` (ein Progress-Token, Tracing-Felder) erwartet einen Request auf der Leitung, deshalb wird er unter `cache_mode="use"` wie `"refresh"` behandelt: Das Lesen aus dem Cache entfällt, und das abgerufene Ergebnis ersetzt trotzdem den gecachten Eintrag. `"bypass"` und ein explizites `"refresh"` verhalten sich wie immer.
 
-Um das Caching ganz abzuschalten, konstruiere mit `Client(server, cache=None)`: Jeder Aufruf ist wieder ein Roundtrip, und `cache_mode` wird zwar weiter akzeptiert, bewirkt aber nichts.
+Um das Caching ganz abzuschalten, übergib `cache=None` bei der Konstruktion des `Client`: Jeder Aufruf ist wieder ein Roundtrip, und `cache_mode` wird zwar weiter akzeptiert, bewirkt aber nichts.
 
 Auch der Scope wird automatisch beachtet: `"private"`-Einträge sind an die *Partition* des Caches gebunden (siehe unten), während `"public"`-Einträge sich für breiteres Teilen entscheiden können. Und **Benachrichtigungen schlagen die TTL** für genau die Einträge, die sie benennen: Eine `list_changed`-Benachrichtigung verdrängt die passende gecachte Liste, und `resources/updated` verdrängt den gecachten Lesevorgang, der unter exakt ihrem URI gespeichert ist – egal, wie frisch sie waren. Auf einer 2026-07-28-Verbindung kommen diese Benachrichtigungen auf einem `subscriptions/listen`-Stream an, den du mit `client.listen(...)` öffnest, und die Verdrängung ist abgeschlossen, bevor dein Watcher das Ereignis sieht; alles dazu steht in **[Abonnements](subscriptions.md)**.
 

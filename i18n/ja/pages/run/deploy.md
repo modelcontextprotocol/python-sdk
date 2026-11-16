@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, e758745df6fb7b0a]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, aaf489e944ecf5d1, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # デプロイとスケール {#deploy-scale}
@@ -41,6 +41,22 @@ translation:
     ```
 
     この文言はクライアント側では見つかりません。`421` は JSON-RPC エラーではなくプレーンテキストの HTTP レスポンスなので、MCP クライアントは汎用的なトランスポートエラーを送出します。気に入らなかったホスト名は**サーバー**のログに、警告として 1 行出るだけです。デプロイしたばかりのサーバーがすべての接続を拒否するなら、そうでないと証明されるまでは Host の許可リストが原因です。**[トラブルシューティング](../troubleshooting.md)** もここから始まります。
+
+## TLS 終端プロキシの背後で {#behind-a-tls-terminating-proxy}
+
+TLS がプロキシ（イングレス、ロードバランサー、Caddy、nginx）で終端し、その背後で uvicorn が平文の HTTP を配信する場合は、プロキシの `X-Forwarded-*` ヘッダーを信頼するよう uvicorn に指示します。
+
+```console
+uvicorn server:app --proxy-headers --forwarded-allow-ips='<proxy address>'
+```
+
+これがないと、アプリは自分が `http://` で配信されていると思い込み、発行するリダイレクト（よくあるのは `/mcp` → `/mcp/`）はすべて `http://…` を指します。Python クライアントは、HTTPS エンドポイントから平文の HTTP へのリダイレクトには従わず、その旨を伝えます。
+
+```text
+MCPError: Redirect to http://mcp.example.com/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+```
+
+クライアント側の応急処置は、サーバーが配信する正確な URL（`https://mcp.example.com/mcp/`、末尾のスラッシュ込み）を設定して、リダイレクトが起きないようにすることです。根本的な解決策は上のフラグです。`FORWARDED_ALLOW_IPS` はその環境変数版の書き方です。`*` はすべてのホップを信頼しますが、それが正しいのはプロキシ以外から uvicorn に到達できない場合だけです。
 
 ## ワーカーと、スティッキーにする必要があるのは誰か {#workers-and-who-has-to-be-sticky}
 
@@ -141,6 +157,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 * 本物のプロセスをまたぐ場合、**SDK には役に立つバスが同梱されていません。** `SubscriptionBus` は 2 つのメソッド（`publish` と `subscribe`）からなる `Protocol` であり、自前の pub/sub バックエンド（Redis、NATS、そのほかすでに運用しているもの）の上に実装して、`MCPServer(subscriptions=...)` として渡します。スケッチと契約は **[サブスクリプション](../handlers/subscriptions.md#scaling-past-one-process)** にあります。
 * バスが運ぶのは 4 種類の小さな型付きイベントであり、JSON-RPC ではありません。確認応答、フィルタリング、ストリームのライフサイクルは SDK に残るので、バスがプロトコルを壊すことはできません。できるのはプロセス間でイベントを運ぶことだけです。
 * ストリームは再開可能**ではなく**、イベントはリプレイ**されません**。レプリカを失えばそのストリームは切れ、クライアントは listen し直し、取得し直します。共有すべきイベントストアはなく、ほかに設定するものもありません。スケールアウトが本当に「同じことを増やすだけ」で済むのは、ここだけです。
+* 変更通知が不要なサーバーにバスは必要ありません。**[変更通知を無効にしてください](../handlers/subscriptions.md#turning-it-off)**。
 
 ## SDK が提供しないもの {#what-the-sdk-does-not-give-you}
 
@@ -154,6 +171,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 ## まとめ {#recap}
 
 * デフォルトでは、このアプリは localhost 宛てのリクエストにだけ応答します。`transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])` が公開時の関門です。これを渡すまでは、本物のホスト名の背後ではすべてのリクエストが `421` になり、理由はサーバーのログにしか出ません。
+* TLS 終端プロキシの背後では、uvicorn を `--proxy-headers --forwarded-allow-ips=...` 付きで実行してください。そうしないとリダイレクトが `http://` を指し、クライアントに拒否されます。
 * 2026-07-28 ではセッションはなく、ロードバランサーがスティッキーにすべき対象もありません。`stateless_http=True` がレガシー専用の設定項目なのは、モダンなリクエストはこのフラグが読まれる前にルーティングされ、応答されるからです。
 * デフォルトの `requestState` の鍵は、プロセスごとに生成される `os.urandom(32)` です。別のワーカーに届いたマルチラウンドトリップのリトライは、`-32602` *"Invalid or expired requestState"* で失敗します。
 * 解決策は `RequestStateSecurity(keys=[...])` **と**、すべてのインスタンスで同じサーバー名にすることです。名前はトークンのデフォルトの audience クレームです。鍵も同じ、名前も同じ。

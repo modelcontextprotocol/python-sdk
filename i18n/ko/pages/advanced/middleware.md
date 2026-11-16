@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [58e1103d9a323ccf, 46056f318ef205e4, 812b414557fb0c35, 4df162eea2518d38, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # 미들웨어 {#middleware}
@@ -53,20 +53,46 @@ tools/call took 0.1 ms
 
 * 연결 설정. `server/discover`이거나, 레거시 세션에서는 `initialize`와
   `notifications/initialized`입니다.
-* 모든 요청과 모든 알림. 알림의 경우 `ctx.request_id is None`이고,
+* 서버에 도달하는 모든 요청과 모든 알림. 알림의 경우 `ctx.request_id is None`이고,
   `call_next(ctx)`는 `None`을 반환하며, 무엇을 반환하든 버려집니다.
+  (`2026-07-28` Streamable HTTP 경로에서는 클라이언트의 알림 POST가 트랜스포트에서 `202`로
+  확인 응답되고 디스패치되지 않으므로 미들웨어에도 도달하지 않습니다. 해당 리비전은 HTTP를
+  통한 클라이언트에서 서버로의 알림을 정의하지 않습니다.)
 * 서버에 핸들러가 없는 메서드까지도 포함됩니다. `call_next`가
   `MCPError(-32601, "Method not found")`를 일으키고, 이 예외는 클라이언트로 가는 길에
   미들웨어를 **통과합니다**.
+
+## 동시 실행 상한 {#a-concurrency-cap}
+
+미들웨어가 반드시 `call_next(ctx)`를 호출해야 하는 것은 아닙니다. 대신 `MCPError`를 일으키면
+그 메시지 하나가 **거부**됩니다. 연결은 유지되고 다음 메시지는 그대로 통과합니다.
+
+검색 한 번마다 4개짜리 풀에서 연결 하나를 점유한다고 가정해 보겠습니다. 이 미들웨어는 도구 호출
+4개까지 동시에 실행하게 두고 다섯 번째는 거부합니다.
+
+```python title="server.py" hl_lines="15-16 40-55 59"
+--8<-- "docs_src/middleware/tutorial002.py"
+```
+
+* `tools/call`만 세므로, 서버는 도구 호출을 거부하는 동안에도 `server/discover`와 `tools/list`에는
+  계속 응답합니다.
+* MCP는 "서버가 바쁨"을 뜻하는 오류 코드를 정의하지 않으므로 `SERVER_BUSY`는 이 서버가 자체적으로
+  정한 코드입니다.
+* 거부하면 서버가 과부하 상태라는 사실을 클라이언트에 곧바로 알릴 수 있습니다. 호출자를 기다리게
+  하고 싶다면 대신 `call_next(ctx)`를 호출하는 동안 `anyio.CapacityLimiter`를 잡아 두세요.
+
+일으킨 `MCPError`는 모델이 아니라 클라이언트 애플리케이션으로 전달됩니다. 모델이 메시지를 읽어야
+한다면 대신 `is_error=True`인 도구 결과를 반환하세요. 이것이 아래의 **응답**에 해당합니다.
 
 ## 미들웨어 안에서 할 수 있는 일 {#what-you-can-do-inside-one}
 
 망설임이 적게 필요한 것부터 순서대로 나열합니다.
 
-* **관찰.** 시간을 재고, 횟수를 세고, 로그를 남기세요. 위의 예제가 이에 해당합니다.
+* **관찰.** 시간을 재고, 횟수를 세고, 로그를 남기세요. 위의 시간을 재는 미들웨어가 이에 해당합니다.
 * **거부.** `call_next(ctx)`를 호출하는 **대신** `MCPError`를 일으키면 그 메시지 하나에
-  JSON-RPC 오류로 응답합니다. 연결은 유지되고 다음 메시지는 그대로 통과합니다. 서버가
-  호출자별로 `subscriptions/listen`을 제한하는 방법이 바로 이것입니다. 구독 페이지의
+  JSON-RPC 오류로 응답합니다. 연결은 유지되고 다음 메시지는 그대로 통과합니다. 위의 동시 실행
+  상한이 이에 해당합니다. 서버가
+  호출자별로 `subscriptions/listen`을 제한하는 방법도 바로 이것입니다. 구독 페이지의
   **[누가 지켜볼 수 있는지 정하기](../handlers/subscriptions.md#deciding-who-may-watch)**에서
   단계별로 설명합니다.
 * **재작성.** `ctx`는 데이터클래스입니다. `await call_next(dataclasses.replace(ctx, params=...))`는
@@ -113,8 +139,8 @@ OpenTelemetry 스팬을 내보내는 미들웨어입니다. 직접 추가할 필
 * 미들웨어는 `async (ctx, call_next) -> result` 형태이며, `MCPServer(middleware=[...])`로
   전달하거나(또는 `mcp.middleware`에 추가하거나) 저수준 `Server`에서는 `server.middleware`에
   추가합니다.
-* 들어오는 **모든** 메시지(`server/discover`, `initialize`, 요청, 알림, 알 수 없는 메서드)를
-  감싸며 바깥쪽부터 실행됩니다.
+* 서버에 도달하는 들어오는 **모든** 메시지(`server/discover`, `initialize`, 요청, 알림,
+  알 수 없는 메서드)를 감싸며 바깥쪽부터 실행됩니다.
 * `ctx.request_id is None`으로 알림과 요청을 구분합니다.
 * `call_next`를 호출하는 대신 예외를 일으키면 메시지 하나를 거부합니다. 연결은 유지됩니다.
 * SDK 자체의 OpenTelemetry 트레이싱도 미들웨어이며, 이미 목록에 있습니다.

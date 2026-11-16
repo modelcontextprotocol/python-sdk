@@ -39,6 +39,7 @@ from mcp.client.auth.utils import (
     union_scopes,
     validate_metadata_issuer,
 )
+from mcp.shared._httpx_utils import RedirectAwareAuth, redirect_note
 from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, OAuthToken
 from mcp.shared.auth_utils import calculate_token_expiry, resource_url_from_server_url
 
@@ -56,7 +57,7 @@ def _origin(url: str) -> tuple[str, str, int | None]:
     return (parsed.scheme, parsed.hostname or "", port)
 
 
-class IdentityAssertionOAuthProvider(httpx2.Auth):
+class IdentityAssertionOAuthProvider(RedirectAwareAuth):
     """`httpx2.Auth` for the SEP-990 ID-JAG flow (RFC 7523 jwt-bearer grant) against a configured AS.
 
     The authorization server `issuer` is fixed at construction; metadata is fetched from its
@@ -103,7 +104,7 @@ class IdentityAssertionOAuthProvider(httpx2.Auth):
             server_url: The MCP server URL.
             storage: Token storage implementation.
             client_id: The OAuth client ID registered with the MCP authorization server.
-            client_secret: The client secret. SEP-990 section 5.1 requires a confidential client.
+            client_secret: The client secret. This provider supports confidential clients only.
             issuer: The issuer identifier of the MCP authorization server this client is provisioned
                 for. Authorization-server metadata is fetched from this issuer's well-known and the
                 ID-JAG and secret are sent only to its token endpoint.
@@ -114,7 +115,7 @@ class IdentityAssertionOAuthProvider(httpx2.Auth):
                 (default) or `client_secret_basic`.
         """
         if not client_secret:
-            raise ValueError("client_secret is required: SEP-990 mandates a confidential client")
+            raise ValueError("client_secret is required: this provider supports confidential clients only")
         if not issuer:
             raise ValueError("issuer is required: the authorization server is configuration, not discovery")
         self._resource = resource_url_from_server_url(server_url)
@@ -159,7 +160,7 @@ class IdentityAssertionOAuthProvider(httpx2.Auth):
             data["client_secret"] = self._client.client_secret
         return httpx2.Request("POST", self._token_endpoint, data=data, headers=headers)
 
-    async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+    async def _auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
         async with self._lock:
             if not self._initialized:
                 self._tokens = await self._storage.get_tokens()
@@ -201,7 +202,9 @@ class IdentityAssertionOAuthProvider(httpx2.Auth):
             token_response = yield self._build_token_request(scope_to_request, assertion)
             if token_response.status_code != 200:
                 body = (await token_response.aread()).decode(errors="replace")
-                raise OAuthTokenError(f"Token exchange failed ({token_response.status_code}): {body}")
+                raise OAuthTokenError(
+                    f"Token exchange failed ({token_response.status_code}){redirect_note(token_response)}: {body}"
+                )
             tokens = await handle_token_response_scopes(token_response)
             if tokens.scope is None:
                 tokens.scope = scope_to_request

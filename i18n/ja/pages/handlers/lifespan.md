@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f3ca8ac5f90f2dfa, 85a1ef3588ba0736, 563346d4d5804933, 9e3528340d0bab53]
+  sections: [f3ca8ac5f90f2dfa, 48e478ef7bd688b1, 563346d4d5804933, 52ac6a7734d6f581]
   tool: 1
 ---
 # ライフスパン {#lifespan}
@@ -46,7 +46,7 @@ translation:
 
 モデルが渡せる引数は `genre` だけです。ライフスパンはサーバー側の内部事情です。
 
-`@mcp.resource()` と `@mcp.prompt()` の関数も `ctx` パラメーターを受け取れます。ただし型は裸の `Context` と書きます。理由は次の節で説明します。`ctx` が持っているものはすべて **[Context](context.md)** にまとめてあります。
+`@mcp.resource()` と `@mcp.prompt()` の関数も `ctx` パラメーターを受け取れます。`ctx` が持っているものはすべて **[Context](context.md)** にまとめてあります。
 
 ### 本当に型が付いている {#it-really-is-typed}
 
@@ -55,15 +55,6 @@ translation:
 この型パラメーター 1 つがあるからこそ、型チェッカーにとって `ctx.request_context.lifespan_context` は `AppContext` **そのもの**になります。`.db` は自動補完され、`.dbb` はサーバーを動かす前からエラーになります。
 
 代わりに裸の `Context` と書くと、`lifespan_context` の型は `dict[str, Any]` になります。ライフスパンが何を yield したのか、型チェッカーには知りようがないからです。実行時にはオブジェクトはそこにありますが、型による補助は失われます。
-
-!!! warning
-    `Context[AppContext]` は**ツール専用**の書き方です。`@mcp.resource()` や `@mcp.prompt()` の関数に付けると、そのハンドラーの呼び出しはすべて失敗します。クライアントにはエラーが返り、サーバーのログには理由が記録されます。
-
-    ```text
-    Context is not available outside of a request
-    ```
-
-    リソースとプロンプトでは、裸の `ctx: Context` と書いてください。ライフスパンが yield したオブジェクトは、実行時には引き続き `ctx.request_context.lifespan_context` にあります。手放すのは型パラメーターであって、オブジェクトではありません。
 
 !!! tip
     ライフスパンは必ず存在します。渡さなければ SDK のデフォルトが空の `dict` を yield するので、`ctx.request_context.lifespan_context` は `{}` であり、`None` になることはありません。裸の `Context` で型が `dict[str, Any]` になるのも、このデフォルトがあるためです。
@@ -95,7 +86,7 @@ translation:
 * `yield` の前のコードが起動処理です。その後の `finally` が終了処理です。
 * 実行は 1 回だけで、サーバーの一生全体を囲みます。リクエストごとではありません。
 * `yield` したものは、すべてのツール、リソース、プロンプトで `ctx.request_context.lifespan_context` として使えます。
-* `ctx: Context[AppContext]` と書けば、ツールではそのアクセスに完全に型が付きます。リソースとプロンプトでは裸の `Context` を使います。
+* `ctx: Context[AppContext]` と書けば、そのアクセスに完全に型が付きます。
 * `lifespan=` を渡さなければ空の `dict` です。`None` になることはありません。
 
 呼び出しの途中で止まり、本人にしかわからないことをユーザーに尋ねるハンドラーについては、**[エリシテーション（elicitation）](elicitation.md)** を参照してください。

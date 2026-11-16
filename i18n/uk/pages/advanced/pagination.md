@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a9aba7a026c7bd85, ed32bda7ba9ae33a, 7e64cc5646abb91f, 22a0129ee78b3c63, d875373c06d8d2f9]
+  sections: [a9aba7a026c7bd85, 83e2a08b9d46a398, 9fd8a0aa384b3257, 22a0129ee78b3c63, d875373c06d8d2f9]
   tool: 1
 ---
 # Пагінація {#pagination}
@@ -31,9 +31,13 @@ translation:
 
 ### Спробуйте самі {#try-it}
 
-`Client(server)` під'єднується до низькорівневого `Server` у пам'яті так само, як і до `MCPServer`.
+`mcp run` приймає лише `MCPServer`, тож цей сервер доведеться обслуговувати самостійно. Останній рядок `server.py` будує з `Server` звичайний ASGI-застосунок, а uvicorn його запускає:
 
-Викличте `list_resources()` без аргументів. Повертається десять ресурсів, від `book-1` до `book-10`, а `next_cursor` — рядок `"10"`.
+```console
+uvicorn server:app --port 8000
+```
+
+Спрямуйте будь-який клієнт (**[Клієнт](../client/index.md)** або Inspector) на `http://localhost:8000/mcp` і викличте `list_resources()` без аргументів. Повертається десять ресурсів, від `book-1` до `book-10`, а `next_cursor` — рядок `"10"`.
 
 Передайте його назад через `list_resources(cursor="10")` — і перший ресурс уже `book-11`, а новий `next_cursor` — `"20"`.
 
@@ -43,7 +47,7 @@ translation:
 
 Кожен метод `list_*` класу `Client` (`list_tools`, `list_resources`, `list_resource_templates`, `list_prompts`) приймає іменований параметр `cursor=`. Вичерпати список зі сторінками — це один `while True`:
 
-```python title="client.py" hl_lines="26-32"
+```python title="client.py" hl_lines="9-15"
 --8<-- "docs_src/pagination/tutorial002.py"
 ```
 
@@ -51,7 +55,7 @@ translation:
 * Розширюйте список **до** того, як дивитися на `next_cursor`: на останній сторінці теж є ресурси.
 * `next_cursor is None` — це вихід. Усе інше йде прямо назад у `cursor=`, без змін.
 
-Запустіть його `main()` — і він надрукує `100 resources`: десять сторінок по десять, зшитих циклом, який так і не дізнався, що сторінок було десять.
+Поки uvicorn усе ще обслуговує `server.py`, запустіть `python client.py` у другому терміналі. Він надрукує `100 resources`: десять сторінок по десять, зшитих циклом, який так і не дізнався, що сторінок було десять.
 
 Це той самий цикл, який **[Клієнт](../client/index.md)** показує для кожного дієслова `list_*`, і проти сервера без сторінок він нічого не коштує: `next_cursor` дорівнює `None` вже в першій відповіді, і цикл виконується один раз.
 

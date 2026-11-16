@@ -63,7 +63,14 @@ def build_app() -> Starlette:
         if creds != f"{DEMO_CLIENT_ID}:{DEMO_CLIENT_SECRET}":
             return JSONResponse({"error": "invalid_client"}, status_code=401)
         access = f"access_{secrets.token_hex(16)}"
-        issued[access] = AccessToken(token=access, client_id=DEMO_CLIENT_ID, scopes=[DEMO_SCOPE], expires_at=None)
+        resource = form.get("resource")  # RFC 8707: bind the token to the resource the client asked for
+        issued[access] = AccessToken(
+            token=access,
+            client_id=DEMO_CLIENT_ID,
+            scopes=[DEMO_SCOPE],
+            expires_at=None,
+            resource=resource if isinstance(resource, str) else None,
+        )
         body = OAuthToken(access_token=access, token_type="Bearer", expires_in=3600, scope=DEMO_SCOPE)
         return JSONResponse(body.model_dump(exclude_none=True), headers={"cache-control": "no-store"})
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d1663c18edc824c, d4fd37009a13f03d, af9f398a5a8b679a, 470c2dd144294d69, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
+  sections: [3d1663c18edc824c, 90956965ae6a1ca1, af9f398a5a8b679a, 5ce83b1f9d88da62, 0d9b5d13fffc94e5, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
   tool: 1
 ---
 # 服务旧版客户端 {#serving-legacy-clients}
@@ -18,15 +18,25 @@ SDK 按 `MCP-Protocol-Version` 头路由每个请求。声明 `2026-07-28` 的�
 
 ## 一个处理函数，两个时代 {#one-handler-both-eras}
 
-下面是一个需要向用户提问的工具，以及两个时代的客户端分别调用它：
+下面是一个需要向用户提问的工具：
 
-```python title="server.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
 `reserve` 需要一样模型没有提供的东西：要几本。工具用 `Annotated[..., Resolve(ask_quantity)]` 来声明这一点（详见 **[依赖](../handlers/dependencies.md)**）。`reserve` 里没有任何地方提到版本、检查能力或做分支。
 
-两个客户端**同时**打开，连的是同一个 `mcp` 对象。`mode="legacy"` 会执行 `initialize` 握手：这正是 2026 之前的客户端打开的那种连接。另一个取默认值，落在 `2026-07-28` 上。
+通过 HTTP 提供服务，下面是两个时代的客户端分别调用它：
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+两个客户端**同时**打开，连的是同一个正在运行的服务器。`mode="legacy"` 会执行 `initialize` 握手：这正是 2026 之前的客户端打开的那种连接。另一个取默认值，落在 `2026-07-28` 上。在第二个终端运行 `python client.py`：
 
 ```text
 2025-11-25 {'result': "Reserved 2 of 'Dune'."}
@@ -53,6 +63,31 @@ SDK 按 `MCP-Protocol-Version` 头路由每个请求。声明 `2026-07-28` 的�
 !!! warning
     `event_store=` 看起来像是解决办法，其实不是。它是**可恢复性**（向重连到**同一个**会话的客户端重放错过的 SSE 事件），不是会话存储。它永远不会让一个会话能从另一个进程访问到。
 
+## 会话生存期与上限 {#session-lifetime-and-limits}
+
+旧版会话不会永远存活，一个进程也不会持有无限多个会话。有两个设置控制这一点。两者都是 `run()`、`streamable_http_app()` 和 `Server.streamable_http_app()` 上的关键字参数。现代（`2026-07-28`）连接和 `stateless_http=True` 没有会话，所以这两个设置对它们都不适用。
+
+| 设置 | 默认值 | 作用 | 客户端看到什么 | 关闭方式 |
+|---|---|---|---|---|
+| `session_idle_timeout` | `1800`（30 分钟） | 关闭在这么长时间里没有任何进行中事务的会话。 | `404 Session not found`。它必须重新 `initialize`。 | `None` |
+| `max_sessions` | `10_000` | 超过这个数量就拒绝再打开会话。现有会话不受影响，也不会驱逐任何会话。 | `503 Too many open sessions`，JSON-RPC 代码为 `-32603`。 | `None` |
+
+什么算“进行中”：
+
+* 一个打开的 `GET` 流。SDK 客户端会保持一个打开，所以已连接客户端的会话永远不会过期。
+* 一个仍在应答中的请求。运行时间超过超时的工具调用不会被中断，倒计时在它完成之后才开始。
+* 没有别的了。请求之间时钟照走。会话上的任何请求都会重置它，`ping` 也算。会话一旦过期，什么都救不回来。
+
+用 `DELETE` 结束会话的客户端会立即释放它。开场请求被拒绝的客户端也是如此。
+
+```python
+mcp.run(transport="streamable-http", session_idle_timeout=None, max_sessions=50_000)
+```
+
+两种事件都会出现在服务器日志里。过期是 `INFO` 级别的 `Session <id> idle timeout`。拒绝打开是 `WARNING` 级别的 `Refusing to open a new session: <n> sessions are already open`。
+
+这些上限按进程计。有四个 worker 时上限是 `max_sessions` 的四倍，每个 worker 各自让自己的会话过期。
+
 ## 唯一的开关：`stateless_http` {#the-one-knob-stateless_http}
 
 如果粘性是你不愿付的代价，那么恰好有一样东西可以改。
@@ -73,7 +108,7 @@ SDK 按 `MCP-Protocol-Version` 头路由每个请求。声明 `2026-07-28` 的�
     `json_response=True` 不是那个开关，但它在**每一个**旧版会话上都要付一半同样的代价：用一个 JSON 正文回答的 `POST` 没有供请求范围通道使用的流，所以请求中途的 `ctx.elicit()` 会抛出同样的 `NoBackChannelError`，与该请求绑定的通知会被丢弃。会话的独立流不受影响：无关的通知仍然能到达。
 
 !!! check
-    故意做错一次。`reserve` 就是刚才同时服务两个客户端的那个工具。用 `stateless_http=True` 部署它，通过 HTTP 连上同样的两个客户端，分别调用它。
+    故意做错一次。`reserve` 就是刚才同时服务两个客户端的那个工具。用 `stateless_http=True` 部署它，连上同样的两个客户端，分别调用它。
 
     现代客户端仍然收到 `Reserved 2 of 'Dune'.`，现代这一路没变。
 

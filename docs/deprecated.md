@@ -1,6 +1,6 @@
 # Deprecated features
 
-The 2026-07-28 spec retires five things. The SDK still implements every one of them, and every one of them now carries a **deprecation warning**.
+The 2026-07-28 spec retires five things. The SDK still implements every one of them, and every one of them now carries a **deprecation warning**. A few SDK-level deprecations stand on their own account and are listed [at the end](#deprecated-sdk-helpers).
 
 The table below names each deprecated feature, why it is going away, and the replacement to build on.
 
@@ -119,14 +119,25 @@ That is the whole API. There is no per-method switch, and you don't want one: th
     Run the filter the other way and you get a free regression test. Add
     `"error::mcp.MCPDeprecationWarning"` to the `filterwarnings` setting in your pytest
     configuration and the deprecated call **raises** instead of warning. A tool named
-    `old_log` that still calls `ctx.info()` stops passing and starts reporting:
+    `old_log` that still calls `ctx.info()` stops passing: the call comes back `is_error=True` with
+    `Error executing tool old_log`, and the captured server log names the culprit:
 
     ```text
-    Error executing tool old_log: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
+    mcp.shared.exceptions.MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
     ```
 
     One line of pytest configuration, and a deprecated call can never sneak back into your
     codebase without failing a test.
+
+## Deprecated SDK helpers
+
+These are not spec changes, only SDK usage with a better replacement. They warn with the same `MCPDeprecationWarning`, and 3.0 removes the old form.
+
+| Deprecated | What you do instead |
+|---|---|
+| `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()` and then `FuncMetadata.call_fn()`. Only code that drives `FuncMetadata` directly (a custom `Tool` subclass, say) ever called it. |
+| `AuthSettings(resource_server_url=...)` without `validate_token_resource=` | Set it: `True` has the server refuse bearer tokens your verifier does not report as issued for `resource_server_url`, `False` says your verifier checks the token's audience itself (see **[Authorization](run/authorization.md#a-token-verifier)**). Unset behaves as `False`; 3.0 makes `True` the default whenever `resource_server_url` is set. |
+| `ClientCredentialsOAuthProvider(...)` or `PrivateKeyJWTOAuthProvider(...)` without `issuer=` | Pass `issuer=` naming the authorization server that issued the credentials (see **[Writing OAuth clients](client/oauth-clients.md#machine-to-machine)**). Without it the MCP server decides which authorization server receives them; 3.0 makes the keyword required. |
 
 ## Recap
 
@@ -135,6 +146,7 @@ That is the whole API. There is no per-method switch, and you don't want one: th
 * Deprecated is advisory: no wire changes, everything keeps working against pre-2026 sessions, and you get a visible `MCPDeprecationWarning` (a `UserWarning`, so it is on by default).
 * Sampling and roots additionally need a back-channel that a 2026-07-28 session does not have. On a modern connection they warn and then they raise.
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` silences the whole category; `"error::mcp.MCPDeprecationWarning"` in pytest turns it into a test failure.
+* The [SDK-level deprecations](#deprecated-sdk-helpers) follow the same rule: they warn now, and 3.0 drops the old form.
 * New code should not be built on any of these.
 
 Every other page in these docs teaches the current API.

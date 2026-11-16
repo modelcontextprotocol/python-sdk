@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0d6c05bcbf836bf3, 59a7b14eeefc68c1, 7114d8d6daba203f, e8bbb56a98ba7bc9, 5138010f6159901c, f78da7c7c363d4c6, 220a939cab348686]
+  sections: [0d6c05bcbf836bf3, 9a78b5f6b44b18ab, 7114d8d6daba203f, e8bbb56a98ba7bc9, bfd2fd1153e71dac, 1615a994ef071fdd, 65c599fae991f245]
   tool: 1
 ---
 # 第一步 {#first-steps}
@@ -17,7 +17,7 @@ translation:
 * **客户端** 位于宿主内部，讲 MCP。宿主每连接一个服务器，就运行一个客户端。
 * **服务器** 是你用这个 SDK 构建的东西。它向客户端暴露内容，从不直接和模型对话。
 
-你写的是服务器。宿主是别人的产品。SDK 还提供了一个 `Client`，你会用它来测试自己的服务器，本页后面就会用到。
+你写的是服务器。宿主是别人的产品。SDK 还提供了一个 `Client`，宿主通过 URL 连接服务器或把服务器作为子进程启动时用的就是这个类。本页后面会用到它，测试自己的服务器也靠它。
 
 ## 三种原语 {#the-three-primitives}
 
@@ -79,22 +79,20 @@ Inspector 是通过 **stdio** 运行你的服务器的，这是 MCP 服务器可
 
 客户端连接时，服务器会声明自己的 **能力**：它会响应哪几类请求。客户端根据这份声明来决定该请求什么。这份声明你从没写过；是 `MCPServer` 替你声明的。
 
-自己看一下。SDK 的 `Client` 可以直接接受服务器对象，并在 **内存中** 与之连接（没有子进程，没有端口）：
+自己看一下。在一个终端里让 `server.py` 通过 HTTP 运行着：
 
-```python
-import asyncio
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-from mcp import Client
+然后在另一个终端里用客户端连上它：
 
-from server import mcp
+```python title="client.py" hl_lines="7-8"
+--8<-- "docs_src/first_steps/tutorial001_client.py"
+```
 
-
-async def main() -> None:
-    async with Client(mcp) as client:
-        print(client.server_capabilities.model_dump(exclude_none=True))
-
-
-asyncio.run(main())
+```console
+python client.py
 ```
 
 ```text
@@ -114,7 +112,7 @@ asyncio.run(main())
 注意这里缺了什么。`completions`（资源模板和提示词的参数自动补全）需要一个由你编写的处理函数，而这个服务器没有，所以这项能力不会出现，行为规范的客户端也就不会去问。所有可选项都遵循这条规则：注册了对应的东西，能力就出现；**[补全](../servers/completions.md)** 会证明这一点。
 
 !!! info
-    `Client(mcp)` 正是这些文档里每个示例测试时所用的那个内存客户端，你测试自己的服务器也会用它。它有整整一页：**[测试](testing.md)**。
+    这个 `client.py` 就是一个完整的 MCP 客户端，**[客户端](../client/index.md)** 是它的专页。测试时可以省掉终端和端口，把服务器对象本身交给 `Client`，即 `Client(mcp)`。它也有整整一页：**[测试](testing.md)**。
 
 ## 你没有写的东西 {#what-you-did-not-write}
 
@@ -123,7 +121,7 @@ asyncio.run(main())
 * JSON Schema。`a: int, b: int` **就是** `add` 的模式。
 * 请求处理函数。`tools/list`、`resources/read`、`prompts/get`：全都替你处理好了。
 * 能力声明。`MCPServer` 替你生成了。
-* 一行协议代码。版本协商、JSON-RPC 分帧、能力交换：全都发生在 `mcp dev` 和 `Client(mcp)` 内部，你一眼都没见到。
+* 一行协议代码。版本协商、JSON-RPC 分帧、能力交换：全都发生在 `mcp dev` 和 `client.py` 内部，你一眼都没见到。
 
 这个比例，正是这个 SDK 的意义所在。
 
@@ -134,6 +132,6 @@ asyncio.run(main())
 * 每种原语一个装饰器：`@mcp.tool()`、`@mcp.resource(uri)`、`@mcp.prompt()`。名称、描述和模式都来自函数本身。
 * 带 `{param}` 的 URI 生成的是资源 **模板**，与具体资源分开列出。
 * 服务器的 **能力** 会替你声明好，而客户端只会请求服务器声明过的内容。
-* `Client(mcp)` 在内存中连接服务器对象：从第一天起，它就是你的测试工具。
+* `Client("http://localhost:8000/mcp")` 与正在运行的服务器对话。改为把服务器对象交给它，即 `Client(mcp)`，它从第一天起就是你的测试工具。
 
 接下来是 **[连接到真实宿主](real-host.md)**：把这个服务器真正放进 Claude Desktop 或 IDE 里。然后是 **[测试](testing.md)**：一页内容，一个内存客户端，从此不用再猜它到底能不能用。再之后，每种原语各有自己的一页，从模型驱动的那一种开始：**[工具](../servers/tools.md)**。

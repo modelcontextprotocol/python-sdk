@@ -17,7 +17,7 @@ Every section heading below names the API it affects, so searching this page for
 
 | Change | First symptom | Section |
 |---|---|---|
-| `FastMCP` renamed to `MCPServer` | `ModuleNotFoundError: No module named 'mcp.server.fastmcp'` | [`FastMCP` renamed](#fastmcp-renamed-to-mcpserver) |
+| `FastMCP` renamed to `MCPServer` | `ModuleNotFoundError: No module named 'mcp.server.fastmcp'` (newer 2.x releases follow it with a pointer to this guide) | [`FastMCP` renamed](#fastmcp-renamed-to-mcpserver) |
 | Fields renamed from camelCase to snake_case | `AttributeError: 'Tool' object has no attribute 'inputSchema'` | [snake_case fields](#field-names-changed-from-camelcase-to-snake_case) |
 | `mcp.types` names removed | `ImportError: cannot import name 'Content' from 'mcp.types'` | [Removed types](#removed-type-aliases-and-classes) |
 | `McpError` renamed to `MCPError` | `ImportError: cannot import name 'McpError' from 'mcp'` | [`McpError` renamed](#mcperror-renamed-to-mcperror) |
@@ -97,7 +97,7 @@ dependencies = [
 ]
 ```
 
-Relax or bump any conflicting pins when upgrading. sse-starlette jumps two majors, so a project that imports `sse_starlette` itself must also work through that library's own breaking changes to co-install with mcp v2. `opentelemetry-api` is a new hard dependency because every outbound request now carries a `_meta` envelope used for OpenTelemetry trace propagation; see [Every outbound request now carries a `_meta` envelope](#every-outbound-request-now-carries-a-_meta-envelope-opentelemetry-is-on-by-default). `mcp-types` is exact-pinned to the SDK version; nothing in a v1 tree can conflict with it, but do not pin `mcp-types` independently of `mcp`.
+Relax or bump any conflicting pins when upgrading. sse-starlette jumps two majors, so a project that imports `sse_starlette` itself must also work through that library's own breaking changes to co-install with mcp v2. `opentelemetry-api` is a new hard dependency because OpenTelemetry trace propagation now ships enabled; see [OpenTelemetry is on by default](#opentelemetry-is-on-by-default). `mcp-types` is exact-pinned to the SDK version; nothing in a v1 tree can conflict with it, but do not pin `mcp-types` independently of `mcp`.
 
 ### `httpx` and `httpx-sse` replaced by `httpx2`
 
@@ -119,7 +119,7 @@ them:
 ```python
 import httpx
 
-http_client = httpx.AsyncClient(follow_redirects=True)
+http_client = httpx.AsyncClient(timeout=httpx.Timeout(30, read=300))
 ```
 
 **After (v2):**
@@ -127,7 +127,7 @@ http_client = httpx.AsyncClient(follow_redirects=True)
 ```python
 import httpx2
 
-http_client = httpx2.AsyncClient(follow_redirects=True)
+http_client = httpx2.AsyncClient(timeout=httpx2.Timeout(30, read=300))
 ```
 
 `httpx2` is API-compatible with `httpx`, so usually only the import name
@@ -364,6 +364,8 @@ params = CallToolRequestParams(
 ```
 
 If you relied on extra fields round-tripping through MCP types, move that data into `_meta`.
+
+`ClientCapabilities` and `ServerCapabilities` are exceptions: the spec defines them as an open set, so unknown top-level keys are kept in `model_extra` and sent on the wire.
 
 ### Resource URI type changed from `AnyUrl` to `str`
 
@@ -671,6 +673,8 @@ All submodules under `mcp.server.fastmcp.*` are now under `mcp.server.mcpserver.
 - `Message`, `UserMessage`, `AssistantMessage` — from `mcp.server.mcpserver.prompts.base`
 - `ToolError`, `ResourceError` — from `mcp.server.mcpserver.exceptions`
 - `MCPServerError` (renamed from `FastMCPError`) — from `mcp.server.mcpserver.exceptions`
+
+Importing `mcp.server.fastmcp`, or anything below it, raises `ModuleNotFoundError` (newer 2.x releases include a link to this section in its message), so existing `except ImportError` or `except ModuleNotFoundError` fallbacks around the v1 import keep working.
 
 ### What is unchanged on `MCPServer`
 
@@ -992,8 +996,8 @@ its behavior is unchanged.
 `MCPError` carries `ErrorData` and is the SDK's protocol-error type — raise it
 when the request itself should be rejected (missing client capability,
 elicitation required, invalid parameters). For tool *execution* failures the
-calling LLM should see and react to, raise any other exception or return
-`CallToolResult(is_error=True, ...)` directly; that path is unchanged.
+calling LLM should see and react to, raise `ToolError` or return
+`CallToolResult(is_error=True, ...)` directly.
 
 The client sees this change too. `Client.call_tool()` and
 `ClientSession.call_tool()` raise on a JSON-RPC error response, so a tool that
@@ -1016,7 +1020,7 @@ except MCPError as e:
 
 ### Resource not found returns `-32602` and resource lookups raise typed exceptions (SEP-2164)
 
-Reading a missing resource now returns JSON-RPC error code `-32602` (invalid params) with the requested URI in `error.data` (`{"uri": ...}`), per [SEP-2164](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2164). Previously the server returned code `0` with no `data`. Clients can now reliably distinguish not-found from other errors; a template handler that raises `ResourceNotFoundError` (from `mcp.server.mcpserver.exceptions`) produces this same response.
+Reading a missing resource now returns JSON-RPC error code `-32602` (invalid params) with the requested URI in `error.data` (`{"uri": ...}`), per [SEP-2164](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2164). Previously the server returned code `0` with no `data`. Clients can now reliably distinguish not-found from other errors; a resource handler (static or template) that raises `ResourceNotFoundError` (from `mcp.server.mcpserver.exceptions`) produces this same response.
 
 The underlying lookups now raise typed exceptions instead of `ValueError`. `ResourceManager.get_resource()` raises `ResourceNotFoundError` when no resource or template matches the URI, and `ResourceTemplate.create_resource()` raises `ResourceError` when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver.exceptions`; `ResourceNotFoundError` subclasses `ResourceError`).
 
@@ -1712,8 +1716,6 @@ async def my_tool(ctx: Context) -> str: ...
 async def my_tool(ctx: Context[MyLifespanState]) -> str: ...
 ```
 
-The parametrized `Context[MyLifespanState]` annotation currently works only on `@mcp.tool()` handlers. On `@mcp.prompt()` and templated `@mcp.resource("scheme://{param}")` handlers, annotate the parameter as bare `Context` for now: these handlers are wrapped in `pydantic.validate_call`, which re-validates the injected `Context` into a fresh `Context[MyLifespanState]` detached from the request, so the first access to `ctx.request_id`, `ctx.session`, or `ctx.request_context` raises `ValueError: Context is not available outside of a request` (the client sees an internal server error, or `Error creating resource from template ...`). Bare `Context` still exposes `ctx.request_context.lifespan_context`; only its static type is lost.
-
 ### `ServerSession` is now a thin proxy (no longer a `BaseSession`)
 
 `ServerSession` no longer subclasses `BaseSession`. It is now a small per-request proxy that exposes `send_request`, `send_notification`, the typed convenience helpers — `create_message`, `elicit` / `elicit_form` / `elicit_url`, `send_elicit_complete`, `list_roots`, `send_log_message`, `send_resource_updated`, `send_resource_list_changed` / `send_tool_list_changed` / `send_prompt_list_changed`, `send_ping`, `send_progress_notification`, and the new `report_progress` — plus `check_client_capability` and the read-only `client_params`, `client_capabilities`, `protocol_version`, and `can_send_request` properties. The receive loop, `initialize` handling, and per-request task isolation that previously lived in `ServerSession` have moved to `JSONRPCDispatcher` and `ServerRunner`.
@@ -1789,7 +1791,7 @@ Positional callers (`session.elicit_form(message, schema)`) are unaffected, and 
 
 ### `Client` defaults to `mode='auto'`
 
-In v1, connecting to a server always performed the `initialize` handshake. In v2, `Client` defaults to `mode='auto'`: on enter it probes `server/discover` and, if the server doesn't support it, falls back to the `initialize` handshake. Pass `mode='legacy'` to force the initialize handshake and reproduce v1's pre-2026 connection sequence (the per-request wire shape still differs from v1; see [Every outbound request now carries a `_meta` envelope](#every-outbound-request-now-carries-a-_meta-envelope-opentelemetry-is-on-by-default)), or pass a modern protocol-version string (e.g. `mode='2026-07-28'`) to pin a version without probing.
+In v1, connecting to a server always performed the `initialize` handshake. In v2, `Client` defaults to `mode='auto'`: on enter it probes `server/discover` and, if the server doesn't support it, falls back to the `initialize` handshake. Pass `mode='legacy'` to force the initialize handshake and reproduce v1's pre-2026 connection sequence, or pass a modern protocol-version string (e.g. `mode='2026-07-28'`) to pin a version without probing.
 
 The probe is transport-independent: v2 servers answer it over stdio (and any other stream-pair transport) as well as streamable HTTP, so `mode='auto'` lands on `2026-07-28` against a v2 server on every transport. If your stdio workflow relies on server-initiated requests (sampling, push elicitation, roots), pass `mode='legacy'` — a 2026-07-28 connection refuses them on every transport with `NoBackChannelError` (see [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror)).
 
@@ -2090,7 +2092,6 @@ http_client = httpx2.AsyncClient(
     headers={"Authorization": "Bearer token"},
     timeout=httpx2.Timeout(30, read=300),
     auth=my_auth,
-    follow_redirects=True,
 )
 
 async with http_client:
@@ -2101,11 +2102,11 @@ async with http_client:
         ...
 ```
 
-v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx2.AsyncClient` to preserve that behavior.
+v1's internal client set `follow_redirects=True`. You don't need it on your own client: the transport follows a method-preserving redirect within the endpoint's origin (a trailing-slash 307/308, say) itself, and does not follow one anywhere else, whatever the client is configured to do.
 
-`streamable_http_client` itself keeps a small signature — `streamable_http_client(url, *, http_client=None, terminate_on_close=True)` — and now yields a 2-tuple (next section). The removed function's other parameters map onto the client you build:
+`streamable_http_client` itself keeps a small signature — `streamable_http_client(url, *, http_client=None, terminate_on_close=True, max_sse_event_size=1024 * 1024)` — and now yields a 2-tuple (next section). The removed function's other parameters map onto the client you build:
 
-- `headers`, `timeout`, `sse_read_timeout`, `auth`: set them on the `httpx2.AsyncClient` as above. `streamablehttp_client` defaulted to `httpx.Timeout(30, read=300)`; a bare `httpx2.AsyncClient()` falls back to httpx2's flat 5-second timeout, too short for the long-lived GET stream, so set `timeout=httpx2.Timeout(30, read=300)` (as shown) to keep v1's values. Omitting `http_client` still gives you a default client with those timeouts and `follow_redirects=True`.
+- `headers`, `timeout`, `sse_read_timeout`, `auth`: set them on the `httpx2.AsyncClient` as above. `streamablehttp_client` defaulted to `httpx.Timeout(30, read=300)`; a bare `httpx2.AsyncClient()` falls back to httpx2's flat 5-second timeout, too short for the long-lived GET stream, so set `timeout=httpx2.Timeout(30, read=300)` (as shown) to keep v1's values. Omitting `http_client` still gives you a default client with those timeouts.
 - `httpx_client_factory`: gone with no replacement — call your factory yourself and pass the result as `http_client`.
 - `terminate_on_close`: unchanged (default `True`).
 
@@ -2149,10 +2150,7 @@ async def capture_session_id(response: httpx2.Response) -> None:
     if session_id:
         captured_session_ids.append(session_id)
 
-http_client = httpx2.AsyncClient(
-    event_hooks={"response": [capture_session_id]},
-    follow_redirects=True,
-)
+http_client = httpx2.AsyncClient(event_hooks={"response": [capture_session_id]})
 
 async with http_client:
     async with streamable_http_client(url, http_client=http_client) as (read_stream, write_stream):
@@ -2497,7 +2495,9 @@ metadata's `issuer` exactly matches the authorization server URL advertised in t
 resource metadata, as required by [RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414)
 section 3.3 ([SEP-2468](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2468)).
 The comparison is a simple string comparison ([RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986)
-section 6.2.1), so even a trailing-slash disagreement counts as a mismatch. v1 accepted the
+section 6.2.1), so even a trailing-slash disagreement counts as a mismatch. (For an older server
+that publishes no protected resource metadata the expected value is the MCP server's own origin,
+and there a root issuer with a trailing slash is accepted too.) v1 accepted the
 metadata without checking, so a server pairing whose two values disagree authenticated fine
 under v1 and now fails the entire flow. For example, when the MCP server's protected resource
 metadata advertises
@@ -2515,7 +2515,7 @@ OAuthFlowError: Authorization server metadata issuer mismatch: https://as.exampl
 
 There is no client-side override. Fix the deployment instead: make the authorization server's
 `issuer` string-equal the URL in the protected resource metadata's `authorization_servers`
-list. See [OAuth metadata URLs no longer gain a trailing slash](#oauth-metadata-urls-no-longer-gain-a-trailing-slash)
+list (or the MCP server's origin, without protected resource metadata). See [OAuth metadata URLs no longer gain a trailing slash](#oauth-metadata-urls-no-longer-gain-a-trailing-slash)
 for how v2 preserves the exact string form of these URLs.
 
 ### OAuth client requests `offline_access` and adds `prompt=consent` when the authorization server supports it ([SEP-2207](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2207))
@@ -2655,31 +2655,15 @@ Validation runs when the result is serialized onto the wire, not when the model 
 
 ### Client validates inbound traffic against the protocol schema
 
-`ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp.types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras (and `experimental` for capability extras).
+`ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp.types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras. Capabilities are an open set, so unknown capability keys are kept.
 
 ### Unknown request methods now return `-32601` (Method not found)
 
 In v1, a request for a method the SDK didn't recognize failed request-union validation and was answered with `-32602` (`"Invalid request parameters"`, empty `data`). Any method the receiver doesn't serve — unrecognized on either side, or a spec method the server has no registered handler for — is now answered with the JSON-RPC-specified `-32601` (`"Method not found"`), with the method name in `data`, in every initialization state. Clients still decline sampling, elicitation, and roots requests with `-32600` when no callback is registered, as in v1. Update anything that matched on the old code for this case.
 
-### Every outbound request now carries a `_meta` envelope; OpenTelemetry is on by default
+### OpenTelemetry is on by default
 
-v2 sends `"_meta": {}` in the params of every request it emits, at every negotiated protocol version. Requests that had no params in v1, such as `ping` and `tools/list`, now carry `"params": {"_meta": {}}`; server-initiated requests get the same envelope. This is spec-valid and accepted by all peers, but wire traffic differs from v1 on every call, and no configuration restores the v1 wire shape. Update any test or tooling that asserts on raw outbound request bytes.
-
-**Before (v1):** same client code, 2025-11-25 peer:
-
-```text
-{"method":"ping","jsonrpc":"2.0","id":1}
-{"method":"tools/list","jsonrpc":"2.0","id":2}
-```
-
-**After (v2):**
-
-```text
-{"jsonrpc":"2.0","id":2,"method":"ping","params":{"_meta":{}}}
-{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"_meta":{}}}
-```
-
-The envelope exists for OpenTelemetry trace propagation ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)), which now ships enabled: every server installs a tracing middleware and the client opens a span per outbound request. With no OpenTelemetry SDK configured these are no-ops and only the empty envelope is visible. If your application already configures a global tracer provider, it starts recording MCP client and server spans with no code change, and a W3C `traceparent` field is injected into outbound `_meta`, propagating your trace ids to the servers you call. To suppress the spans, filter the `mcp-python-sdk` tracer in your pipeline; [OpenTelemetry](run/opentelemetry.md) has the recipe for removing the server middleware. There is no public switch for the client-side span and `traceparent` injection.
+OpenTelemetry trace propagation ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)) now ships enabled: every server installs a tracing middleware and the client opens a span per outbound request. With no OpenTelemetry SDK configured these are no-ops and nothing is added to outbound requests. If your application already configures a global tracer provider, it starts recording MCP client and server spans with no code change, and a W3C `traceparent` field is injected into outbound `_meta`, propagating your trace ids to the servers you call. To suppress the spans, filter the `mcp-python-sdk` tracer in your pipeline; [OpenTelemetry](run/opentelemetry.md) has the recipe for removing the server middleware. There is no public switch for the client-side span and `traceparent` injection.
 
 The SDK's new `opentelemetry-api` runtime dependency is covered under [Packaging, dependencies, and CLI](#packaging-dependencies-and-cli).
 
@@ -2737,7 +2721,7 @@ One behavioral caveat when moving progress-reporting handlers onto `Client(serve
 
 Every deprecation below is a runtime warning as well as a type-checker one: deprecated methods and helpers emit `mcp.MCPDeprecationWarning` on each call, and the deprecated `Server(...)` constructor parameters (`on_set_logging_level`, `on_roots_list_changed`, `on_progress`) emit it at construction time. The category subclasses `UserWarning`, not `DeprecationWarning`, so it is visible by default; [Deprecated features](deprecated.md) has the full list and each replacement.
 
-Under pytest's `filterwarnings = ["error"]`, that warning becomes an exception at the first deprecated call. Inside an `@mcp.tool()` handler the exception is caught like any other and returned as `CallToolResult(is_error=True)` (`Error executing tool ...: The logging capability is deprecated as of 2026-07-28 (SEP-2577).`), which reads as a failing tool rather than a warning. Keep the warnings visible but non-fatal with:
+Under pytest's `filterwarnings = ["error"]`, that warning becomes an exception at the first deprecated call. Inside an `@mcp.tool()` handler the exception is caught like any other and returned as `CallToolResult(is_error=True)` (`Error executing tool ...`, with the `MCPDeprecationWarning` traceback in the server log), which reads as a failing tool rather than a warning. Keep the warnings visible but non-fatal with:
 
 ```toml
 [tool.pytest.ini_options]
@@ -2866,14 +2850,6 @@ async with Client(server, logging_callback=on_log, log_level="info") as client:
 On a 2026-07-28 connection, `notifications/tools/list_changed`, `notifications/prompts/list_changed`, `notifications/resources/list_changed`, and `notifications/resources/updated` reach a client only through a `subscriptions/listen` stream it opened — the spec forbids sending a notification type a subscription did not request. The v1-style session helpers (`ctx.session.send_tool_list_changed()`, `send_prompt_list_changed()`, `send_resource_list_changed()`, `send_resource_updated(uri)`) push a bare copy onto the connection's standalone channel instead, so on such a connection they are dropped with a debug log: silently on streamable HTTP (there is no standalone channel), and on stdio, where earlier v2 releases wrote the bare notification to the shared pipe, it is now dropped too. On pre-2026 connections the helpers behave as in v1.
 
 Migrate to publishing on the subscription bus, which stamps and filters per stream: `await ctx.notify_tools_changed()`, `notify_prompts_changed()`, `notify_resources_changed()`, and `notify_resource_updated(uri)` on `MCPServer`'s `Context`, or `await bus.publish(...)` on a low-level `Server`'s own `SubscriptionBus` — see [Subscriptions](handlers/subscriptions.md). A stream only ever receives the kinds and URIs the server acknowledged for it; to gate per caller which subscriptions may be opened, refuse `subscriptions/listen` in a middleware (`MCPServer(middleware=[...])`), covered on the same page.
-
-### Servers validate `Mcp-Param-*` headers against the request body ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243))
-
-On the 2026-07-28 Streamable HTTP path, a `tools/call` whose tool declares `x-mcp-header` annotations is validated before dispatch — each annotated argument and its mirroring `Mcp-Param-*` header must be present together and agree (after base64-sentinel decoding; integers compare numerically), or absent together. A violation is rejected with HTTP 400 and JSON-RPC error `-32020` (`HeaderMismatch`), as the spec requires. A client that sends an annotated argument *without* its header — for example one that never listed the tool — is therefore rejected instead of silently served; the spec's recovery is to re-list and retry. On the client side, `ClientSession.call_tool` emits these headers automatically for annotated arguments of any tool it has listed; list the tool first, and note that pre-2026 connections and non-HTTP transports never emit them.
-
-There is nothing to configure. The server resolves the called tool's schema through its own registered `tools/list` handler (for `MCPServer`, the built-in one), so the validated catalog is exactly what that caller would be shown. Two consequences worth knowing: the listing runs internally on validated calls, so middleware and an expensive or paginated `tools/list` handler see extra invocations; and validation is skipped — never failing the call — when no `tools/list` handler is registered, the tool isn't in the listing, the handler raises (logged as an error), or the call has no arguments and no `Mcp-Param-*` headers. Headers with no matching annotation are ignored; a recognized header supplied more than once is rejected, as is a duplicated `MCP-Protocol-Version`, `Mcp-Method`, or `Mcp-Name` line. The codec and validator are public in `mcp.shared.inbound` (`decode_header_value`, `validate_mcp_param_headers`) for low-level servers hosting their own HTTP entry.
-
-Base64-sentinel decoding is strict everywhere it applies, including the `Mcp-Name` header: a `=?base64?...?=` value whose payload is not canonical base64 (wrong padding, stray characters, non-zero trailing bits) or not valid UTF-8 is rejected as malformed rather than leniently decoded.
 
 ## Need Help?
 

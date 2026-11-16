@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 043f526230dd243d, 6ee3e9bcfd24047a]
+  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 864137b5e9c61e91, 043f526230dd243d, db1ef91db7d6b3f3]
   tool: 1
 ---
 # Médias {#media}
@@ -86,6 +86,24 @@ Une extension qu’il ne reconnaît pas se rabat sur `application/octet-stream`.
     `Audio` à partir d’octets MP3 de cette façon et le client reçoit `mime_type="audio/wav"`, puis
     échoue consciencieusement à le décoder. Quand vous passez `data=`, passez `format=`.
 
+## Embarquer une ressource {#embedding-a-resource}
+
+Un outil peut aussi renvoyer un document : du texte ou des octets, accompagnés de l’URI où il réside et d’un type MIME. C’est une **`EmbeddedResource`**, une autre sorte de bloc de contenu. Contrairement à un simple `str`, elle indique au client ce qu’est le contenu, si bien que le client peut l’afficher comme pièce jointe ou reconnaître une ressource qu’il connaît déjà.
+
+```python title="server.py" hl_lines="7 14 16-18"
+--8<-- "docs_src/media/tutorial005.py"
+```
+
+* `brand://guidelines` est une ressource ordinaire (la page **[Ressources](resources.md)** les traite). L’outil remet le même document au modèle sur demande, et appeler `guidelines()` directement conserve une source de vérité unique.
+* `EmbeddedResource` et `TextResourceContents` viennent de `mcp.types`. Il n’y a pas d’utilitaire comme pour les images : le bloc que vous construisez va tel quel dans le résultat, et il n’y a pas de `structured_content`.
+* Utilisez l’URI sous lequel la ressource est enregistrée, pour qu’un client puisse savoir que la pièce jointe et `brand://guidelines` sont le même document. N’importe quel URI est valide, enregistré ou non.
+
+```python
+result.content  # [EmbeddedResource(type="resource", resource=TextResourceContents(uri="brand://guidelines", mime_type="text/markdown", text="# Brand guidelines\n\n..."))]
+```
+
+Pour du contenu binaire, utilisez `BlobResourceContents(uri=..., mime_type=..., blob=...)` avec les octets encodés en base64 dans `blob`, à la place de `TextResourceContents`. Pour n’envoyer qu’un pointeur que le client pourra lire plus tard via `resources/read`, renvoyez plutôt un `ResourceLink(name=..., uri=...)` ; c’est aussi un bloc de contenu.
+
 ## Icônes {#icons}
 
 Une `Icon` est une métadonnée, pas du contenu. Elle ne transporte pas l’image ; elle en désigne une par un URI, et un client peut la récupérer et l’afficher à côté du nom de votre serveur, d’un outil, d’une ressource ou d’un prompt.
@@ -115,6 +133,7 @@ Les icônes d’un outil sont sur l’objet `Tool` issu de `tools/list`, celles 
 
 * Renvoyez une `Image` ou un `Audio` depuis un outil et le client reçoit un bloc `ImageContent` / `AudioContent` : vos octets encodés en base64, avec un type MIME.
 * Construisez-en un à partir d’un `path=` et laissez l’extension décider du type MIME, ou à partir de `data=` en mémoire plus un `format=` explicite.
+* Renvoyez une `EmbeddedResource` pour placer un document (du texte ou un blob base64, avec son URI et son type MIME) dans le résultat, ou un `ResourceLink` pour n’envoyer que le pointeur.
 * Les résultats média ne portent ni `structured_content` ni schéma de sortie.
 * Une `Icon` est un pointeur : un URI `src` plus, en option, `mime_type`, `sizes` et `theme`.
 * `icons=[...]` fonctionne sur le serveur, sur les outils, sur les ressources et sur les prompts, et les clients les retrouvent sur les objets correspondants.

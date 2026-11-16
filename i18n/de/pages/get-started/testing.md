@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: [5d13c2f0ba42c0d2, c52a1de2b6b32f40, 8e792bf8c7489ec6, 38552ea228b0a04f]
   tool: 1
 ---
 # Testen {#testing}
 
-Das Python SDK bringt eine Klasse `Client` mit einem **In-Memory-Transport** mit: Übergib ihr dein Server-Objekt, und sie verbindet sich direkt damit.
+Die Klasse `Client` des SDK – dieselbe, die sich mit einer URL verbindet oder einen Subprozess startet – verbindet sich auch **In-Memory**: Übergib ihr dein Server-Objekt, und sie spricht direkt mit ihm.
 
-Kein Subprozess. Kein Port. Überhaupt kein Transport. Die Idee ist dieselbe wie bei FastAPIs `TestClient`.
+Kein Subprozess. Kein Port. Nichts auf der Leitung. Die Idee ist dieselbe wie bei FastAPIs `TestClient`.
 
 ## Grundlegende Verwendung {#basic-usage}
 
@@ -85,8 +85,8 @@ Das war's. Jetzt kannst du deine Tests um weitere Szenarien erweitern.
 Zwei verschiedene Dinge können schiefgehen, und dieses Flag betrifft nur eines davon.
 
 Eine Exception in einem **deiner Tools** ist kein Protokollfehler. Sie wird zu einem normalen Ergebnis mit
-`is_error=True`, und das Modell liest die Meldung. `raise_exceptions` ändert daran nichts: Mit oder
-ohne das Flag gibt `call_tool` dasselbe Ergebnis mit `is_error=True` zurück. Dazu gibt es eine ganze Seite:
+`is_error=True` (und war es ein `ToolError`, liest das Modell deine Meldung). `raise_exceptions` ändert daran
+nichts: Mit oder ohne das Flag gibt `call_tool` dasselbe Ergebnis mit `is_error=True` zurück. Dazu gibt es eine ganze Seite:
 **[Fehler behandeln](../servers/handling-errors.md)**.
 
 Ein Fehler **außerhalb** eines Tool-Bodys ist etwas anderes. Auf der Verbindung, die dir `Client(mcp)` gibt,
@@ -97,12 +97,12 @@ statt der bereinigten.
 
 Lass es in Tests eingeschaltet. In Produktionscode hat es keine Bedeutung.
 
-## Standardmäßig im selben Prozess {#in-process-by-default}
+## Standardmäßig generationsneutral {#era-neutral-by-default}
 
 !!! note
     `Client(mcp)` verbindet sich im selben Prozess und ist standardmäßig **generationsneutral** (era-neutral): Er prüft den Server und
     wählt den passenden Protokollpfad. Lege `mode="legacy"` fest, wenn dein Test Legacy-spezifische
-    Semantik prüft (Sampling- oder Elicitation-Push – Elicitation ist die Rückfrage bei der Person am Host –, `message_handler`), und lass `raise_exceptions=True`
+    Semantik prüft (Push von Sampling oder Elicitation – Rückfrage bei der Person am Host –, `message_handler`), und lass `raise_exceptions=True`
     dort weg: Eine Legacy-Verbindung bereinigt von vornherein nie, und das Flag löst den
     Fehler erneut in der Server-Task aus statt in deinem Test.
 

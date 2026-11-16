@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d1663c18edc824c, d4fd37009a13f03d, af9f398a5a8b679a, 470c2dd144294d69, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
+  sections: [3d1663c18edc824c, 90956965ae6a1ca1, af9f398a5a8b679a, 5ce83b1f9d88da62, 0d9b5d13fffc94e5, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
   tool: 1
 ---
 # Atender clientes heredados {#serving-legacy-clients}
@@ -21,15 +21,25 @@ Así que un cliente heredado (legacy) no es algo *para* lo que construyes. Es al
 
 ## Un handler, ambas generaciones {#one-handler-both-eras}
 
-Aquí tienes una herramienta que necesita preguntarle algo al usuario, y clientes de ambas generaciones que la llaman:
+Aquí tienes una herramienta que necesita preguntarle algo al usuario:
 
-```python title="server.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
 `reserve` necesita una cosa que el modelo no proporcionó: cuántos ejemplares. `Annotated[..., Resolve(ask_quantity)]` es la forma en que una herramienta lo declara (**[Dependencias](../handlers/dependencies.md)** tiene todos los detalles). Nada en `reserve` nombra una versión, comprueba una capacidad ni se bifurca.
 
-Los dos clientes están abiertos **al mismo tiempo**, sobre el mismo objeto `mcp`. `mode="legacy"` ejecuta el handshake `initialize`: exactamente la conexión que abre un cliente anterior a 2026. El otro toma el valor por defecto y queda en `2026-07-28`.
+Sírvela por HTTP, y aquí tienes clientes de ambas generaciones que la llaman:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+Los dos clientes están abiertos **al mismo tiempo**, contra el mismo servidor en ejecución. `mode="legacy"` ejecuta el handshake `initialize`: exactamente la conexión que abre un cliente anterior a 2026. El otro toma el valor por defecto y queda en `2026-07-28`. Ejecuta `python client.py` desde una segunda terminal:
 
 ```text
 2025-11-25 {'result': "Reserved 2 of 'Dune'."}
@@ -62,6 +72,41 @@ Con un solo worker eso no se nota. Con dos, es todo el problema: una solicitud q
     perdidos a un cliente que se reconecta a la *misma* sesión), no un almacén de sesiones. Nunca
     hace que una sesión sea alcanzable desde otro proceso.
 
+## Duración y límites de la sesión {#session-lifetime-and-limits}
+
+Una sesión heredada no vive para siempre, y un proceso no mantiene un número ilimitado de
+ellas. Dos ajustes controlan esto. Ambos son argumentos nombrados de `run()`, `streamable_http_app()`
+y `Server.streamable_http_app()`. Las conexiones modernas (`2026-07-28`) y `stateless_http=True`
+no tienen sesiones, así que ninguno de los dos ajustes se les aplica.
+
+| Ajuste | Por defecto | Qué hace | Qué ve el cliente | Desactivarlo |
+|---|---|---|---|---|
+| `session_idle_timeout` | `1800` (30 min) | Cierra una sesión que no ha tenido nada en curso durante ese tiempo. | `404 Session not found`. Tiene que volver a hacer `initialize`. | `None` |
+| `max_sessions` | `10_000` | Se niega a abrir una sesión más allá de esa cantidad. Las sesiones existentes no se tocan y no se expulsa ninguna. | `503 Too many open sessions` con el código JSON-RPC `-32603`. | `None` |
+
+Qué cuenta como "en curso":
+
+* Un stream `GET` abierto. Los clientes del SDK mantienen uno abierto, así que la sesión de un
+  cliente conectado nunca expira.
+* Una solicitud que todavía se está respondiendo. Una llamada a herramienta que dura más que el
+  timeout no se interrumpe, y el plazo solo empieza a contar cuando termina.
+* Nada más. Entre solicitudes el reloj corre. Cualquier solicitud en la sesión lo reinicia,
+  `ping` incluido. Una vez que una sesión ha expirado, nada la revive.
+
+Un cliente que termina su sesión con `DELETE` la libera de inmediato. También uno cuya
+solicitud de apertura fue rechazada.
+
+```python
+mcp.run(transport="streamable-http", session_idle_timeout=None, max_sessions=50_000)
+```
+
+Ambos eventos aparecen en el log del servidor. Una expiración es `Session <id> idle timeout` en
+nivel `INFO`. Una apertura rechazada es `Refusing to open a new session: <n> sessions are already open`
+en nivel `WARNING`.
+
+Los límites son por proceso. Con cuatro workers el techo es cuatro veces `max_sessions`, y cada
+worker expira sus propias sesiones.
+
 ## El único ajuste: `stateless_http` {#the-one-knob-stateless_http}
 
 Si la afinidad es un costo que te niegas a pagar, hay exactamente una cosa que puedes cambiar.
@@ -87,7 +132,7 @@ Dos cosas sobre él importan más que lo que hace.
 
 !!! check
     Haz lo incorrecto. `reserve` es exactamente la herramienta que acaba de atender a ambos clientes.
-    Despliégala con `stateless_http=True`, conecta los mismos dos clientes por HTTP y llámala desde
+    Despliégala con `stateless_http=True`, conecta los mismos dos clientes y llámala desde
     cada uno.
 
     El cliente moderno sigue recibiendo `Reserved 2 of 'Dune'.` El tramo moderno no cambió.

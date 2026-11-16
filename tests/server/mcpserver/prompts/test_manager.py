@@ -1,6 +1,8 @@
 import pytest
-from mcp_types import TextContent
+from inline_snapshot import snapshot
+from mcp_types import INVALID_PARAMS, TextContent
 
+from mcp import MCPError
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.prompts.base import Prompt, UserMessage
 from mcp.server.mcpserver.prompts.manager import PromptManager
@@ -93,8 +95,10 @@ class TestPromptManager:
     async def test_render_unknown_prompt(self):
         """Test rendering a non-existent prompt."""
         manager = PromptManager()
-        with pytest.raises(ValueError, match="Unknown prompt: unknown"):
+        with pytest.raises(MCPError) as exc_info:
             await manager.render_prompt("unknown", None, Context())
+        assert exc_info.value.code == INVALID_PARAMS
+        assert exc_info.value.message == snapshot("Unknown prompt: unknown")
 
     @pytest.mark.anyio
     async def test_render_prompt_with_missing_args(self):
@@ -106,5 +110,7 @@ class TestPromptManager:
         manager = PromptManager()
         prompt = Prompt.from_function(fn)
         manager.add_prompt(prompt)
-        with pytest.raises(ValueError, match="Missing required arguments"):
+        with pytest.raises(MCPError) as exc_info:
             await manager.render_prompt("fn", None, Context())
+        assert exc_info.value.code == INVALID_PARAMS
+        assert exc_info.value.message == snapshot("Missing required arguments: {'name'}")

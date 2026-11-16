@@ -18,6 +18,7 @@ from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
+import anyio.to_thread
 import mcp_types as types
 from anyio.abc import AsyncResource, Process
 from anyio.streams.text import TextReceiveStream
@@ -120,7 +121,7 @@ async def stdio_client(
         OSError: If the server process cannot be spawned.
         ValueError: If the spawn parameters are invalid (embedded NUL bytes).
     """
-    command = _get_executable_command(server.command)
+    command = await _get_executable_command(server.command)
 
     process = await _create_platform_compatible_process(
         command=command,
@@ -317,10 +318,10 @@ def _close_subprocess_transport(process: ServerProcess) -> None:
             close()
 
 
-def _get_executable_command(command: str) -> str:
+async def _get_executable_command(command: str) -> str:
     """Normalizes the command for the current platform."""
-    if sys.platform == "win32":  # pragma: no cover
-        return get_windows_executable_command(command)
+    if sys.platform == "win32":
+        return await anyio.to_thread.run_sync(get_windows_executable_command, command, abandon_on_cancel=True)
     else:  # pragma: lax no cover
         return command
 

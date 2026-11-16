@@ -454,11 +454,20 @@ def test_elicit_result_surface_accepts_null_content_values_at_every_version_that
         surface.model_validate({"action": "accept", "content": {"name": "x", "age": None}})
 
 
-def test_server_capabilities_extensions_with_null_json_value_round_trips_at_2026():
-    """Spec `JSONValue` includes `null`; the ts->json render dropped it from the vendored schema."""
-    raw: dict[str, Any] = {"extensions": {"x": {"k": None}}}
-    parsed = v2026.ServerCapabilities.model_validate(raw)
-    assert parsed.model_dump(mode="json")["extensions"] == {"x": {"k": None}}
+def test_discovery_capabilities_preserve_nested_json_values() -> None:
+    """Spec `JSONValue` permits nested containers and every JSON scalar, including numbers and null."""
+    extensions = {"x": {"nested": [None, True, 1, 1.5, "text", {"child": [False]}]}}
+    raw = {
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {"extensions": extensions},
+        "resultType": "complete",
+        "ttlMs": 0,
+        "cacheScope": "private",
+    }
+    parsed = methods.parse_server_result("server/discover", "2026-07-28", raw)
+    assert isinstance(parsed, types.DiscoverResult)
+    assert parsed.capabilities.extensions == extensions
+    assert methods.serialize_server_result("server/discover", "2026-07-28", raw) == raw
 
 
 def test_elicit_request_surface_accepts_loose_property_schemas():
@@ -472,6 +481,22 @@ def test_elicit_request_surface_accepts_loose_property_schemas():
     }
     parsed = methods.parse_server_request("elicitation/create", "2025-11-25", params)
     assert isinstance(parsed, types.ElicitRequest)
+
+
+def test_2025_11_25_tool_schema_surfaces_accept_boolean_sub_schemas():
+    """JSON Schema 2020-12 allows `true`/`false` wherever a sub-schema is expected; real servers emit them."""
+    tool = {
+        "name": "echo",
+        "inputSchema": {"type": "object", "properties": {"arg": True}},
+        "outputSchema": {
+            "type": "object",
+            "properties": {"result": True, "hidden": False, "rows": {"type": "array", "items": True}},
+            "required": ["result"],
+        },
+    }
+    sieved = methods.serialize_server_result("tools/list", "2025-11-25", {"tools": [tool]})
+    assert sieved["tools"][0]["inputSchema"] == tool["inputSchema"]
+    assert sieved["tools"][0]["outputSchema"] == tool["outputSchema"]
 
 
 def test_response_map_keys_mirror_the_request_map_keys():
@@ -909,6 +934,23 @@ def test_serialize_server_result_drops_2026_only_keys_at_pre_2026_versions(metho
     assert "cacheScope" not in sieved
 
 
+@pytest.mark.parametrize("version", PRE_2026)
+def test_initialize_round_trips_capability_extensions_at_pre_2026_versions(version: str):
+    extensions = {"io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}}
+    capabilities = {"tools": {}, "extensions": extensions}
+    result = {"protocolVersion": version, "capabilities": capabilities, "serverInfo": {"name": "S", "version": "1"}}
+    sieved = methods.serialize_server_result("initialize", version, result)
+    assert sieved["capabilities"] == capabilities
+    parsed = methods.parse_server_result("initialize", version, sieved)
+    assert isinstance(parsed, types.InitializeResult)
+    assert parsed.capabilities.extensions == extensions
+    client_info = {"name": "C", "version": "1"}
+    params = {"protocolVersion": version, "capabilities": {"extensions": extensions}, "clientInfo": client_info}
+    request = methods.parse_client_request("initialize", version, params)
+    assert isinstance(request, types.InitializeRequest)
+    assert request.params.capabilities.extensions == extensions
+
+
 def test_serialize_server_result_keeps_2026_only_keys_at_2026_07_28():
     dumped = MONOLITH_RESULT_FIXTURES["tools/list"].model_dump(by_alias=True, mode="json", exclude_none=True)
     sieved = methods.serialize_server_result("tools/list", "2026-07-28", dumped)
@@ -935,6 +977,19 @@ def test_serialize_server_result_preserves_open_type_extras():
     assert sieved["tools"][0]["_meta"] == nested_meta
 
 
+@pytest.mark.parametrize("input_schema", [{}, {"type": "array"}])
+def test_serialize_server_result_rejects_invalid_tool_input_schema(input_schema: dict[str, Any]) -> None:
+    """The 2026 spec requires a tool's input schema to declare `type="object"`, even though it allows extra keys."""
+    result = {
+        "tools": [{"name": "echo", "inputSchema": input_schema}],
+        "resultType": "complete",
+        "ttlMs": 0,
+        "cacheScope": "private",
+    }
+    with pytest.raises(pydantic.ValidationError):
+        methods.serialize_server_result("tools/list", "2026-07-28", result)
+
+
 def test_serialize_server_result_drops_top_level_server_info_on_discover_but_keeps_the_meta_stamp():
     """Server identity moved from the discover body to result `_meta` (spec PR #3002):
     the sieve drops the removed body key and preserves the `_meta` stamp."""
@@ -951,6 +1006,21 @@ def test_serialize_server_result_drops_top_level_server_info_on_discover_but_kee
     sieved = methods.serialize_server_result("server/discover", "2026-07-28", dumped)
     assert "serverInfo" not in sieved
     assert sieved["_meta"] == {types.SERVER_INFO_META_KEY: stamp}
+
+
+@pytest.mark.parametrize("version", PRE_2026)
+def test_initialize_round_trips_unknown_capabilities_at_pre_2026_versions(version: str):
+    """Spec-mandated: capabilities are "not a closed set", so unknown top-level keys survive the
+    `initialize` sieve on both the server result and the client params."""
+    custom: dict[str, Any] = {"events": {"enabled": True}}
+    capabilities: dict[str, Any] = {"tools": {}, **custom}
+    result = {"protocolVersion": version, "capabilities": capabilities, "serverInfo": {"name": "S", "version": "1"}}
+    sieved = methods.serialize_server_result("initialize", version, result)
+    assert sieved["capabilities"] == capabilities
+    params = {"protocolVersion": version, "capabilities": custom, "clientInfo": {"name": "C", "version": "1"}}
+    request = methods.parse_client_request("initialize", version, params)
+    assert isinstance(request, types.InitializeRequest)
+    assert request.params.capabilities.model_extra == custom
 
 
 def test_serialize_server_result_drops_an_unknown_nested_tool_field():

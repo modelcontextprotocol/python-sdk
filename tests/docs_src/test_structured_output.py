@@ -1,5 +1,7 @@
 """`docs/servers/structured-output.md`: every claim the page makes, proved against the real SDK."""
 
+import logging
+
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
@@ -30,9 +32,8 @@ async def test_scalar_return_is_wrapped() -> None:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema == snapshot(
             {
-                "properties": {"result": {"title": "Result", "type": "integer"}},
+                "properties": {"result": {"type": "integer"}},
                 "required": ["result"],
-                "title": "get_temperatureOutput",
                 "type": "object",
             }
         )
@@ -49,9 +50,9 @@ async def test_basemodel_is_the_schema() -> None:
         assert tool.output_schema == snapshot(
             {
                 "properties": {
-                    "temperature": {"description": "Degrees Celsius.", "title": "Temperature", "type": "number"},
-                    "humidity": {"description": "Relative humidity, 0 to 1.", "title": "Humidity", "type": "number"},
-                    "conditions": {"title": "Conditions", "type": "string"},
+                    "temperature": {"description": "Degrees Celsius.", "type": "number"},
+                    "humidity": {"description": "Relative humidity, 0 to 1.", "type": "number"},
+                    "conditions": {"type": "string"},
                 },
                 "required": ["temperature", "humidity", "conditions"],
                 "title": "WeatherData",
@@ -71,9 +72,9 @@ async def test_typeddict_produces_the_same_schema() -> None:
         assert tool.output_schema == snapshot(
             {
                 "properties": {
-                    "temperature": {"title": "Temperature", "type": "number"},
-                    "humidity": {"title": "Humidity", "type": "number"},
-                    "conditions": {"title": "Conditions", "type": "string"},
+                    "temperature": {"type": "number"},
+                    "humidity": {"type": "number"},
+                    "conditions": {"type": "string"},
                 },
                 "required": ["temperature", "humidity", "conditions"],
                 "title": "WeatherData",
@@ -91,9 +92,9 @@ async def test_dataclass_produces_the_same_schema() -> None:
         assert tool.output_schema == snapshot(
             {
                 "properties": {
-                    "temperature": {"title": "Temperature", "type": "number"},
-                    "humidity": {"title": "Humidity", "type": "number"},
-                    "conditions": {"title": "Conditions", "type": "string"},
+                    "temperature": {"type": "number"},
+                    "humidity": {"type": "number"},
+                    "conditions": {"type": "string"},
                 },
                 "required": ["temperature", "humidity", "conditions"],
                 "title": "WeatherData",
@@ -113,20 +114,17 @@ async def test_list_return_is_wrapped() -> None:
                 "$defs": {
                     "WeatherData": {
                         "properties": {
-                            "temperature": {"title": "Temperature", "type": "number"},
-                            "humidity": {"title": "Humidity", "type": "number"},
-                            "conditions": {"title": "Conditions", "type": "string"},
+                            "temperature": {"type": "number"},
+                            "humidity": {"type": "number"},
+                            "conditions": {"type": "string"},
                         },
                         "required": ["temperature", "humidity", "conditions"],
                         "title": "WeatherData",
                         "type": "object",
                     }
                 },
-                "properties": {
-                    "result": {"items": {"$ref": "#/$defs/WeatherData"}, "title": "Result", "type": "array"}
-                },
+                "properties": {"result": {"items": {"$ref": "#/$defs/WeatherData"}, "type": "array"}},
                 "required": ["result"],
-                "title": "get_forecastOutput",
                 "type": "object",
             }
         )
@@ -144,22 +142,24 @@ async def test_dict_str_return_is_not_wrapped() -> None:
     """tutorial006: `dict[str, float]` is already a JSON object, so there is no `result` wrapper."""
     async with Client(tutorial006.mcp) as client:
         (tool,) = (await client.list_tools()).tools
-        assert tool.output_schema == snapshot(
-            {"additionalProperties": {"type": "number"}, "title": "get_temperaturesDictOutput", "type": "object"}
-        )
+        assert tool.output_schema == snapshot({"additionalProperties": {"type": "number"}, "type": "object"})
         result = await client.call_tool("get_temperatures", {"cities": ["London", "Reykjavik"]})
         assert result.structured_content == {"London": 16.2, "Reykjavik": 4.4}
 
 
-async def test_return_value_is_validated_against_the_schema() -> None:
-    """tutorial007: a return value that does not match the output schema is a tool error, not a result."""
+async def test_return_value_is_validated_against_the_schema(caplog: pytest.LogCaptureFixture) -> None:
+    """tutorial007: a return value that does not match the output schema is a tool error, not a result;
+    the field name goes to the server log, not the client."""
+    caplog.set_level(logging.ERROR, logger="mcp.server.mcpserver.server")
     async with Client(tutorial007.mcp) as client:
         result = await client.call_tool("get_weather", {"city": "London"})
         assert result.is_error
         assert result.structured_content is None
-        assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text.startswith("Error executing tool get_weather: 1 validation error for WeatherData")
-        assert "humidity\n  Field required" in result.content[0].text
+        assert result.content == [TextContent(type="text", text="Error executing tool get_weather")]
+    (record,) = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert record.getMessage() == "Tool 'get_weather' raised an unexpected exception"
+    assert record.exc_info is not None and record.exc_info[1] is not None
+    assert "1 validation error for WeatherData\nhumidity\n  Field required" in str(record.exc_info[1].__cause__)
 
 
 async def test_structured_output_false_opts_out() -> None:

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from mcp_types import InputRequiredResult
+from mcp_types import INVALID_PARAMS, InputRequiredResult
 
 from mcp.server.mcpserver.prompts.base import Message, Prompt
 from mcp.server.mcpserver.utilities.logging import get_logger
+from mcp.shared.exceptions import MCPError
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -59,9 +60,15 @@ class PromptManager:
         arguments: dict[str, Any] | None,
         context: Context[LifespanContextT, RequestT],
     ) -> list[Message] | InputRequiredResult:
-        """Render a prompt by name with arguments."""
+        """Render a prompt by name with arguments.
+
+        Raises:
+            MCPError: If the prompt name is unknown or a required argument is missing,
+                with code `INVALID_PARAMS`, or if the prompt function raises it.
+            ValueError: If rendering fails.
+        """
         prompt = self.get_prompt(name)
         if not prompt:
-            raise ValueError(f"Unknown prompt: {name}")
+            raise MCPError(code=INVALID_PARAMS, message=f"Unknown prompt: {name}")
 
         return await prompt.render(arguments, context)

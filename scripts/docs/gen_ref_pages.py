@@ -31,11 +31,12 @@ API_DIR = ROOT / "docs" / "api"
 # it from `src/` would emit the unimportable `mcp-types.mcp_types.*`.
 PACKAGES = (ROOT / "src" / "mcp", ROOT / "src" / "mcp-types" / "mcp_types")
 
-# Alias packages that mirror another package's namespaces (`mcp.types` mirrors
-# `mcp_types`, `mcp.types.version` mirrors `mcp_types.version`): the mirrored
-# package's pages are the canonical rendering, so an alias, and every module
-# under it, earns no page of its own.
-EXCLUDED = frozenset({"mcp.types"})
+# Module paths that get no page, and neither does anything under them: alias
+# packages that mirror another package's namespaces (`mcp.types` mirrors
+# `mcp_types`), whose canonical rendering is the mirrored package's pages; and
+# removed v1 import paths (`mcp.server.fastmcp`) that only raise a pointer to
+# the migration guide and carry no API.
+EXCLUDED = frozenset({"mcp.types", "mcp.server.fastmcp"})
 
 _KIND_SECTIONS = {
     griffe.Kind.MODULE: "Modules",

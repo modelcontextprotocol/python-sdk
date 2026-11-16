@@ -1,6 +1,6 @@
 # Installation
 
-The Python SDK is on PyPI as [`mcp`](https://pypi.org/project/mcp/). It requires **Python 3.10+**.
+The Python SDK is on PyPI as [`mcp`](https://pypi.org/project/mcp/). It requires **Python 3.11+**.
 
 These docs describe **v2**, the current stable release line:
 
@@ -33,7 +33,7 @@ You don't need to know any of this to use the SDK, but if you're wondering what 
 * [`jsonschema`](https://pypi.org/project/jsonschema/): validates a tool's structured output against its declared output schema.
 * [`pyjwt[crypto]`](https://pyjwt.readthedocs.io/): OAuth token handling for authorization.
 * [`opentelemetry-api`](https://opentelemetry-python.readthedocs.io/): just the lightweight API, so the SDK's tracing middleware costs nothing unless you install an OpenTelemetry SDK and exporter yourself.
-* [`typing-extensions`](https://typing-extensions.readthedocs.io/) and [`typing-inspection`](https://pypi.org/project/typing-inspection/): modern typing features on Python 3.10.
+* [`typing-extensions`](https://typing-extensions.readthedocs.io/) and [`typing-inspection`](https://pypi.org/project/typing-inspection/): modern typing features on Python 3.11.
 * [`pywin32`](https://pypi.org/project/pywin32/): Windows only, used for `stdio` subprocess management.
 
 ## Optional extras

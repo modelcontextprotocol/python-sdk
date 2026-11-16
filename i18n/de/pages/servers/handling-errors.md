@@ -1,25 +1,25 @@
 ---
 translation:
-  sections: [e33d441f12d50535, 7099694c603e0f5f, c1df4cf9673433e6, c9cd294541422e6e, 6cec073617bfd037, efa92b8f99e908c8, 6a22a29e27fb4601]
+  sections: [7be05607887e6853, e7375894888d9750, c36f73fc7e3af13b, 2fec2d7e129e62fe, 809b0e0a7c27295a, b4395a04d2a5d906, 1a436007f5f54779, c6b2078ed1e63ba5]
   tool: 1
 ---
 # Fehler behandeln {#handling-errors}
 
-Ein Tool kann auf zwei Arten scheitern, und das SDK behandelt sie sehr unterschiedlich.
+Ein Tool kann auf drei Arten scheitern, und das SDK behandelt jede anders.
 
-Löse eine gewöhnliche Exception aus, und das **Modell** sieht sie. Löse `MCPError` aus, und das **Protokoll** sieht sie.
+Löse `ToolError` aus, und das **Modell** sieht deine Meldung. Löse `MCPError` aus, und das **Protokoll** sieht sie. Löse irgendetwas anderes aus, und es ist ein Absturz: Das Modell erfährt nur, dass der Aufruf fehlgeschlagen ist, und dein Log bekommt den Traceback.
 
-Auf dieser Seite geht es um die Wahl zwischen beiden.
+Auf dieser Seite geht es um die Wahl.
 
 ## Ein Fehler, den das Modell beheben kann {#an-error-the-model-can-fix}
 
 Nimm ein Tool, das etwas nachschlägt, und lass das Nachschlagen ins Leere laufen:
 
-```python title="server.py" hl_lines="11-12"
+```python title="server.py" hl_lines="2 12-13"
 --8<-- "docs_src/handling_errors/tutorial001.py"
 ```
 
-An diesen zwei Zeilen ist nichts MCP-Spezifisches. `get_author` löst einen schlichten `ValueError` aus, so wie es jede Python-Funktion täte.
+Mit `ToolError` aus `mcp.server.mcpserver.exceptions` sagt ein Tool dem Modell, dass etwas schiefgegangen ist.
 
 Ruf es mit einem Titel auf, der nicht im Katalog steht, und sieh dir das Ergebnis an:
 
@@ -30,12 +30,14 @@ result.structured_content  # None
 ```
 
 * Der Request war **erfolgreich**. Es gibt ein Ergebnis; beim Aufrufer wurde nichts ausgelöst.
-* `is_error` ist `True`, und die Meldung deiner Exception (mit dem Tool-Namen als Präfix) steht in `content` – genau dort, wo das Modell liest.
+* `is_error` ist `True`, und deine Meldung (mit dem Tool-Namen als Präfix) steht in `content` – genau dort, wo das Modell liest.
 * `structured_content` ist `None`. Ein fehlgeschlagener Aufruf hat keinen Rückgabewert, den man strukturieren könnte.
 
-Das ist ein **Tool-Fehler**, und er ist der Standard für *jede* Exception, die dein Tool auslöst. Fast immer ist es auch genau das, was du willst.
+Das ist ein **Tool-Fehler**, und fast immer ist es genau das, was du willst.
 
 Das Modell ist es, das dein Tool aufruft. Es hat die Argumente gewählt. Ein Tool-Fehler ist also ein Zug im Gespräch: Das Modell liest *„No book titled 'Nothing' in the catalog.“*, merkt, dass es den Titel falsch geraten hat, und ruft erneut mit einem besseren auf. Du hast ein einziges `raise` geschrieben und einen sich selbst korrigierenden Agenten bekommen.
+
+Auf dem Server hinterlässt `ToolError` eine einzige `INFO`-Zeile im Log, ohne Traceback. Du hast den Fehler kommen sehen, also gibt es nichts zu untersuchen.
 
 !!! tip
     Gib aus einem Tool nie eine Fehlermeldung per `return` zurück. Ein zurückgegebener String hat `is_error=False`;
@@ -44,7 +46,7 @@ Das Modell ist es, das dein Tool aufruft. Es hat die Argumente gewählt. Ein Too
 
 ## Ein Fehler, den das Modell nicht beheben kann {#an-error-the-model-cannot-fix}
 
-Tausche jetzt `ValueError` gegen `MCPError`.
+Tausche jetzt `ToolError` gegen `MCPError`.
 
 ```python title="server.py" hl_lines="1 3 14"
 --8<-- "docs_src/handling_errors/tutorial002.py"
@@ -77,10 +79,10 @@ Tausche jetzt `ValueError` gegen `MCPError`.
 
 Die beiden Wege beantworten zwei verschiedene Fragen.
 
-* **Löse irgendeine Exception aus** bei einem Fehlschlag der *Ausführung*: Das, was dein Tool versucht hat, hat nicht geklappt. Das Modell hat den Aufruf gewählt, also sollte das Modell die Folge sehen und die Chance bekommen, sich zu fangen. Ein falsch geschriebener Titel, eine vorgelagerte API mit Timeout, eine Zeile, die es nicht gibt: alles Tool-Fehler.
+* **Löse `ToolError` aus** bei einem Fehlschlag der *Ausführung*: Das, was dein Tool versucht hat, hat nicht geklappt. Das Modell hat den Aufruf gewählt, also sollte das Modell die Folge sehen und die Chance bekommen, sich zu fangen. Ein falsch geschriebener Titel, eine vorgelagerte API mit Timeout, eine Zeile, die es nicht gibt: alles Tool-Fehler.
 * **Löse `MCPError` aus**, wenn der *Request selbst* abgelehnt werden soll: Dem Client fehlt eine Capability, auf die dein Tool angewiesen ist, der Server ist nicht in einem Zustand, irgendwen zu bedienen, der Aufrufer hat einen erforderlichen Schritt übersprungen. Kein erneuter Versuch des Modells behebt irgendetwas davon, also bringt es nichts, ihm die Meldung zu geben.
 
-Eine Frage entscheidet: **Hätte ein klügeres Modell das vermeiden können?** Ja -> gewöhnliche Exception. Nein -> `MCPError`.
+Eine Frage entscheidet: **Hätte ein klügeres Modell das vermeiden können?** Ja -> `ToolError`. Nein -> `MCPError`.
 
 Nach diesem Test hat die zweite Version von `get_author` die falsche Wahl getroffen: Ein besserer Titel behebt das Problem, also hätte das Modell die Meldung sehen sollen. Sie soll dir den Mechanismus zeigen, nicht ihn empfehlen.
 
@@ -88,6 +90,25 @@ Nach diesem Test hat die zweite Version von `get_author` die falsche Wahl getrof
     `MCPError` findest du unter `from mcp import MCPError`; sie nimmt `code`, `message` und eine optionale
     `data`-Payload entgegen. Was immer du hineinlegst, bekommt der Client: Das SDK leitet eine ausgelöste
     `MCPError` wortwörtlich weiter, statt sie zu bereinigen.
+
+## Jede andere Exception {#any-other-exception}
+
+Nimm jetzt die Prüfung heraus und lass das Nachschlagen im Dictionary von selbst fehlschlagen:
+
+```python title="server.py" hl_lines="11"
+--8<-- "docs_src/handling_errors/tutorial004.py"
+```
+
+`CATALOG[title]` löst `KeyError` aus. Damit hast du nicht gerechnet, also behandelt das SDK es als Absturz:
+
+```python
+result.is_error  # True
+result.content   # [TextContent(text="Error executing tool get_author")]
+```
+
+Der Aufruf gibt weiterhin `is_error=True` zurück, das Modell weiß also, dass er fehlgeschlagen ist, und kann weitermachen. Was es nicht bekommt, ist der Text der Exception: Ein `KeyError` aus deinem Code oder ein Stapel SQL von einem Treiber drei Bibliotheken tiefer kann das Innenleben deines Servers beschreiben, deshalb verlässt er den Server nie.
+
+Stattdessen bekommst du ihn. Der Server loggt den Absturz auf `ERROR` mit dem vollständigen Traceback, als `Tool 'get_author' raised an unexpected exception`. Ein Produktions-Log auf `WARNING` bleibt deshalb still, solange nur `ToolError` ausgelöst wird, und meldet sich in dem Moment, in dem tatsächlich etwas kaputt ist.
 
 ## Eine Ressource, die es nicht gibt {#a-resource-that-doesnt-exist}
 
@@ -109,7 +130,7 @@ Wenn sie das nicht kann, löse `ResourceNotFoundError` aus. Das SDK macht daraus
 }
 ```
 
-Beachte, dass es hier kein halbes Ergebnis mit `is_error=True` gibt. Das Lesen einer Ressource liefert entweder Inhalte oder schlägt fehl: Ressourcen haben nur den Protokollweg. Templates und alles Weitere zu Ressourcen stehen in **[Ressourcen](resources.md)**.
+Beachte, dass es hier kein halbes Ergebnis mit `is_error=True` gibt. Das Lesen einer Ressource liefert entweder Inhalte oder schlägt fehl: Ressourcen haben nur den Protokollweg. `ResourceError` ist dasselbe für einen Fehlschlag, der nicht „nicht gefunden“ ist (`-32603`, deine Meldung), und beide sind eine einzige `INFO`-Zeile in deinem Log. Jede andere Exception außer `MCPError` ist ein Absturz: Der Client bekommt `-32603`, das nur den URI nennt, und der Traceback landet auf `ERROR` in deinem Log. Templates und alles Weitere zu Ressourcen stehen in **[Ressourcen](resources.md)**.
 
 ## Fehler, die du nie auslöst {#errors-you-never-raise}
 
@@ -120,19 +141,21 @@ Schick `get_author` einen `title`, der kein String ist, und das SDK weist ihn an
 Das bedeutet eine ganze Klasse von `raise`-Anweisungen, die du nicht schreibst: Validiere deine eigenen Type Hints nicht noch einmal.
 
 !!! info
-    Alles auf dieser Seite ist das, was ein **Client** sieht, und der In-Memory-`Client`, mit dem du
-    Tests schreibst, sieht exakt dasselbe. Selbst `raise_exceptions=True` macht aus einem Tool-Fehler
-    keinen Traceback mehr: Bis dieses Flag greifen könnte, ist deine Exception längst das
-    Ergebnis mit `is_error=True`. Prüfe das Ergebnis mit Assertions. **[Testen](../get-started/testing.md)** beschreibt das Muster.
+    Alles, was ein **Client** auf dieser Seite sieht, sieht auch der In-Memory-`Client`, mit dem du
+    Tests schreibst. Selbst `raise_exceptions=True` reicht die Exception eines scheiternden
+    Tools nicht an den Aufrufer zurück: Bis dieses Flag greifen könnte, ist deine Exception längst
+    das Ergebnis mit `is_error=True`. Prüfe das Ergebnis mit Assertions. Brauchst du den Traceback eines Absturzes, steht er
+    im Log des Servers, und pytests `caplog` fängt ihn ein. **[Testen](../get-started/testing.md)** beschreibt das Muster.
 
 ## Zusammenfassung {#recap}
 
-* Löse **irgendeine Exception** in einem Tool aus -> der Aufruf gibt `is_error=True` mit deiner Meldung in `content` zurück. Das Modell liest sie und kann es erneut versuchen. Das ist der Standard.
+* Löse **`ToolError`** in einem Tool aus -> der Aufruf gibt `is_error=True` mit deiner Meldung in `content` zurück. Das Modell liest sie und kann es erneut versuchen.
 * Löse **`MCPError`** aus -> der Aufruf selbst schlägt mit einem JSON-RPC-Fehler fehl. Das Modell sieht nichts; der Host kümmert sich darum. `code`, `message` und `data` kommen unverändert durch.
-* Die entscheidende Frage: *Hätte ein klügeres Modell das vermeiden können?* Ja -> Exception. Nein -> `MCPError`.
+* Die entscheidende Frage: *Hätte ein klügeres Modell das vermeiden können?* Ja -> `ToolError`. Nein -> `MCPError`.
+* Jede **andere Exception** ist ein Absturz -> `is_error=True` mit nichts als `Error executing tool <name>` für das Modell und einem `ERROR`-Eintrag samt Traceback für dich.
 * `ResourceNotFoundError` aus einem Ressourcen-Handler -> das `-32602` des Protokolls, mit dem URI in `data`.
 * Ungültige Argumente werden anhand des Schemas abgewiesen, bevor deine Funktion läuft; dafür schreibst du kein `raise`.
-* `from mcp import MCPError`; die Fehlercode-Konstanten kommen aus `mcp.types`.
+* Imports: `from mcp import MCPError`, `from mcp.server.mcpserver.exceptions import ToolError, ResourceError, ResourceNotFoundError` und die Fehlercode-Konstanten aus `mcp.types`.
 
 Fehler behandelt. Das ist alles, was ein Server *nach außen anbietet*. Was jeder Handler lesen und während der Ausführung zurück an den Client tun kann, ist der nächste Abschnitt: **[Im Handler](../handlers/index.md)**.
 

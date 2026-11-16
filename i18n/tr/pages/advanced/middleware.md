@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [58e1103d9a323ccf, 46056f318ef205e4, 812b414557fb0c35, 4df162eea2518d38, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -16,12 +16,12 @@ Onu `async (ctx, call_next)` biçiminde yazar ve `server.middleware` listesine e
 
 `MCPServer` listeyi oluşturulurken alır (`MCPServer(name, middleware=[...])`) ve onu
 `mcp.middleware` olarak sunar; alt düzey `Server` aynı listeyi `server.middleware` olarak sunar. Aşağıdaki
-örnek alt düzey `Server`'ı kullanır; `Server(name, on_call_tool=...)` size yeniyse önce
+örnekler alt düzey `Server`'ı kullanır; `Server(name, on_call_tool=...)` size yeniyse önce
 **[Alt düzey Server](low-level-server.md)** sayfasını okuyun.
 
 ## Bir zamanlama middleware'i {#a-timing-middleware}
 
-Bir sunucu, bir araç ve her mesajın ne kadar sürdüğünü loglayan bir middleware:
+Bir sunucu, bir araç ve her mesajın ne kadar sürdüğünü log'a yazan bir middleware:
 
 ```python title="server.py" hl_lines="39-45 49"
 --8<-- "docs_src/middleware/tutorial001.py"
@@ -38,7 +38,7 @@ Bir sunucu, bir araç ve her mesajın ne kadar sürdüğünü loglayan bir middl
 
 ### Deneyin {#try-it}
 
-Bir istemci bağlayın, araçları listeleyin, birini çağırın. Logunuzda **üç** satır var:
+Bir istemci bağlayın, araçları listeleyin, birini çağırın. Log'unuzda **üç** satır var:
 
 ```text
 server/discover took 18.3 ms
@@ -53,19 +53,43 @@ istemeden önce, istemcinin bağlantıyı kurmak için gönderdiği istek.
 
 * Bağlantı kurulumu: `server/discover` ya da eski nesil bir oturumda `initialize` ve
   `notifications/initialized`.
-* Her istek ve her bildirim. Bir bildirimde `ctx.request_id is None` olur,
-  `call_next(ctx)` `None` döndürür ve sizin döndürdüğünüz her şey atılır.
+* Sunucuya ulaşan her istek ve her bildirim. Bir bildirimde
+  `ctx.request_id is None` olur, `call_next(ctx)` `None` döndürür ve sizin döndürdüğünüz her şey atılır.
+  (`2026-07-28` Streamable HTTP yolunda istemcinin bildirim POST'u aktarım katmanında `202` ile
+  onaylanır ve hiçbir zaman işlenmek üzere iletilmez; bu yüzden middleware'e de ulaşmaz. O revizyon
+  HTTP üzerinden istemciden sunucuya hiçbir bildirim tanımlamaz.)
 * Sunucunun işleyicisi olmayan bir metot bile: `call_next`,
   `MCPError(-32601, "Method not found")` istisnasını istemciye giderken middleware'inizin *içinden* fırlatır.
 
-## İçinde neler yapabilirsiniz {#what-you-can-do-inside-one}
+## Bir eşzamanlılık sınırı {#a-concurrency-cap}
+
+Bir middleware `call_next(ctx)`'i çağırmak zorunda değildir. Onun yerine bir `MCPError` fırlatırsanız o tek
+mesaj **reddedilir**: bağlantı ayakta kalır ve sonraki mesaj geçer.
+
+Diyelim ki her arama, dört bağlantılık bir havuzdan bir bağlantı tutuyor. Bu middleware dört araç çağrısının
+aynı anda çalışmasına izin verir, beşincisini reddeder:
+
+```python title="server.py" hl_lines="15-16 40-55 59"
+--8<-- "docs_src/middleware/tutorial002.py"
+```
+
+* Yalnızca `tools/call` sayılır; bu yüzden sunucu araç çağrılarını reddederken `server/discover` ve
+  `tools/list` isteklerini yanıtlamayı sürdürür.
+* MCP bir "sunucu meşgul" hata kodu tanımlamaz; bu yüzden `SERVER_BUSY` bu sunucunun kendi kodudur.
+* Reddetmek, sunucunun aşırı yüklü olduğunu istemciye hemen bildirir. Çağıranları bekletmeyi
+  tercih ederseniz bunun yerine `call_next(ctx)` çağrısı boyunca bir `anyio.CapacityLimiter` tutun.
+
+Fırlatılan bir `MCPError` modele değil, istemci uygulamasına gider. Mesajı modelin okuması gerekiyorsa
+bunun yerine `is_error=True` olan bir araç sonucu döndürün: bu, aşağıdaki **Yanıtlayın** maddesidir.
+
+## İçinde yapabilecekleriniz {#what-you-can-do-inside-one}
 
 Ne kadar tereddüt etmeniz gerektiğine göre artan sırayla:
 
-* **Gözlemleyin.** Süresini ölçün, sayın, loglayın. Yukarıdaki örnek.
+* **Gözlemleyin.** Süresini ölçün, sayın, log'a yazın. Yukarıdaki zamanlama middleware'i.
 * **Reddedin.** `call_next(ctx)`'i çağırmak *yerine* bir `MCPError` fırlatın; o tek mesaj
-  bir JSON-RPC hatasıyla yanıtlanır. Bağlantı ayakta kalır; sonraki mesaj geçer. Bir sunucu
-  `subscriptions/listen`'ı çağıran başına böyle denetler:
+  bir JSON-RPC hatasıyla yanıtlanır. Bağlantı ayakta kalır; sonraki mesaj geçer. Yukarıdaki eşzamanlılık sınırı. Bir sunucu
+  `subscriptions/listen`'ı çağıran başına da böyle denetler:
   Abonelikler sayfasındaki **[Kimin izleyebileceğine karar verme](../handlers/subscriptions.md#deciding-who-may-watch)** bölümü
   bunu adım adım anlatır.
 * **Yeniden yazın.** `ctx` bir dataclass'tır: `await call_next(dataclasses.replace(ctx, params=...))`
@@ -110,7 +134,7 @@ aklınıza bile gelmez. Bir exporter kurana kadar hiçbir şey yapmaz ve kendi s
 
 * Bir middleware `async (ctx, call_next) -> result` biçimindedir; `MCPServer(middleware=[...])` olarak geçirilir (ya da
   `mcp.middleware` listesine eklenir), alt düzey `Server`'da ise `server.middleware` listesine eklenir.
-* Gelen **her** mesajı sarar (`server/discover`, `initialize`, istekler, bildirimler,
+* Sunucuya ulaşan **her** gelen mesajı sarar (`server/discover`, `initialize`, istekler, bildirimler,
   bilinmeyen metotlar) ve dıştan içe doğru çalışır.
 * Bir bildirimi bir istekten `ctx.request_id is None` ile ayırt edersiniz.
 * Tek bir mesajı reddetmek için `call_next`'i çağırmak yerine istisna fırlatın; bağlantı ayakta kalır.

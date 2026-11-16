@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, ffe823cb0fedd488, f33651add1b59094]
+  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, d30d3c20168b88b2, f5ef38dad59d6f76, 6e38a699ba57fbdf, 2b984a3bf37a0ddd]
   tool: 1
 ---
 # 提示词 {#prompts}
@@ -137,7 +137,52 @@ uv run mcp dev server.py
 ```
 
 !!! info
-    如果读过 **[工具](tools.md)**，这一页的内容你其实都已经会了。装饰器一样，用 docstring 作描述一样，`Annotated`/`Field` 也一样。变的只有两点：由谁触发（用户），以及结果去哪儿（进入对话）。
+    如果读过 **[工具](tools.md)**，到这里为止的内容你其实都已经会了。装饰器一样，用 docstring 作描述一样，`Annotated`/`Field` 也一样。变的只有两点：由谁触发（用户），以及结果去哪儿（进入对话）。
+
+## 不止文本 {#more-than-text}
+
+`UserMessage` 和 `AssistantMessage` 在接受 `str` 的地方，也接受内容块，或者 `Image` / `Audio` 辅助类。提示词里常见两种情况：附上一份文档，和附上一张图片。
+
+### 嵌入文件 {#embedding-a-file}
+
+```python title="server.py" hl_lines="5 12 21 23"
+--8<-- "docs_src/prompts/tutorial004.py"
+```
+
+* 风格指南是位于 `style://python` 的资源（**[资源](resources.md)** 会介绍这类东西），从 `server.py` 旁边的 `style-guide.md` 读取。在那里放任意一个 Markdown 文件即可。
+* `EmbeddedResource(resource=TextResourceContents(...))` 两者都来自 `mcp.types`，它把文件连同 URI 和 MIME 类型一起作为第一条消息携带；引用它的请求以纯文本形式跟在后面。
+* 用嵌入，而不是把指南直接贴进 f-string，客户端就能把它显示为附件，之后还能重新打开 `style://python`，模型收到的也是原封不动的文件。二进制文件用 `BlobResourceContents`，带一个 base64 的 `blob`。
+
+渲染后，第一条消息的 `content` 是一个 `resource` 块：
+
+```json
+{"type": "resource", "resource": {"uri": "style://python", "mimeType": "text/markdown", "text": "* Prefer early returns.\n..."}}
+```
+
+### 附上图片 {#attaching-an-image}
+
+```python title="server.py" hl_lines="4 15"
+--8<-- "docs_src/prompts/tutorial005.py"
+```
+
+* `Image` 是 **[图片、音频和图标](media.md)** 里的辅助类。提示词渲染时，`UserMessage` 把它转换成一个 `ImageContent` 块（文件经 base64 编码，MIME 类型从 `.png` 推断）；`Audio` 同样会变成 `AudioContent`。
+* 在 `server.py` 旁边放任意一个名为 `architecture.png` 的 PNG。提示词参数都是字符串，所以图片总是来自服务器；`component` 只提供文字。
+
+```json
+{"type": "image", "data": "iVBORw0KGgoAAAANSUhEUg...", "mimeType": "image/png"}
+```
+
+## 在运行时修改列表 {#changing-the-list-at-runtime}
+
+客户端连接期间也可以添加提示词，比如让用户把一条指令保存成自己的菜单项。先注册提示词，再发通知：
+
+```python title="server.py" hl_lines="5 23-27"
+--8<-- "docs_src/prompts/tutorial006.py"
+```
+
+* `mcp.add_prompt(Prompt.from_function(fn, name=..., description=...))` 注册函数的方式和 `@mcp.prompt()` 完全一样，`mcp.remove_prompt(name)` 则相反。`add_prompt` 遇到同名的现有条目会保留它而不是覆盖，所以这个工具先删掉旧条目，让保存变成替换。`prompts/list` 立即反映这一变化。
+* `await ctx.notify_prompts_changed()` 向每个在 `subscriptions/listen` 流上监听的 `2026-07-28` 客户端发送 `notifications/prompts/list_changed`（**[订阅](../handlers/subscriptions.md)**）。当发起调用的客户端是 2026 之前的版本时，`await ctx.session.send_prompt_list_changed()` 把它发给这个客户端（**[服务旧版客户端](../run/legacy-clients.md)**）。两个都调用；没有人可通知时，它们各自什么也不做。
+* 收到通知的客户端会再次调用 `prompts/list`。在 Python `Client` 里就是 `async with client.listen(prompts_list_changed=True) as sub:`，它会产出一个 `PromptsListChanged` 事件。
 
 ## 回顾 {#recap}
 
@@ -147,5 +192,7 @@ uv run mcp dev server.py
 * 返回 `str`，它就变成一条用户消息。返回 `UserMessage` / `AssistantMessage` 的列表，可以为多轮对话铺好开头。
 * `title=` 和 `Field(description=...)` 是客户端放进 UI 里的内容。
 * 缺少必填参数会让整个请求失败。没有针对单个提示词的错误结果。
+* 把 `EmbeddedResource` 或 `Image` 包进 `UserMessage`，就能附上文档或图片。
+* 运行时用 `mcp.add_prompt(...)` / `mcp.remove_prompt(...)` 添加或移除提示词，然后 `await ctx.notify_prompts_changed()` 和 `await ctx.session.send_prompt_list_changed()`。
 
 要在服务器端为提示词（或资源模板）的参数提供自动补全，见 **[补全](completions.md)**。

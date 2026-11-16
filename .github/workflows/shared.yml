@@ -13,39 +13,31 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # setup-uv's manifest fetch is a single request with a hard 5s timeout
-      # (astral-sh/setup-uv#869); retry once. Drop when upstream adds a retry.
       - name: Install uv
-        id: setup-uv
-        continue-on-error: true
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-          version: 0.9.5
-
-      - name: Install uv (retry)
-        if: steps.setup-uv.outcome == 'failure'
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
 
       - name: Install dependencies
-        run: uv sync --frozen --all-extras --python 3.10
+        run: uv sync --frozen --all-extras --python 3.11
 
       - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         with:
           extra_args: --all-files --verbose
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24 # match the runtime actions/github-script@v8 uses
-      - name: PR intake gate scenarios
-        run: node --test .github/scripts/pr_intake_gate.test.js
+          node-version: 24 # match actions/github-script's node24 runtime
+      - name: Workflow script tests
+        run: node --test '.github/scripts/*.test.js'
+
+      - name: MCP Apps UI script tests
+        run: node --test tests/docs_src/test_apps.test.js
 
       - name: Surface types match vendored schema
         run: |
@@ -66,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
         dep-resolution:
           - name: lowest-direct
             install-flags: "--upgrade --resolution lowest-direct"
@@ -75,26 +67,15 @@ jobs:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # setup-uv's manifest fetch is a single request with a hard 5s timeout
-      # (astral-sh/setup-uv#869); retry once. Drop when upstream adds a retry.
       - name: Install uv
-        id: setup-uv
-        continue-on-error: true
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-          version: 0.9.5
-
-      - name: Install uv (retry)
-        if: steps.setup-uv.outcome == 'failure'
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
 
       - name: Install the project
         run: uv sync ${{ matrix.dep-resolution.install-flags }} --all-extras --python ${{ matrix.python-version }}
@@ -121,29 +102,18 @@ jobs:
   readme-snippets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # setup-uv's manifest fetch is a single request with a hard 5s timeout
-      # (astral-sh/setup-uv#869); retry once. Drop when upstream adds a retry.
       - name: Install uv
-        id: setup-uv
-        continue-on-error: true
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-          version: 0.9.5
-
-      - name: Install uv (retry)
-        if: steps.setup-uv.outcome == 'failure'
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
 
       - name: Install dependencies
-        run: uv sync --frozen --all-extras --python 3.10
+        run: uv sync --frozen --all-extras --python 3.11
 
       - name: Check README snippets are up to date
         run: uv run --frozen scripts/update_readme_snippets.py --check
@@ -161,26 +131,15 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # setup-uv's manifest fetch is a single request with a hard 5s timeout
-      # (astral-sh/setup-uv#869); retry once. Drop when upstream adds a retry.
       - name: Install uv
-        id: setup-uv
-        continue-on-error: true
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-          version: 0.9.5
-
-      - name: Install uv (retry)
-        if: steps.setup-uv.outcome == 'failure'
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
-        with:
-          enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
 
       - name: Build the docs in strict mode
         run: bash scripts/docs/build.sh

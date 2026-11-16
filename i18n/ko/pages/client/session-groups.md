@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, d18adbdbb835ea73]
+  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, ed4d17e894864056]
   tool: 1
 ---
 # 세션 그룹 {#session-groups}
@@ -78,7 +78,7 @@ translation:
 ## 요약 {#recap}
 
 * `ClientSessionGroup`은 여러 서버 연결을 담고 도구, 리소스, 프롬프트를 각각 하나의 `dict`로 합칩니다.
-* 서버마다 `connect_to_server(params)`를 호출합니다. `Client`가 받는 서버 객체나 URL이 아니라 트랜스포트 매개변수를 받습니다.
+* 서버마다 `connect_to_server(params)`를 호출합니다. `Client`가 받는 URL이나 `Transport`가 아니라 트랜스포트 매개변수를 받습니다.
 * `group.call_tool(name, arguments)`는 소유한 서버로 알아서 라우팅합니다.
 * 이름은 그룹 전체에서 고유해야 합니다. `search` 도구를 가진 두 서버는 그대로는 공존할 수 없습니다.
 * `component_name_hook=`은 등록되는 모든 이름을 다시 씁니다. 딕셔너리 키는 바뀌지만 전송되는 이름은 바뀌지 않습니다.

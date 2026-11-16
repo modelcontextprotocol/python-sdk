@@ -31,18 +31,22 @@ Three things changed, and they are the whole low-level API:
 
 ### Try it
 
-There is no Inspector for this one: `mcp dev` and `mcp run` only accept an `MCPServer`. The in-memory `Client` doesn't care; it takes a low-level `Server` exactly like it takes an `MCPServer`:
+`mcp dev` and `mcp run` only accept an `MCPServer`, so you serve this one yourself. The last line of `server.py` builds an ordinary ASGI app from it, and uvicorn runs that:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Point the Inspector, or any client, at `http://localhost:8000/mcp`:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -57,7 +61,9 @@ asyncio.run(main())
 The same text the `@mcp.tool()` version produced. Two honest differences:
 
 * `result.structured_content` is `None`. The high-level server wraps a `-> str` into `{"result": ...}` for you; here nobody builds what you didn't build.
-* `list_tools` returns the schema **you** typed, character for character. The high-level version had `"title": "Query"` on every property and a `"title": "search_booksArguments"` at the root: Pydantic artifacts. Down here, if it's on the wire, you put it there.
+* `list_tools` returns the schema **you** typed, character for character. Down here, if it's on the wire, you put it there.
+
+In a test you skip uvicorn and the port: `Client(server)` takes a low-level `Server` in-process exactly like it takes an `MCPServer`, and **[Testing](../get-started/testing.md)** is that pattern.
 
 ## Nothing is checked for you
 
@@ -198,6 +204,7 @@ Each of these is one idea you now have the vocabulary for; each has its own page
 * `on_call_tool`, `on_get_prompt`, and `on_read_resource` may return an `InputRequiredResult` instead of their normal result to pause the call and ask the client for input; see **[Multi-round-trip requests](../handlers/multi-round-trip.md)**. True to this tier, nothing is installed for you: where `MCPServer` seals `requestState` by default, here the `request_state` you set crosses the wire exactly as written until you opt in with `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))`: one line (both names import from `mcp.server.request_state`) for the identical sealing and verification `MCPServer` performs (**[Protecting `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion` are the same `(ctx, params) -> result` shape for the other primitives.
 * `on_subscriptions_listen` serves the 2026-07-28 `subscriptions/listen` stream. Pass a `ListenHandler` built over a `SubscriptionBus` and publish events to the bus from your other handlers; see **[Subscriptions](../handlers/subscriptions.md)** for the full composition.
+* `get_tool_input_schema` keeps `on_list_tools` off the call path; see **[Header parameters](header-parameters.md#schemas-by-name)**.
 * `server.streamable_http_app()` returns the same Starlette app `MCPServer`'s does; deploy it the way **[Running your server](../run/index.md)** deploys any other ASGI app. There is no `server.run(transport=...)` down here: `server.run(read_stream, write_stream, server.create_initialization_options())` drives one connection over a pair of streams, and that one line is the whole story.
 
 ## Recap
@@ -210,4 +217,4 @@ Each of these is one idea you now have the vocabulary for; each has its own page
 * `add_request_handler(method, params_type, handler)` serves any method. `initialize` is reserved.
 * The capabilities a `Server` advertises are derived from which handlers you registered.
 
-`Client(server)` treated both servers identically because they *are* the same protocol, which is the whole point. The next layer down isn't a class at all: it's **[Middleware](middleware.md)**.
+The client treated both servers identically because they *are* the same protocol, which is the whole point. The next layer down isn't a class at all: it's **[Middleware](middleware.md)**.

@@ -32,12 +32,13 @@ from mcp_types import (
     ProgressToken,
     RequestId,
 )
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import SpanKind, StatusCode
 from pydantic import ValidationError
 from typing_extensions import TypeVar
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared._otel import inject_trace_context, otel_span
+from mcp.shared._request_clock import request_clock
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import (
     CallOptions,
@@ -75,6 +76,9 @@ arm shields its write, so a wedged transport would otherwise hang it uncancellab
 
 _SHUTDOWN_WRITE_TIMEOUT: float = 1
 """Tighter bound for the shutdown-arm error write so a wedged transport can't hold session close."""
+
+_CLOSED_OUTCOME = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
+"""What a waiter receives when the connection closes; matched by identity, since a peer can send the same code."""
 
 TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext)
 
@@ -359,7 +363,6 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         if on_progress is not None:
             # The request id doubles as the progress token, so `_pending[token]` finds `on_progress` directly.
             out_meta["progressToken"] = request_id
-        out_params["_meta"] = out_meta
 
         # buffer=1: a close signal can arrive before the waiter parks in receive();
         # a WouldBlock later just means the waiter already has its one outcome.
@@ -385,25 +388,39 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 span_name,
                 kind=SpanKind.CLIENT,
                 attributes={"mcp.method.name": method, "jsonrpc.request.id": str(request_id)},
-            ):
-                # SEP-414: inject W3C trace context; `_meta` stays on the wire even with a no-op tracer.
+            ) as span:
+                # SEP-414: inject W3C trace context.
                 inject_trace_context(out_meta)
-                msg = JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=out_params)
+                if out_meta:
+                    out_params["_meta"] = out_meta
+                else:
+                    out_params.pop("_meta", None)
+                # Leave `params` unset when empty: with `exclude_unset=True` an explicit
+                # None would serialize as `"params": null`, which JSON-RPC 2.0 forbids.
+                if out_params:
+                    msg = JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=out_params)
+                else:
+                    msg = JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method)
                 # Surface a pre-existing cancellation while the request provably
                 # never started; past this point a cancelled write counts as issued.
                 await anyio.lowlevel.checkpoint_if_cancelled()
                 request_write_started = True
-                try:
-                    await self._write(msg, plan.metadata)
-                except (anyio.BrokenResourceError, anyio.ClosedResourceError):
-                    # Transport tore down before run() noticed EOF; surface the documented contract.
-                    raise MCPError(code=CONNECTION_CLOSED, message="Connection closed") from None
-                with anyio.fail_after(opts.get("timeout")):
+                with request_clock(opts.get("timeout")) as clock:
+                    try:
+                        await self._write(msg, plan.metadata)
+                    except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                        # Transport tore down before run() noticed EOF; surface the documented contract.
+                        raise MCPError(code=CONNECTION_CLOSED, message="Connection closed") from None
+                    clock.start()
                     timeout_armed = True
                     outcome = await receive.receive()
+                if isinstance(outcome, ErrorData) and outcome is not _CLOSED_OUTCOME:
+                    code = str(outcome.code)
+                    span.set_attributes({"error.type": code, "rpc.response.status_code": code})
+                    span.set_status(StatusCode.ERROR, outcome.message)
         except TimeoutError:
             if not timeout_armed:
-                # `fail_after` arms only after the write, so this TimeoutError is the
+                # The clock starts only after the write, so this TimeoutError is the
                 # transport's own bounded send() failing - a transport error, not
                 # `opts["timeout"]` elapsing. Propagate it raw (v1 kept the write
                 # outside the timeout-catching try and did the same).
@@ -680,20 +697,23 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         message; `Context.run` makes the spawned handler inherit that context.
         """
         assert self._tg is not None
+
+        async def run() -> None:
+            await fn(*args)
+
         if sender_ctx is not None:
-            sender_ctx.run(self._tg.start_soon, fn, *args)
+            sender_ctx.run(self._tg.start_soon, run)
         else:
-            self._tg.start_soon(fn, *args)
+            self._tg.start_soon(run)
 
     def _fan_out_closed(self) -> None:
         """Wake every pending `send_raw_request` waiter with `CONNECTION_CLOSED`.
 
         Synchronous: callers may be inside a cancelled scope. Idempotent.
         """
-        closed = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
         for pending in self._pending.values():
             try:
-                pending.send.send_nowait(closed)
+                pending.send.send_nowait(_CLOSED_OUTCOME)
             except (anyio.WouldBlock, anyio.BrokenResourceError, anyio.ClosedResourceError):
                 pass
         self._pending.clear()

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # 低レベルの Server {#the-low-level-server}
@@ -36,18 +36,22 @@ translation:
 
 ### 試してみる {#try-it}
 
-これには Inspector がありません。`mcp dev` と `mcp run` は `MCPServer` しか受け付けないからです。インメモリの `Client` は気にしません。`MCPServer` を受け取るのとまったく同じように、低レベルの `Server` を受け取ります。
+`mcp dev` と `mcp run` は `MCPServer` しか受け付けないので、このサーバーは自分で起動します。`server.py` の最後の行がここから普通の ASGI アプリを組み立て、uvicorn がそれを実行します。
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Inspector でも、どのクライアントでも、`http://localhost:8000/mcp` に向けてください。
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ asyncio.run(main())
 
 * `result.structured_content` は `None` です。高レベルのサーバーは `-> str` を `{"result": ...}` にラップしてくれますが、ここでは自分で組み立てなかったものを誰も組み立ててくれません。
 * `list_tools` は**自分で**打ち込んだスキーマを一字一句そのまま返します。高レベル版にはすべてのプロパティに `"title": "Query"` があり、ルートに `"title": "search_booksArguments"` がありました。Pydantic の産物です。この層では、通信上に現れるものはすべて自分が載せたものです。
+
+テストでは uvicorn もポートも省けます。`Client(server)` は `MCPServer` を受け取るのとまったく同じように、低レベルの `Server` をインプロセスで受け取ります。**[テスト](../get-started/testing.md)** がまさにそのパターンです。
 
 ## 何もチェックされない {#nothing-is-checked-for-you}
 
@@ -116,6 +122,17 @@ asyncio.run(main())
 
 サーバーは 2 つのフィールドを比較しません。この SDK の `Client` は比較します。宣言した `output_schema` を満たさない `structured_content` を返すと、`call_tool` は `Invalid structured content returned by tool search_books` で始まり、続けて `jsonschema` の失敗内容を引用する `RuntimeError` を送出します。スキーマを約束するのは簡単ですが、守るのは自分の仕事です。戻り値の型とスキーマの全段階については **[構造化出力](../servers/structured-output.md)** を参照してください。
 
+## ダイアレクトは JSON Schema 2020-12 {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` と `output_schema` は JSON Schema であり、[MCP 仕様](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) がそのダイアレクトを定めています。`$schema` キーのないスキーマは **JSON Schema 2020-12** です。`MCPServer` が生成するスキーマはこのデフォルトに依存しています（Pydantic は 2020-12 を書き出し、キーを省略します）。手書きの dict にも同じ基準が適用されるので、2020-12 の語彙がすべて使えます。
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* `input_schema` のルートは `"type": "object"` でなければなりません。その横に置く `oneOf`、`additionalProperties`、`anyOf`、`if`/`then`/`else`、`prefixItems`、ローカルな `$ref` を伴う `$defs`、そのほかの 2020-12 キーワードは、書いたとおりにクライアントに届きます。
+* `$schema` キーは不要です。古いドラフトにオプトインする場合にだけ追加してください。この SDK の `Client` はツールの `output_schema` に照らして `structured_content` を検証しますが、バリデーターは `$schema` から選び、キーがなければ 2020-12 を使います。
+
 ## `_meta`：モデルではなくアプリケーションのために {#\_meta-for-the-application-not-the-model}
 
 `content` は答えのうちモデルが読む部分です。`structured_content` は同じ答えを型付きデータにしたものです。`_meta` は 3 つ目のチャネルで、答えの一部ではまったくなく、**クライアントアプリケーション**のために結果に同乗するデータです。
@@ -166,7 +183,7 @@ asyncio.run(main())
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* 最初の引数はメソッド文字列です。通知には対になる `add_notification_handler` があります。
+* 最初の引数はメソッド文字列です。通知には対になる `add_notification_handler` があります。そのハンドラーは stdio と、ハンドシェイク世代の HTTP 接続で発火します。`2026-07-28` の Streamable HTTP 経路では、クライアントの通知 POST は `202` で受理されるだけでディスパッチされません。このリビジョンは HTTP 上でのクライアントからサーバーへの通知を定義していないからです。
 * `params_type` は、受信した `params` をハンドラーの実行**前**に検証するためのモデルです。つまり、カスタムメソッドはツールが受けられない検証を受けられます。`_meta` フィールドがほかのメソッドと同じようにパースされるよう、`RequestParams` をサブクラス化してください。
 * ハンドラーは `BaseModel`、`dict`、または `None` を返します。SDK がそれを JSON-RPC の結果にシリアライズします。
 
@@ -191,6 +208,7 @@ use Server.middleware to observe or wrap initialization
 * `on_call_tool`、`on_get_prompt`、`on_read_resource` は、通常の結果の代わりに `InputRequiredResult` を返して呼び出しを一時停止し、クライアントに入力を求めることができます。**[マルチラウンドトリップ（multi-round-trip）リクエスト](../handlers/multi-round-trip.md)** を参照してください。この層らしく、何も代わりにインストールされません。`MCPServer` はデフォルトで `requestState` を封印しますが、ここでは設定した `request_state` は書いたとおりに通信路を渡ります。`server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))` でオプトインするまではそうです。この 1 行（どちらの名前も `mcp.server.request_state` からインポートします）で、`MCPServer` が行うのとまったく同じ封印と検証が得られます（**[`requestState` の保護](../handlers/multi-round-trip.md#protecting-requeststate)**）。
 * `on_list_resources`、`on_read_resource`、`on_list_prompts`、`on_get_prompt`、`on_completion` は、ほかのプリミティブ向けの同じ `(ctx, params) -> result` の形です。
 * `on_subscriptions_listen` は 2026-07-28 の `subscriptions/listen` ストリームを提供します。`SubscriptionBus` の上に構築した `ListenHandler` を渡し、ほかのハンドラーからバスにイベントを発行してください。全体の組み立て方については **[サブスクリプション](../handlers/subscriptions.md)** を参照してください。
+* `get_tool_input_schema` は `on_list_tools` を呼び出し経路から外します。**[ヘッダーパラメーター](header-parameters.md#schemas-by-name)** を参照してください。
 * `server.streamable_http_app()` は `MCPServer` のものと同じ Starlette アプリを返します。**[サーバーの実行](../run/index.md)** がほかの ASGI アプリをデプロイするのと同じ方法でデプロイしてください。この層には `server.run(transport=...)` はありません。`server.run(read_stream, write_stream, server.create_initialization_options())` が 1 組のストリーム上で 1 つの接続を駆動し、その 1 行がすべてです。
 
 ## まとめ {#recap}
@@ -203,4 +221,4 @@ use Server.middleware to observe or wrap initialization
 * `add_request_handler(method, params_type, handler)` は任意のメソッドを提供します。`initialize` は予約されています。
 * `Server` が公開するケイパビリティは、どのハンドラーを登録したかから導出されます。
 
-`Client(server)` が両方のサーバーを同じように扱ったのは、両者がまさに同じプロトコルだからであり、それこそが要点です。さらに下の層はクラスですらありません。**[ミドルウェア](middleware.md)** です。
+クライアントが両方のサーバーを同じように扱ったのは、両者がまさに同じプロトコルだからであり、それこそが要点です。さらに下の層はクラスですらありません。**[ミドルウェア](middleware.md)** です。

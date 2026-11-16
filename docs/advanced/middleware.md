@@ -10,8 +10,8 @@ You write it as `async (ctx, call_next)` and append it to `server.middleware`. T
     *refuse* messages; do not make it the foundation your server stands on.
 
 `MCPServer` takes the list at construction (`MCPServer(name, middleware=[...])`) and exposes it as
-`mcp.middleware`; the low-level `Server` exposes the same list as `server.middleware`. The example
-below uses the low-level `Server`; if `Server(name, on_call_tool=...)` is new to you, read
+`mcp.middleware`; the low-level `Server` exposes the same list as `server.middleware`. The examples
+below use the low-level `Server`; if `Server(name, on_call_tool=...)` is new to you, read
 **[The low-level Server](low-level-server.md)** first.
 
 ## A timing middleware
@@ -56,14 +56,35 @@ That is the point. Middleware wraps **every** inbound message:
 * Even a method the server has no handler for: `call_next` raises the
   `MCPError(-32601, "Method not found")` *through* your middleware on its way to the client.
 
+## A concurrency cap
+
+A middleware doesn't have to call `call_next(ctx)`. Raise an `MCPError` instead and that one
+message is **refused**: the connection stays up and the next message goes through.
+
+Say every search holds a connection from a pool of four. This middleware lets four tool calls run
+at once and refuses the fifth:
+
+```python title="server.py" hl_lines="15-16 40-55 59"
+--8<-- "docs_src/middleware/tutorial002.py"
+```
+
+* Only `tools/call` is counted, so the server keeps answering `server/discover` and `tools/list`
+  while it refuses tool calls.
+* MCP defines no "server busy" error code, so `SERVER_BUSY` is this server's own.
+* Refusing tells the client straight away that the server is overloaded. If you'd rather make
+  callers wait, hold an `anyio.CapacityLimiter` around `call_next(ctx)` instead.
+
+A raised `MCPError` goes to the client application, not to the model. If the model should read the
+message, return a tool result with `is_error=True` instead: that is **Answer**, below.
+
 ## What you can do inside one
 
 In increasing order of how much you should hesitate:
 
-* **Observe.** Time it, count it, log it. The example above.
+* **Observe.** Time it, count it, log it. The timing middleware above.
 * **Refuse.** Raise an `MCPError` *instead of* calling `call_next(ctx)` and that one message is
-  answered with a JSON-RPC error. The connection stays up; the next message goes through. This is
-  how a server gates `subscriptions/listen` per caller:
+  answered with a JSON-RPC error. The connection stays up; the next message goes through. The
+  concurrency cap above. It is also how a server gates `subscriptions/listen` per caller:
   **[Deciding who may watch](../handlers/subscriptions.md#deciding-who-may-watch)** on the
   Subscriptions page walks through it.
 * **Rewrite.** `ctx` is a dataclass: `await call_next(dataclasses.replace(ctx, params=...))`

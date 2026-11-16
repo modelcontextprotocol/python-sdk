@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import cache, reduce
 from operator import or_
 from types import TracebackType, UnionType
-from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, TypeAlias, cast, get_args, overload
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, Self, TypeAlias, cast, get_args, overload
 
 import anyio
 import anyio.abc
@@ -36,7 +36,7 @@ from mcp_types.version import (
     MODERN_PROTOCOL_VERSIONS,
 )
 from pydantic import BaseModel, Discriminator, Tag, TypeAdapter, ValidationError
-from typing_extensions import Self, TypeVar, deprecated
+from typing_extensions import TypeVar, deprecated
 
 from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.extension import NotificationBinding, ResultClaim, UnexpectedClaimedResult
@@ -80,19 +80,12 @@ def _clamp_inbound_ttl(raw: dict[str, Any]) -> None:
 
 @cache
 def _wire_fields(target: type[BaseModel] | UnionType) -> frozenset[str]:
-    """Top-level wire keys `target` declares (its members', for a union).
-
-    A `RootModel` row (e.g. an empty result carried as `RootModel[Result]`)
-    reports its wrapped type's keys, not the pydantic-internal `root`.
-    """
+    """Top-level wire keys `target` declares (its members', for a union)."""
     members: tuple[Any, ...] = get_args(target) if isinstance(target, UnionType) else (target,)
     models = [m for m in members if isinstance(m, type) and issubclass(m, BaseModel)]
     fields: set[str] = set()
     for model in models:
-        if getattr(model, "__pydantic_root_model__", False):  # a RootModel wrapper row
-            fields |= _wire_fields(model.model_fields["root"].annotation)
-        else:
-            fields.update(field.alias or name for name, field in model.model_fields.items())
+        fields.update(field.alias or name for name, field in model.model_fields.items())
     return frozenset(fields)
 
 
@@ -1126,7 +1119,8 @@ class ClientSession:
         """Revalidate a `CallToolResult` against the tool's declared output schema.
 
         Raises:
-            RuntimeError: Structured content is missing or does not conform to the schema.
+            RuntimeError: Structured content is missing or does not conform to the schema, or the
+                schema is invalid or has a `$ref` that does not resolve within the schema document.
         """
         if name not in self._tool_output_schemas:
             # refresh output schema cache
@@ -1140,17 +1134,22 @@ class ClientSession:
 
         if output_schema is not None:
             from jsonschema import exceptions as jsonschema_exceptions
+            from referencing.exceptions import Unresolvable
 
-            if result.structured_content is None:
+            if result.structured_content is None and "structured_content" not in result.model_fields_set:
                 raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
             validator = self._output_schema_validator(name, output_schema)
             # `best_match` picks the same error the previous `jsonschema.validate()` call raised,
             # so the message a caller sees is unchanged. It is untyped upstream.
             errors = validator.iter_errors(result.structured_content)
-            error = cast(
-                "Exception | None",
-                jsonschema_exceptions.best_match(errors),  # pyright: ignore[reportUnknownMemberType]
-            )
+            try:
+                error = cast(
+                    "Exception | None",
+                    jsonschema_exceptions.best_match(errors),  # pyright: ignore[reportUnknownMemberType]
+                )
+            except Unresolvable as e:
+                # A `$ref` did not resolve within the schema document.
+                raise RuntimeError(f"Invalid schema for tool {name}: {e}") from e
             if error is not None:
                 raise RuntimeError(f"Invalid structured content returned by tool {name}: {error}") from error
 
@@ -1168,6 +1167,7 @@ class ClientSession:
         """
         from jsonschema import SchemaError
         from jsonschema.validators import validator_for
+        from referencing import Registry
 
         if (validator := self._tool_output_validators.get(name)) is not None:
             return validator
@@ -1177,9 +1177,8 @@ class ClientSession:
             validator_cls.check_schema(output_schema)
         except SchemaError as e:
             raise RuntimeError(f"Invalid schema for tool {name}: {e}")
-        # jsonschema ships no `py.typed`, so pyright reads typeshed's stub, which declares
-        # `registry` as required (concrete validators default it); cast to a schema-only ctor.
-        validator = cast("Callable[[dict[str, Any]], Validator]", validator_cls)(output_schema)
+        # An explicit empty registry: `$ref`s resolve within the schema document and the bundled metaschemas.
+        validator = validator_cls(output_schema, registry=Registry())
         self._tool_output_validators[name] = validator
         return validator
 

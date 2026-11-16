@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d62c13457fc4a534, 80e73abaca6e0652, d1dc4c54cd00ec9c, 14ad3bc7904036bb, 5225f127bc1b9c77, fe1626fdd5aad1da, 4556cb7ea1a04a31]
+  sections: [d62c13457fc4a534, 80e73abaca6e0652, 128a492d18295f64, 14ad3bc7904036bb, 54a6697833fcc1d9, fe1626fdd5aad1da, 811d083c1da8bcf6]
   tool: 1
 ---
 # Yetkilendirme {#authorization}
@@ -23,12 +23,12 @@ Bu sayfa sunucu tarafını anlatır. Yetkilendirme sunucunuzu keşfeden ve token
 
 SDK'nın geçerli bir token'ın neye benzediği konusunda bir fikri yoktur. Bunu **`TokenVerifier`**'ı uygulayarak siz söylersiniz:
 
-```python title="server.py" hl_lines="12-14 19-24"
+```python title="server.py" hl_lines="14-16 21-27"
 --8<-- "docs_src/authorization/tutorial001.py"
 ```
 
 * `TokenVerifier` tek bir asenkron metodu olan bir protokoldür. `verify_token`, `Authorization` başlığındaki ham token'ı alır; geçerliyse bir **`AccessToken`**, değilse `None` döndürür. Uygulanacak başka bir şey yok.
-* Buradaki, token'ı bir tabloda arar. Gerçek bir doğrulayıcı JWT imzasını doğrular ya da yetkilendirme sunucusunun token-introspection endpoint'ini çağırır. O kod sizindir; SDK onu yalnızca çağırır.
+* Buradaki, token'ı bir tabloda arar; her girdi, token'ın hangi kaynak için verildiğini kaydeder. Gerçek bir doğrulayıcı JWT imzasını doğrular ya da yetkilendirme sunucusunun token-introspection endpoint'ini çağırır ve token'ın kimin için verildiğini (`aud` değerini) `AccessToken.resource` içinde bildirir. O kod sizindir; SDK onu yalnızca çağırır.
 * `token_verifier=` ve `auth=` her zaman birlikte kullanılır. Birini diğeri olmadan geçirirseniz `MCPServer(...)` daha tek bir istek sunmadan `ValueError` fırlatır.
 
 `AuthSettings`, kaynak sunucunuzun dışa dönük yüzüdür:
@@ -36,6 +36,10 @@ SDK'nın geçerli bir token'ın neye benzediği konusunda bir fikri yoktur. Bunu
 * `issuer_url`: token'larınızı veren yetkilendirme sunucusu.
 * `resource_server_url`: bu MCP endpoint'inin herkese açık URL'si. Bir token'ın *hangi* kaynak için olduğunu belirtir ve keşif belgesi burada bulunur.
 * `required_scopes`: her token bunların hepsini taşımalıdır.
+* `validate_token_resource`: `AccessToken.resource` değeri `resource_server_url` olmayan her token'ı reddeder. `resource_server_url` ayarlıyken bunu ayarlamadan bırakmak uyarı verir (`MCPDeprecationWarning`) ve `False` gibi davranır; 3.0 sürümü kaynak sunucuları için varsayılanı `True` yapar.
+  * Yetkilendirme sunucunuz token'ları istemcinin istediği `resource` değerine bağlıyorsa açın; MCP istemcileri bu değeri her zaman gönderir. `resource_server_url` değerini istemcilerin bağlandığı URL'nin birebir aynısı olarak tutun.
+  * Yetkilendirme sunucunuz kendi audience tanımlayıcılarını kullanıyorsa (bir Auth0 API tanımlayıcısı, bir Entra uygulama kimliği) kapalı bırakın ve bunun yerine `aud` değerini doğrulayıcınızda denetleyin; bu sunucu için olmayan bir token'da `None` döndürün.
+  * `aud` bir listeyse, `resource_server_url` ile eşit olan girdiyi `resource` alanına koyun.
 
 !!! tip
     SDK deposundaki `examples/servers/simple-auth/` dizininde, gerçek bir yetkilendirme sunucusunun
@@ -91,7 +95,7 @@ Sunucunuzu hiç duymamış bir istemci içeri giden yolu bu belgeyle bulur: `aut
 
 Herhangi bir işleyicinin içinde **`get_access_token()`**, doğrulayıcınızın geçerli istek için döndürdüğü `AccessToken`'dır:
 
-```python title="server.py" hl_lines="4 32-35"
+```python title="server.py" hl_lines="4 35-38"
 --8<-- "docs_src/authorization/tutorial002.py"
 ```
 
@@ -125,6 +129,6 @@ Bir yetkilendirme sunucusu, kullanıcının onay ekranından tıklayarak geçmes
 * `token_verifier=` ve `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` her zaman birlikte kullanılır.
 * SDK, [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata belgesini `/.well-known/oauth-protected-resource/...` altında yayımlar ve kimliği doğrulanmamış istekleri, `WWW-Authenticate` başlığı ona işaret eden bir 401 ile yanıtlar. Keşif hikâyesinin tamamı bu.
 * Herhangi bir işleyicide `get_access_token()`, kimin çağırdığını söyler.
-* Yetkilendirme bir HTTP meselesidir. `stdio` ve bellek içi istemci onu hiç görmez.
+* Yetkilendirme bir HTTP meselesidir. `stdio` ve bellek içi test istemcisi onu hiç görmez.
 
 İstemci yarısı (yetkilendirme sunucunuzu keşfetme ve token'ı sizin yerinize alma) **[OAuth istemcileri](../client/oauth-clients.md)** sayfasında. Kullanıcıdan kimlik istemek yerine bir kimliği *beyan eden* istemci ise **[Kimlik beyanı](../client/identity-assertion.md)** sayfasında.

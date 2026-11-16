@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, e7828fd2729b2c9d, a03ec26bfc678b65, 1034c653c0bcf1b0]
+  sections: [a91322c46111d16d, 8e6fd6d6f59bb568, 7cf38181f6c99fd5, 37804d4fb36d6302, 1034c653c0bcf1b0]
   tool: 1
 ---
 # Asserção de identidade {#identity-assertion}
@@ -64,7 +64,7 @@ A extensão não exige isso; é uma escolha deliberadamente mais rígida. Este c
 
 ### Um cliente confidencial {#a-confidential-client}
 
-`client_secret` é obrigatório; o construtor levanta `ValueError` sem ele. O perfil do IETF por baixo da [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) reserva este grant para clientes confidenciais, a SEP-990 exige que o cliente se autentique, e este SDK impõe as duas coisas insistindo em um segredo compartilhado. `token_endpoint_auth_method` escolhe por onde ele viaja: `client_secret_post` (o padrão, no corpo do formulário) ou `client_secret_basic` (um cabeçalho HTTP Basic). O perfil também permite `private_key_jwt`; este provider não oferece suporte a ele.
+`client_secret` é obrigatório; o construtor levanta `ValueError` sem ele. O perfil do IETF por baixo da [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) recomenda este grant apenas para clientes confidenciais, e a [RFC 7521](https://datatracker.ietf.org/doc/html/rfc7521) deixa essa política a cargo do servidor de autorização. Este SDK adota a leitura conservadora dos dois lados: o servidor de autorização integrado recusa um cliente que não tem segredo compartilhado, e este provider insiste em um. `token_endpoint_auth_method` escolhe por onde ele viaja: `client_secret_post` (o padrão, no corpo do formulário) ou `client_secret_basic` (um cabeçalho HTTP Basic). O perfil também permite `private_key_jwt`; este provider não oferece suporte a ele.
 
 !!! tip
     Leia `client_secret` do ambiente ou de um gerenciador de segredos, nunca do controle de versão.
@@ -91,6 +91,7 @@ O SDK também pode *ser* o servidor de autorização: `create_auth_routes` retor
 
 * `identity_assertion_enabled=True` controla tudo. Desligada, que é o padrão, `/token` responde a este grant com `unsupported_grant_type` mesmo que você tenha implementado o hook, e os metadados não o mencionam. Ligada, os metadados ganham o grant type `jwt-bearer` e listam `urn:ietf:params:oauth:grant-profile:id-jag` em `authorization_grant_profiles_supported`, o campo que a extensão usa para anunciar suporte. (O cliente deste SDK nunca o lê: ele é provisionado para um único issuer e simplesmente pede.)
 * **`exchange_identity_assertion`** é o hook. Antes de ele rodar, o SDK já autenticou o cliente, recusou clientes públicos e recusou clientes cujo registro não lista o grant. Você recebe um `IdentityAssertionParams` (a `assertion` crua, os `scopes` e o `resource` solicitados) e retorna um `OAuthToken` simples.
+* Recusar clientes públicos é política do SDK, não uma exigência da especificação. O servidor integrado autentica clientes apenas por segredo compartilhado: ele não tem suporte a `private_key_jwt` e ainda não resolve Client ID Metadata Documents ([#1801](https://github.com/modelcontextprotocol/python-sdk/issues/1801)), então um cliente identificado por um desses documentos não pode usar este grant aqui. Um deploy que queira uma política diferente pode trocar a rota `/token` que `create_auth_routes` retorna pela sua própria.
 * O registro dinâmico de clientes recusa este grant incondicionalmente, então `get_client` aqui serve um cliente provisionado à mão. Um cliente ID-JAG não consegue passar a existir registrando a si mesmo.
 * Metade da classe são recusas. `OAuthAuthorizationServerProvider` é o servidor de autorização *inteiro*, então também pede o fluxo authorization code; um servidor que também faz login de usuários implementa esses métodos de verdade, e este aqui tem exatamente uma porta.
 

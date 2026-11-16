@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, 63878d29e87c3e73, 13175843d3588af4, e7e2b9fd516f77de, 758f06399b513c1f, a05d7278487d610b]
+  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, c2dae1ebe2ebd543, 13175843d3588af4, df06056fb16b3846, 758f06399b513c1f, a05d7278487d610b]
   tool: 1
 ---
 # OAuth 클라이언트 {#oauth-clients}
@@ -81,18 +81,20 @@ translation:
 
 `Client`가 처음 요청을 보내면 서버는 `401`로 응답합니다. 그러면 프로바이더가 이어받습니다.
 
-1. **디스커버리.** `WWW-Authenticate` 헤더를 읽고, `/.well-known/oauth-protected-resource`에서 서버의 Protected Resource Metadata를 가져오고, 어느 인가 서버가 이 리소스를 보호하는지 알아낸 뒤, **그** 서버의 메타데이터를 가져옵니다.
+1. **디스커버리.** `WWW-Authenticate` 헤더를 읽고, `/.well-known/oauth-protected-resource`에서 서버의 Protected Resource Metadata를 가져오고, 어느 인가 서버가 이 리소스를 보호하는지 알아낸 뒤, **그** 서버의 메타데이터를 가져옵니다. (리소스 메타데이터를 게시하지 않는 오래된 서버에는 대신 그 서버 자신의 오리진에서 인가 서버 메타데이터를 요청합니다.) 어느 경우든 메타데이터의 `issuer` 값은 그 메타데이터를 가져온 대상 서버를 가리켜야 하며, 다른 값이면 거부합니다.
 2. **등록.** 저장소에 아무것도 없으면 `OAuthClientMetadata`로 동적으로 등록하고 결과를 저장합니다.
 3. **인가.** PKCE 쌍과 `state`를 생성하고, 인가 URL을 조립하고, `redirect_handler`를 await한 다음, 코드를 받기 위해 `callback_handler`를 await합니다.
 4. **교환.** 코드를 `OAuthToken`으로 교환해 저장하고, 원래 요청에 `Authorization: Bearer ...`를 붙여 다시 보냅니다.
 
 그다음부터는 조용합니다. 토큰은 저장소에서 꺼내 쓰고, 만료된 액세스 토큰은 리프레시 토큰으로 갱신하며, 그 어느 것도 통하지 않을 때에만 흐름을 다시 실행합니다.
 
+이 모든 요청에 적용되는 트랜스포트 규칙이 하나 있습니다. 바깥의 MCP 요청과 마찬가지로, 같은 오리진에 머물면서 메서드를 유지하는 리다이렉트(이를테면 끝 슬래시를 붙이는 307/308)만 따르고, 그 밖의 리다이렉트는 해당 URL이 응답하지 않는 것으로 취급합니다.
+
 이 가운데 직접 작성한 코드는 하나도 없습니다. 키워드 인자가 두 개 더 남아 있는데(`client_metadata_url`과 `validate_resource_url`), 이 파일에는 둘 다 필요 없습니다. 알아 둘 만한 것은 `client_metadata_url`이며, 아래에 별도 섹션이 있습니다.
 
 ### 직접 해 보기 {#try-it}
 
-이 문서의 예제 대부분은 인메모리 `Client(server)`로 확인할 수 있습니다. 이 예제는 아닙니다. 이 흐름의 핵심이 HTTP `401`인데, 인메모리 클라이언트와 서버 사이에는 HTTP가 없기 때문입니다.
+테스트에서 쓰는 인메모리 `Client(server)`는 여기서는 도움이 되지 않습니다. 이 흐름의 핵심이 HTTP `401`인데, 인메모리 클라이언트와 서버 사이에는 HTTP가 없기 때문입니다.
 
 리포지토리에는 실제로 동작하는 버전이 들어 있습니다. `examples/servers/simple-auth/`는 독립 실행형 인가 서버와 보호된 MCP 서버를 실행하고, `examples/clients/simple-auth-client/`는 이 페이지의 클라이언트를 작은 CLI로 키운 것입니다. 그 README에 두 명령이 있습니다. 서버를 시작하고, 그 서버를 대상으로 클라이언트를 실행하면 네 단계가 지나가는 모습을 볼 수 있습니다.
 
@@ -110,13 +112,14 @@ URL은 루트가 아닌 경로를 가진 HTTPS여야 합니다. 그 외에는 �
 
 `ClientCredentialsOAuthProvider`는 사람만 빠진 똑같은 `httpx2.Auth`입니다.
 
-```python title="client.py" hl_lines="4 27-33"
+```python title="client.py" hl_lines="4 27-34"
 --8<-- "docs_src/oauth_clients/tutorial002.py"
 ```
 
 달라진 점은 다음과 같습니다.
 
 * `OAuthClientMetadata`도 핸들러도 없습니다. `client_id`와 `client_secret`을 전달하면 프로바이더가 이를 감싸는 최소한의 `client_credentials` 등록을 만들고 동적 등록은 완전히 건너뜁니다.
+* `issuer`는 그 자격 증명을 발급한 인가 서버를 지목합니다. 그 서버의 `/.well-known/oauth-authorization-server` 문서가 반환하는 `issuer` 값을 쓰세요. 디스커버리는 위와 똑같이 실행되지만, 토큰 요청은 오직 **그** 발급자의 메타데이터로만 조립됩니다. MCP 서버가 다른 곳을 가리키면 흐름은 대신 `OAuthFlowError`와 함께 멈춥니다. 이 값을 생략하는 것은 지원 중단 예정이며 3.0에서는 필수가 됩니다(**[지원 중단 예정 기능](../deprecated.md#deprecated-sdk-helpers)** 참고). 그때까지는 프로바이더가 경고를 내고 디스커버리가 찾아낸 인가 서버를 그대로 씁니다.
 * `scope`는 공백으로 구분한 문자열로, OAuth의 전송 형식입니다.
 * 그 아래는 모두 동일합니다. 같은 `TokenStorage`, 같은 `httpx2.AsyncClient(auth=...)`, 같은 `streamable_http_client`를 씁니다.
 
@@ -129,8 +132,8 @@ URL은 루트가 아닌 경로를 가진 HTTPS여야 합니다. 그 외에는 �
     `mcp.client.auth.extensions.client_credentials`에는 프로바이더가 하나 더 있습니다.
     공유 시크릿 대신 JWT로 인증하는 클라이언트를 위한 **`PrivateKeyJWTOAuthProvider`**입니다
     (`private_key_jwt`, 즉 키 쌍과 워크로드 아이덴티티 방식). 같은 패턴을 따릅니다.
-    하나를 생성해 `auth=`에 넣으면 됩니다. 같은 모듈에는 그 어설션을 만드는 두 헬퍼인
-    `SignedJWTParameters`와 `static_assertion_provider`도 들어 있습니다.
+    하나를 생성해(선택 인자 `issuer`를 똑같이 받습니다) `auth=`에 넣으면 됩니다. 같은 모듈에는
+    그 어설션을 만드는 두 헬퍼인 `SignedJWTParameters`와 `static_assertion_provider`도 들어 있습니다.
 
 사람이 없는 상황이 하나 더 있습니다. 클라이언트가 기업에 속해 있고, 어느 MCP 서버에 접근할 수 있는지를 사용자가 아니라 그 기업의 아이덴티티 공급자가 결정하는 경우입니다. 이는 고유한 신뢰 모델을 가진 다른 그랜트이며, 별도 페이지인 **[아이덴티티 어설션](identity-assertion.md)**에서 다룹니다.
 

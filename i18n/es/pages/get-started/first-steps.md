@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0d6c05bcbf836bf3, 59a7b14eeefc68c1, 7114d8d6daba203f, e8bbb56a98ba7bc9, 5138010f6159901c, f78da7c7c363d4c6, 220a939cab348686]
+  sections: [0d6c05bcbf836bf3, 9a78b5f6b44b18ab, 7114d8d6daba203f, e8bbb56a98ba7bc9, bfd2fd1153e71dac, 1615a994ef071fdd, 65c599fae991f245]
   tool: 1
 ---
 # Primeros pasos {#first-steps}
@@ -17,7 +17,7 @@ Tres palabras que verás en cada página a partir de aquí:
 * Un **cliente** vive dentro del host y habla MCP. El host ejecuta un cliente por cada servidor al que está conectado.
 * Un **servidor** es lo que construyes con este SDK. Expone cosas a los clientes. Nunca habla directamente con el modelo.
 
-Tú escribes el servidor. Los hosts son el producto de otra persona. El SDK también te da un `Client`. Lo usarás para probar tus servidores, y aparece más adelante en esta página.
+Tú escribes el servidor. Los hosts son el producto de otra persona. El SDK también te da un `Client`, la misma clase que usaría un host para llegar a un servidor por URL o lanzarlo como subproceso. Aparece más adelante en esta página, y es también la forma en que probarás tus servidores.
 
 ## Las tres primitivas {#the-three-primitives}
 
@@ -83,22 +83,20 @@ Viste tres pestañas en el Inspector. ¿Cómo supo que había tres?
 
 Cuando un cliente se conecta, el servidor declara sus **capacidades**: qué familias de solicitudes va a responder. El cliente usa esa declaración para decidir qué vale la pena pedir siquiera. Nunca la escribiste; `MCPServer` la declara por ti.
 
-Míralo tú mismo. El `Client` del SDK acepta el objeto servidor directamente y se conecta a él **en memoria** (sin subproceso, sin puerto):
+Míralo tú mismo. Deja `server.py` ejecutándose sobre HTTP en una terminal:
 
-```python
-import asyncio
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-from mcp import Client
+y apunta un cliente hacia él desde otra:
 
-from server import mcp
+```python title="client.py" hl_lines="7-8"
+--8<-- "docs_src/first_steps/tutorial001_client.py"
+```
 
-
-async def main() -> None:
-    async with Client(mcp) as client:
-        print(client.server_capabilities.model_dump(exclude_none=True))
-
-
-asyncio.run(main())
+```console
+python client.py
 ```
 
 ```text
@@ -118,17 +116,18 @@ Ese diccionario son las **capacidades** declaradas de tu servidor. Es lo primero
 Fíjate en lo que no está. `completions` (autocompletado de argumentos para plantillas de recurso y prompts) necesita un handler que escribes tú, este servidor no tiene uno, así que la capacidad está ausente y un cliente bien hecho no la pedirá. Esa es la regla para todo lo opcional: registra la cosa y la capacidad aparece; **[Autocompletado](../servers/completions.md)** lo demuestra.
 
 !!! info
-    `Client(mcp)` es el mismo cliente en memoria con el que se prueba cada ejemplo de esta
-    documentación, y es como probarás los tuyos. Tiene una página entera: **[Pruebas](testing.md)**.
+    Ese `client.py` es un cliente MCP completo, y **[El cliente](../client/index.md)** es su página.
+    En una prueba te saltas la terminal y el puerto y le pasas a `Client` el propio objeto servidor,
+    `Client(mcp)`. Eso también tiene una página entera: **[Pruebas](testing.md)**.
 
 ## Lo que no escribiste {#what-you-did-not-write}
 
 Repasa esta página. Escribiste tres pequeñas funciones de Python. **No** escribiste:
 
 * Un JSON Schema. `a: int, b: int` *es* el esquema de `add`.
-* Un handler de solicitudes. `tools/list`, `resources/read`, `prompts/get`: todos servidos por ti.
+* Un handler de solicitudes. `tools/list`, `resources/read`, `prompts/get`: el SDK los atiende todos por ti.
 * Una declaración de capacidades. `MCPServer` la hizo por ti.
-* Una línea de protocolo. La negociación de versión, el encuadre JSON-RPC, el intercambio de capacidades: todo ocurrió dentro de `mcp dev` y `Client(mcp)`, y nunca lo viste.
+* Una línea de protocolo. La negociación de versión, el encuadre JSON-RPC, el intercambio de capacidades: todo ocurrió dentro de `mcp dev` y `client.py`, y nunca lo viste.
 
 Esa proporción es la razón de ser del SDK.
 
@@ -139,6 +138,6 @@ Esa proporción es la razón de ser del SDK.
 * Un decorador por primitiva: `@mcp.tool()`, `@mcp.resource(uri)`, `@mcp.prompt()`. Nombre, descripción y esquema salen de la función.
 * Una URI con un `{param}` crea una **plantilla** de recurso, que se lista aparte de los recursos concretos.
 * Las **capacidades** del servidor se declaran por ti, y un cliente solo pide lo que un servidor declara.
-* `Client(mcp)` se conecta al objeto servidor en memoria: tu entorno de pruebas desde el primer día.
+* `Client("http://localhost:8000/mcp")` habla con tu servidor en ejecución. Pásale en su lugar el objeto servidor, `Client(mcp)`, y es tu entorno de pruebas desde el primer día.
 
 Lo siguiente es **[Conectar a un host real](real-host.md)**: este servidor dentro de Claude Desktop o un IDE, de verdad. Después, **[Pruebas](testing.md)**: una página, un cliente en memoria, y nunca más adivinas si funciona. Tras eso, cada primitiva tiene su propia página, empezando por la que maneja el modelo: **[Herramientas](../servers/tools.md)**.

@@ -16,15 +16,25 @@ So a legacy client is not something you build *for*. It is something that connec
 
 ## One handler, both eras
 
-Here is a tool that has to ask the user something, and both eras of client calling it:
+Here is a tool that has to ask the user something:
 
-```python title="server.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
 `reserve` needs one thing the model didn't supply: how many copies. `Annotated[..., Resolve(ask_quantity)]` is how a tool declares that (**[Dependencies](../handlers/dependencies.md)** is that whole story). Nothing in `reserve` names a version, checks a capability, or branches.
 
-The two clients are open **at the same time**, on the same `mcp` object. `mode="legacy"` runs the `initialize` handshake: the exact connection a pre-2026 client opens. The other one takes the default and lands on `2026-07-28`.
+Serve it over HTTP, and here are both eras of client calling it:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+The two clients are open **at the same time**, against the same running server. `mode="legacy"` runs the `initialize` handshake: the exact connection a pre-2026 client opens. The other one takes the default and lands on `2026-07-28`. Run `python client.py` from a second terminal:
 
 ```text
 2025-11-25 {'result': "Reserved 2 of 'Dune'."}
@@ -56,6 +66,40 @@ On one worker that is invisible. On two, it is the whole problem: a request that
     events to a client reconnecting to the *same* session), not a session store. It never makes a
     session reachable from another process.
 
+## Session lifetime and limits
+
+A legacy session does not live forever, and one process does not hold an unlimited number of
+them. Two settings control this. Both are keyword arguments on `run()`, `streamable_http_app()`
+and `Server.streamable_http_app()`. Modern (`2026-07-28`) connections and `stateless_http=True`
+have no sessions, so neither setting applies to them.
+
+| Setting | Default | What it does | What the client sees | Turn it off |
+|---|---|---|---|---|
+| `session_idle_timeout` | `1800` (30 min) | Closes a session that has had nothing in flight for that long. | `404 Session not found`. It has to `initialize` again. | `None` |
+| `max_sessions` | `10_000` | Refuses to open a session beyond that many. Existing sessions are untouched and nothing is evicted. | `503 Too many open sessions` with JSON-RPC code `-32603`. | `None` |
+
+What counts as "in flight":
+
+* An open `GET` stream. The SDK clients keep one open, so a connected client's session never
+  expires.
+* A request that is still being answered. A tool call that runs longer than the timeout is not
+  interrupted, and the countdown only starts once it finishes.
+* Nothing else. Between requests the clock runs. Any request on the session restarts it,
+  `ping` included. Once a session has expired, nothing revives it.
+
+A client that ends its session with `DELETE` frees it immediately. So does a client whose
+opening request was refused.
+
+```python
+mcp.run(transport="streamable-http", session_idle_timeout=None, max_sessions=50_000)
+```
+
+Both events show up in the server log. An expiry is `Session <id> idle timeout` at `INFO`. A
+refused open is `Refusing to open a new session: <n> sessions are already open` at `WARNING`.
+
+The limits are per process. With four workers the ceiling is four times `max_sessions`, and each
+worker expires its own sessions.
+
 ## The one knob: `stateless_http`
 
 If stickiness is a cost you refuse to pay, there is exactly one thing you can change.
@@ -81,7 +125,7 @@ Two things about it matter more than what it does.
 
 !!! check
     Do the wrong thing. `reserve` is the exact tool that just served both clients. Deploy it with
-    `stateless_http=True`, connect the same two clients over HTTP, and call it from each.
+    `stateless_http=True`, connect the same two clients, and call it from each.
 
     The modern client still gets `Reserved 2 of 'Dune'.` The modern leg didn't change.
 

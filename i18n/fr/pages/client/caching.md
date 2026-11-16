@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9e7b9a1710e5aeba, b74ca4c1d2ddddee, fa8714e61bf90c5a, 04db67a886b7271c, 857690fb8f876800]
+  sections: [9e7b9a1710e5aeba, 66a2e9acc9101d54, d3d25aa802f5145a, 04db67a886b7271c, 857690fb8f876800]
   tool: 1
 ---
 # Indications de mise en cache {#caching-hints}
@@ -30,7 +30,7 @@ Par défaut, chaque résultat indique `ttlMs: 0, cacheScope: "private"` : périm
 
 Sur le `Server` bas niveau, les gestionnaires (handlers) construisent leurs résultats à la main, et `ttl_ms` / `cache_scope` sont de simples champs des modèles de résultat. Un gestionnaire qui les définit explicitement l’emporte toujours sur le dictionnaire du constructeur, champ par champ :
 
-```python title="server.py" hl_lines="10 16"
+```python title="server.py" hl_lines="11 17"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -44,9 +44,23 @@ Une réserve sur les listes paginées : le protocole exige **le même `cacheScop
 
 Sur une session 2026-07-28, `Client` respecte les indications pour vous : il embarque un cache de réponses, activé par défaut. Un résultat qui arrive avec un `ttlMs` est stocké, et un appel identique effectué dans ce TTL est servi depuis le cache, sans aller-retour. Un résultat qui ne porte *aucune* indication n’est pas mis en cache : les résultats sans indication reçoivent `CacheConfig.default_ttl_ms`, dont la valeur par défaut est `0` (périmé immédiatement), si bien qu’un serveur qui ne déclare rien voit exactement le même trafic, appel pour appel, qu’auparavant.
 
-```python title="client.py" hl_lines="33 35 38"
+Pour le voir à l’œuvre, servez avec uvicorn le `server.py` de la section précédente (sa dernière ligne construit l’application ASGI). Le gestionnaire affiche une ligne chaque fois qu’il s’exécute réellement :
+
+```console
+uvicorn server:app --port 8000
+```
+
+```python title="client.py" hl_lines="20 23 28"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
+
+Lancez `python client.py` depuis un second terminal. Il affiche les indications que portait le premier résultat, le `ttlMs` du gestionnaire à côté du `cacheScope` du dictionnaire :
+
+```text
+1000 public
+```
+
+Le terminal du serveur raconte la suite : entre les journaux de requêtes d’uvicorn, `tools/list served` apparaît trois fois.
 
 Quatre appels, trois récupérations. Le deuxième appel a trouvé une entrée fraîche et n’a jamais atteint le serveur ; avancer l’horloge (injectée) au-delà du TTL a fait que le troisième récupère à nouveau ; le quatrième a indiqué `cache_mode="refresh"`. Cet argument nommé existe sur les cinq verbes avec cache (`list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, `read_resource`) :
 
@@ -56,7 +70,7 @@ Quatre appels, trois récupérations. Le deuxième appel a trouvé une entrée f
 
 Une règle prime sur `"use"` : **les appels portant `meta` atteignent toujours le serveur.** Une requête avec `meta` défini (un jeton de progression, des champs de traçage) attend une requête sur la liaison ; sous `cache_mode="use"`, elle est donc traitée comme `"refresh"` : la lecture du cache est sautée, et le résultat récupéré remplace quand même l’entrée en cache. `"bypass"` et un `"refresh"` explicite se comportent comme d’habitude.
 
-Pour désactiver entièrement la mise en cache, construisez avec `Client(server, cache=None)` : chaque appel redevient un aller-retour, et `cache_mode`, bien que toujours accepté, n’a aucun effet.
+Pour désactiver entièrement la mise en cache, passez `cache=None` à la construction du `Client` : chaque appel redevient un aller-retour, et `cache_mode`, bien que toujours accepté, n’a aucun effet.
 
 La portée est elle aussi respectée automatiquement : les entrées `"private"` sont indexées sur la *partition* du cache (ci-dessous), tandis que les entrées `"public"` peuvent opter pour un partage plus large. Et **les notifications priment sur le TTL** pour les entrées exactes qu’elles désignent : une notification `list_changed` évince la liste correspondante en cache, et `resources/updated` évince la lecture en cache stockée exactement sous son URI, aussi fraîches soient-elles. Sur une connexion 2026-07-28, ces notifications arrivent sur un flux `subscriptions/listen` que vous ouvrez avec `client.listen(...)`, et l’éviction se termine avant que votre observateur ne voie l’événement ; tous les détails sont dans **[Abonnements](subscriptions.md)**.
 

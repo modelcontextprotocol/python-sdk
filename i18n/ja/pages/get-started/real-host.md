@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3c4f2f06b4e978b6, 22520eecae3d1961, f4e1709db18d635a, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
+  sections: [3c4f2f06b4e978b6, 51ea5fbcb0e93563, 32d8808606ffdae0, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
   tool: 1
 ---
 # 実際のホストに接続する {#connect-to-a-real-host}
@@ -11,7 +11,7 @@ translation:
 
 ## 1 つのサーバー、すべてのホスト {#one-server-every-host}
 
-```python title="server.py" hl_lines="3 33-34"
+```python title="server.py" hl_lines="4 34-35"
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
@@ -39,9 +39,9 @@ uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py
     ホストは最小限の `PATH` でサーバーを起動するため、そこに `uv` が入っていないことがあります。`uv` とだけ書いた部分を、`which uv`（macOS/Linux）または `where uv`（Windows）で得られる絶対パスに置き換えてください。`mcp install` が書き込むのもまさにこの形です。
 
 !!! note "このページはローカルの話"
-    ここで扱うものはすべて、ホストと同じマシン上でサーバーを動かします。ホストがファイルを stdio 経由で起動する形です。個人用のツールや 1 台のマシンで使うツールなら、まさにこれが正解です。ファイルを持って**いない**人たちにサーバーを渡すには、コマンドではなく **URL** を配ります。つまり、同じ `mcp` オブジェクトを Streamable HTTP で提供します。**[サーバーの実行](../run/index.md)** はその判断を 1 つの表にまとめており、**[デプロイとスケール](../run/deploy.md)** はそこから実際のホスト名に至るまでの道のりです。
+    ここで扱うものはすべて、ホストと同じマシン上でサーバーを動かします。ホストがファイルを stdio 経由で起動する形です。個人用のツールや 1 台のマシンで使うツールなら、まさにこれが正解です。ファイルを持っていない人たちにサーバーを渡すには、コマンドではなく **URL** を配ります。つまり、同じ `mcp` オブジェクトを Streamable HTTP で提供します。**[サーバーの実行](../run/index.md)** はその判断を 1 つの表にまとめており、**[デプロイとスケール](../run/deploy.md)** はそこから実際のホスト名に至るまでの道のりです。
 
-    また、ホストとは内部に MCP クライアントを持つアプリケーションにすぎないので、自分の Python コードがホストの役を演じることもできます。**[クライアントのトランスポート](../client/transports.md)** ではこの同じファイルを `stdio_client(...)` でサブプロセスとして起動し、**[テスト](testing.md)** ではプロセスを一切使わずにメモリ内で接続します。
+    また、ホストとは内部に MCP クライアントを持つアプリケーションにすぎないので、自分の Python コードがホストの役を演じることもできます。**[クライアントのトランスポート](../client/transports.md)** ではこの同じファイルを `Client(StdioServerParameters(...))` でサブプロセスとして起動し、**[テスト](testing.md)** ではプロセスを一切使わずにメモリ内で接続します。
 
 ## Claude Desktop {#claude-desktop}
 

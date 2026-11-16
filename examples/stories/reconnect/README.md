@@ -9,7 +9,7 @@ traffic and has `server_info` / `server_capabilities` available immediately.
 ## Run it
 
 ```bash
-# over HTTP — Streamable HTTP only; in-memory has no "round-trip" to skip.
+# HTTP only: the point of this story is skipping a network round trip.
 # The client self-hosts the server on a free port, runs, then tears it down.
 uv run python -m stories.reconnect.client --http
 # same, against the lowlevel-API server variant

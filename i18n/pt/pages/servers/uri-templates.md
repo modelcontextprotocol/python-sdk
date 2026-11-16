@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
+  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 317f4256a650cab6, 4b6c4a845438abc7, f98b46bafbee4acd]
   tool: 1
 ---
 # Templates de URI e segurança de caminhos {#uri-templates-and-path-safety}
@@ -174,7 +174,7 @@ conhecer o limite do seu sandbox. Para acesso ao sistema de arquivos,
 use `safe_join` para resolver o caminho e verificar que ele continua
 dentro do seu diretório base:
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -216,9 +216,10 @@ de arquivos, `safe_join` continua sendo a fronteira de contenção.
 
 !!! tip
     Se o seu handler não consegue atender à requisição (o arquivo não
-    existe, o id é desconhecido), levante uma exceção. O SDK a transforma
-    em uma resposta de erro. Veja **[Tratamento de erros](handling-errors.md)** para a
-    diferença entre um erro de protocolo e um erro de ferramenta.
+    existe, o id é desconhecido), levante `ResourceNotFoundError`, como
+    `read_manual` faz acima. O cliente recebe `-32602` com a sua mensagem
+    e a URI. Já uma exceção inesperada vira um `-32603` genérico. Veja
+    **[Tratamento de erros](handling-errors.md#a-resource-that-doesnt-exist)**.
 
 ## Recursos no Server de baixo nível {#resources-on-the-low-level-server}
 

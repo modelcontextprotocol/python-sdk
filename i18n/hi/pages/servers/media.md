@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 043f526230dd243d, 6ee3e9bcfd24047a]
+  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 864137b5e9c61e91, 043f526230dd243d, db1ef91db7d6b3f3]
   tool: 1
 ---
 # Media {#media}
@@ -86,6 +86,24 @@ result.structured_content  # None
     MP3 bytes से `Audio` बनाएँ तो client को `mime_type="audio/wav"` बताया जाता है, और फिर
     वह ईमानदारी से उसे decode करने में नाकाम रहता है। जब `data=` दें, तो `format=` भी दें।
 
+## resource embed करना {#embedding-a-resource}
+
+tool एक document भी लौटा सकता है: कुछ text या bytes, साथ में वह URI जहाँ वह रहता है और एक MIME type। यह **`EmbeddedResource`** है, content block की एक और किस्म। सादे `str` के उलट यह client को बताता है कि content क्या है, ताकि client उसे attachment की तरह दिखा सके या ऐसे resource को पहचान सके जिसे वह पहले से जानता है।
+
+```python title="server.py" hl_lines="7 14 16-18"
+--8<-- "docs_src/media/tutorial005.py"
+```
+
+* `brand://guidelines` एक साधारण resource है (इनके बारे में **[Resources](resources.md)** बताता है)। माँगे जाने पर tool वही document model को सौंपता है, और `guidelines()` को सीधे call करने से सच का एक ही स्रोत बना रहता है।
+* `EmbeddedResource` और `TextResourceContents` `mcp.types` से आते हैं। images जैसा कोई helper यहाँ नहीं है: जो block आप बनाते हैं वह बिना छुए result में जाता है, और कोई `structured_content` नहीं होता।
+* वही URI इस्तेमाल करें जिसके तहत resource register है, ताकि client बता सके कि attachment और `brand://guidelines` एक ही document हैं। कोई भी URI मान्य है, register हो या न हो।
+
+```python
+result.content  # [EmbeddedResource(type="resource", resource=TextResourceContents(uri="brand://guidelines", mime_type="text/markdown", text="# Brand guidelines\n\n..."))]
+```
+
+binary content के लिए `TextResourceContents` की जगह `BlobResourceContents(uri=..., mime_type=..., blob=...)` इस्तेमाल करें, जिसमें bytes base64-encoded होकर `blob` में जाते हैं। सिर्फ़ एक pointer भेजना हो, जिसे client बाद में `resources/read` कर सके, तो उसकी जगह `ResourceLink(name=..., uri=...)` लौटाएँ; यह भी content block ही है।
+
 ## Icons {#icons}
 
 `Icon` metadata है, content नहीं। इसमें image नहीं होती; यह URI से किसी image की ओर इशारा करता है, और client उसे fetch करके आपके server के नाम, किसी tool, resource या prompt के बगल में दिखा सकता है।
@@ -115,6 +133,7 @@ tool के icons `tools/list` से मिले `Tool` object पर हो�
 
 * tool से `Image` या `Audio` लौटाएँ तो client को `ImageContent` / `AudioContent` block मिलता है: आपके bytes base64-encoded, MIME type के साथ।
 * इसे `path=` से बनाएँ और suffix को MIME type तय करने दें, या in-memory `data=` और स्पष्ट `format=` से बनाएँ।
+* result में कोई document (text या base64 blob, उसके URI और MIME type के साथ) डालने के लिए `EmbeddedResource` लौटाएँ, या सिर्फ़ pointer भेजने के लिए `ResourceLink`।
 * media results में न `structured_content` होता है, न output schema।
 * `Icon` एक pointer है: `src` URI और साथ में optional `mime_type`, `sizes` और `theme`।
 * `icons=[...]` server पर, tools पर, resources पर और prompts पर काम करता है, और clients इन्हें संबंधित objects पर पाते हैं।

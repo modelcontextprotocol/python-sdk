@@ -184,7 +184,6 @@ async def test_context_elicit_returns_typed_result(connect: Connect) -> None:
     assert received == snapshot(
         [
             ElicitRequestFormParams(
-                _meta={},
                 message="Where to?",
                 requested_schema={
                     "properties": {

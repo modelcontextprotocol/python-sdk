@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, ffe823cb0fedd488, f33651add1b59094]
+  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, d30d3c20168b88b2, f5ef38dad59d6f76, 6e38a699ba57fbdf, 2b984a3bf37a0ddd]
   tool: 1
 ---
 # 프롬프트 {#prompts}
@@ -139,9 +139,54 @@ uv run mcp dev server.py
 ```
 
 !!! info
-    **[도구](tools.md)**를 읽었다면 이 페이지의 내용은 이미 모두 알고 있는 셈입니다. 같은 데코레이터,
+    **[도구](tools.md)**를 읽었다면 여기까지의 내용은 이미 모두 알고 있는 셈입니다. 같은 데코레이터,
     설명이 되는 같은 docstring, 같은 `Annotated`/`Field`입니다. 달라지는 것은 누가 실행하는지(사용자)와
     결과가 어디로 가는지(대화 속으로)뿐입니다.
+
+## 텍스트 그 이상 {#more-than-text}
+
+`UserMessage`와 `AssistantMessage`는 `str`을 받는 자리라면 어디든 콘텐츠 블록이나 `Image` / `Audio` 헬퍼도 받습니다. 프롬프트에서 자주 나오는 경우는 두 가지입니다. 문서를 첨부하는 경우와 그림을 첨부하는 경우입니다.
+
+### 파일 임베딩 {#embedding-a-file}
+
+```python title="server.py" hl_lines="5 12 21 23"
+--8<-- "docs_src/prompts/tutorial004.py"
+```
+
+* 스타일 가이드는 `style://python`에 있는 리소스이며(**[리소스](resources.md)**에서 다룹니다), `server.py` 옆의 `style-guide.md`에서 읽어 옵니다. 아무 Markdown 파일이나 그 자리에 두세요.
+* `EmbeddedResource(resource=TextResourceContents(...))`(둘 다 `mcp.types`에 있습니다)는 URI와 MIME 타입과 함께 파일을 첫 번째 메시지로 담고, 이 파일을 참조하는 요청이 일반 텍스트로 뒤따릅니다.
+* 가이드를 f-string에 붙여 넣는 대신 임베딩하면 클라이언트가 첨부 파일로 보여 주고 나중에 `style://python`을 다시 열 수 있으며, 모델은 파일을 원문 그대로 받습니다. 바이너리 파일에는 base64 `blob`을 담은 `BlobResourceContents`를 사용하세요.
+
+렌더링하면 첫 번째 메시지의 `content`는 `resource` 블록입니다.
+
+```json
+{"type": "resource", "resource": {"uri": "style://python", "mimeType": "text/markdown", "text": "* Prefer early returns.\n..."}}
+```
+
+### 이미지 첨부 {#attaching-an-image}
+
+```python title="server.py" hl_lines="4 15"
+--8<-- "docs_src/prompts/tutorial005.py"
+```
+
+* `Image`는 **[이미지, 오디오, 아이콘](media.md)**의 헬퍼입니다. 프롬프트가 렌더링될 때 `UserMessage`가 이를 `ImageContent` 블록(파일은 base64로 인코딩되고, MIME 타입은 `.png`에서 추측)으로 변환합니다. `Audio`도 같은 방식으로 `AudioContent`가 됩니다.
+* `architecture.png`라는 이름의 PNG를 아무거나 `server.py` 옆에 두세요. 프롬프트 인수는 문자열이므로 그림은 항상 서버에서 나옵니다. `component`는 문구만 제공합니다.
+
+```json
+{"type": "image", "data": "iVBORw0KGgoAAAANSUhEUg...", "mimeType": "image/png"}
+```
+
+## 런타임에 목록 바꾸기 {#changing-the-list-at-runtime}
+
+클라이언트가 연결된 상태에서도 프롬프트를 추가할 수 있습니다. 예를 들어 사용자가 지시 사항을 자신만의 메뉴 항목으로 저장하게 할 수 있습니다. 프롬프트를 등록한 다음 알림을 보내세요.
+
+```python title="server.py" hl_lines="5 23-27"
+--8<-- "docs_src/prompts/tutorial006.py"
+```
+
+* `mcp.add_prompt(Prompt.from_function(fn, name=..., description=...))`는 `@mcp.prompt()`와 똑같이 함수를 등록하고, `mcp.remove_prompt(name)`은 그 반대입니다. `add_prompt`는 같은 이름의 기존 항목을 덮어쓰지 않고 유지하므로, 저장이 교체가 되도록 이 도구는 먼저 이전 항목을 제거합니다. `prompts/list`에는 변경 사항이 즉시 반영됩니다.
+* `await ctx.notify_prompts_changed()`는 `subscriptions/listen` 스트림을 듣고 있는 모든 `2026-07-28` 클라이언트에게 `notifications/prompts/list_changed`를 보냅니다(**[구독](../handlers/subscriptions.md)**). `await ctx.session.send_prompt_list_changed()`는 호출한 클라이언트가 2026 이전 버전일 때 그 클라이언트에게 보냅니다(**[레거시 클라이언트 지원](../run/legacy-clients.md)**). 둘 다 호출하세요. 알릴 대상이 없으면 각각 아무 일도 하지 않습니다.
+* 알림을 받은 클라이언트는 `prompts/list`를 다시 호출합니다. Python `Client`에서는 `async with client.listen(prompts_list_changed=True) as sub:`이며, `PromptsListChanged` 이벤트를 내놓습니다.
 
 ## 요약 {#recap}
 
@@ -151,5 +196,7 @@ uv run mcp dev server.py
 * `str`을 반환하면 사용자 메시지 하나가 됩니다. `UserMessage` / `AssistantMessage`의 목록을 반환하면 여러 턴의 대화 시작점을 마련할 수 있습니다.
 * `title=`과 `Field(description=...)`은 클라이언트가 UI에 표시하는 내용입니다.
 * 필수 인수가 빠지면 요청 전체가 실패합니다. 프롬프트별 오류 결과는 없습니다.
+* `EmbeddedResource`나 `Image`를 `UserMessage`로 감싸면 문서나 그림을 첨부할 수 있습니다.
+* 런타임에 프롬프트를 추가하거나 제거하려면 `mcp.add_prompt(...)` / `mcp.remove_prompt(...)`를 쓰고, 이어서 `await ctx.notify_prompts_changed()`와 `await ctx.session.send_prompt_list_changed()`를 호출하세요.
 
 프롬프트(또는 리소스 템플릿) 인수의 서버 측 자동 완성은 **[자동 완성](completions.md)**에서 다룹니다.

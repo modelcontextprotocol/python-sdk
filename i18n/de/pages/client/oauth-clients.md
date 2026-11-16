@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, 63878d29e87c3e73, 13175843d3588af4, e7e2b9fd516f77de, 758f06399b513c1f, a05d7278487d610b]
+  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, c2dae1ebe2ebd543, 13175843d3588af4, df06056fb16b3846, 758f06399b513c1f, a05d7278487d610b]
   tool: 1
 ---
 # OAuth-Clients {#oauth-clients}
@@ -81,18 +81,20 @@ Sieh dir `main()` an. Der Provider kommt an den **httpx2-Client**, der httpx2-Cl
 
 Wenn `Client` zum ersten Mal einen Request schickt, antwortet der Server mit `401`. Der Provider übernimmt:
 
-1. **Discovery.** Er liest den `WWW-Authenticate`-Header, holt die Protected Resource Metadata des Servers von `/.well-known/oauth-protected-resource`, erfährt, welcher Autorisierungsserver diese Ressource schützt, und holt die Metadaten *dieses* Servers.
+1. **Discovery.** Er liest den `WWW-Authenticate`-Header, holt die Protected Resource Metadata des Servers von `/.well-known/oauth-protected-resource`, erfährt, welcher Autorisierungsserver diese Ressource schützt, und holt die Metadaten *dieses* Servers. (Ein älterer Server, der keine Ressourcen-Metadaten veröffentlicht, wird stattdessen an seinem eigenen Origin nach Autorisierungsserver-Metadaten gefragt.) So oder so müssen die Metadaten als `issuer` den Server nennen, für den sie geholt wurden; alles andere wird abgelehnt.
 2. **Registrierung.** Nichts im Speicher? Er registriert dich dynamisch mit deiner `OAuthClientMetadata` und speichert das Ergebnis.
 3. **Autorisierung.** Er generiert das PKCE-Paar und einen `state`, baut die Autorisierungs-URL, awaited deinen `redirect_handler` und awaited dann deinen `callback_handler` für den Code.
 4. **Austausch.** Er tauscht den Code gegen ein `OAuthToken`, speichert es und wiederholt deinen ursprünglichen Request mit `Authorization: Bearer ...`.
 
 Danach ist Ruhe. Tokens kommen aus dem Speicher, ein abgelaufenes Access-Token wird mit dem Refresh-Token erneuert, und erst wenn nichts davon klappt, führt er den Flow erneut aus.
 
+Eine Transportregel gilt für alle diese Requests: Wie der MCP-Request, in dem sie laufen, folgen sie einem Redirect nur, wenn er auf demselben Origin bleibt und die Methode beibehält (etwa ein 307/308 wegen eines Schrägstrichs am Ende), und behandeln jeden anderen Redirect so, als würde diese URL nicht antworten.
+
 Nichts davon hast du geschrieben. Zwei Keyword-Argumente bleiben übrig (`client_metadata_url` und `validate_resource_url`), und diese Datei braucht keines davon. `client_metadata_url` ist dasjenige, das man kennen sollte; es bekommt unten einen eigenen Abschnitt.
 
 ### Ausprobieren {#try-it}
 
-Die meisten Beispiele in dieser Dokumentation kannst du mit einem In-Memory-`Client(server)` prüfen. Dieses nicht: Der ganze Sinn des Flows ist ein HTTP-`401`, und zwischen einem In-Memory-Client und seinem Server gibt es kein HTTP.
+Der In-Memory-`Client(server)`, den deine Tests verwenden, hilft hier nicht: Der ganze Sinn des Flows ist ein HTTP-`401`, und zwischen einem In-Memory-Client und seinem Server gibt es kein HTTP.
 
 Das Repository liefert die Live-Variante mit. `examples/servers/simple-auth/` betreibt einen eigenständigen Autorisierungsserver und einen geschützten MCP-Server; `examples/clients/simple-auth-client/` ist der Client dieser Seite, ausgebaut zu einem kleinen CLI. Sein README enthält die beiden Befehle: Starte die Server, lass den Client gegen sie laufen, und du siehst die vier Schritte vorbeiziehen.
 
@@ -110,13 +112,14 @@ Ein nächtlicher Job, ein CI-Schritt, ein anderer Dienst. Es gibt keinen Browser
 
 `ClientCredentialsOAuthProvider` ist dasselbe `httpx2.Auth`, ohne den Menschen:
 
-```python title="client.py" hl_lines="4 27-33"
+```python title="client.py" hl_lines="4 27-34"
 --8<-- "docs_src/oauth_clients/tutorial002.py"
 ```
 
 Was sich geändert hat:
 
 * Keine `OAuthClientMetadata`, keine Handler. Du übergibst `client_id` und `client_secret`; der Provider baut eine minimale `client_credentials`-Registrierung darum herum und überspringt die dynamische Registrierung komplett.
+* `issuer` benennt den Autorisierungsserver, der diese Zugangsdaten ausgestellt hat; verwende den `issuer`-Wert, den sein Dokument unter `/.well-known/oauth-authorization-server` zurückgibt. Die Discovery läuft weiterhin wie oben, aber Token-Requests werden ausschließlich aus Metadaten für *diesen* Issuer gebaut; zeigt der MCP-Server irgendwo anders hin, bricht der Flow stattdessen mit einem `OAuthFlowError` ab. Ihn wegzulassen ist veraltet, und ab 3.0 ist er erforderlich (siehe **[Veraltete Features](../deprecated.md#deprecated-sdk-helpers)**); bis dahin warnt der Provider und verwendet den Autorisierungsserver, den die Discovery findet.
 * `scope` ist ein durch Leerzeichen getrennter String, das OAuth-Format auf der Leitung.
 * Alles danach ist identisch: dasselbe `TokenStorage`, derselbe `httpx2.AsyncClient(auth=...)`, derselbe `streamable_http_client`.
 
@@ -129,7 +132,7 @@ Standardmäßig reist das Secret als HTTP Basic Auth im Token-Request (`client_s
     Ein weiterer Provider liegt in `mcp.client.auth.extensions.client_credentials`:
     **`PrivateKeyJWTOAuthProvider`**, für Clients, die sich mit einem JWT statt einem
     gemeinsamen Secret authentifizieren (`private_key_jwt`, die Variante mit Schlüsselpaar und Workload-Identität). Er folgt
-    demselben Muster: einen erzeugen, auf `auth=` setzen. Dasselbe Modul liefert
+    demselben Muster: einen erzeugen (er nimmt denselben optionalen `issuer` entgegen), auf `auth=` setzen. Dasselbe Modul liefert
     `SignedJWTParameters` und `static_assertion_provider`, zwei Helfer, die seine Assertion bauen.
 
 Es gibt noch eine Situation ohne Menschen: Der Client gehört zu einem Unternehmen, dessen Identity Provider – nicht die Person am Host – entscheidet, welche MCP-Server er erreichen darf. Das ist ein anderer Grant mit eigenem Vertrauensmodell und eigener Seite: **[Identity Assertion](identity-assertion.md)**.

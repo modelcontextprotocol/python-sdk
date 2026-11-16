@@ -86,9 +86,15 @@ class CallOptions(TypedDict, total=False):
     with one of the sender's own in-flight request ids raises `ValueError`.
     Callers that need to know a request's id before its result arrives (a
     `subscriptions/listen` stream is demultiplexed by it) mint their own ids
-    here; string ids that don't parse as integers can never collide with the
-    dispatcher's minted sequence. Per the class contract, dispatchers that
-    predate this key ignore it and mint as usual.
+    here.
+
+    Integer ids, and strings that parse as integers, share the dispatcher's own
+    counter. The dispatcher skips an id that is still in flight, but may mint
+    the same value again once that request has finished. When an id must stay
+    unique for the whole session, use a string that doesn't parse as an
+    integer, as the `subscriptions/listen` driver does (`listen-1`,
+    `listen-2`, ...). Per the class contract, dispatchers that predate this key
+    ignore it and mint as usual.
     """
 
     timeout: float

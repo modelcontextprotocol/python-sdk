@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, 2090d99b355bc2c7, 0fde3bcea081ba3a]
   tool: 1
 ---
 # Düşük seviyeli Server {#the-low-level-server}
@@ -36,18 +36,22 @@ Bu, **[Araçlar](../servers/tools.md)** sayfasında dokuz satır `@mcp.tool()` i
 
 ### Deneyin {#try-it}
 
-Bunun için Inspector yok: `mcp dev` ve `mcp run` yalnızca `MCPServer` kabul eder. Bellek içi `Client` bunu umursamaz; düşük seviyeli bir `Server`'ı tıpkı bir `MCPServer`'ı aldığı gibi alır:
+`mcp dev` ve `mcp run` yalnızca `MCPServer` kabul eder, bu yüzden bunu kendiniz sunarsınız. `server.py` dosyasının son satırı ondan sıradan bir ASGI uygulaması oluşturur, uvicorn da onu çalıştırır:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Inspector'ı ya da herhangi bir istemciyi `http://localhost:8000/mcp` adresine yönlendirin:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ asyncio.run(main())
 
 * `result.structured_content` değeri `None`. Yüksek seviyeli sunucu `-> str` dönüş türünü sizin yerinize `{"result": ...}` içine sarmalar; burada sizin oluşturmadığınızı kimse oluşturmaz.
 * `list_tools`, **sizin** yazdığınız şemayı karakteri karakterine döndürür. Yüksek seviyeli sürümde her özellikte `"title": "Query"`, kökte de `"title": "search_booksArguments"` vardı: Pydantic'in bıraktığı izler. Burada ise ağa giden bir şey varsa onu oraya siz koymuşsunuzdur.
+
+Testte uvicorn'u ve portu atlarsınız: `Client(server)`, düşük seviyeli bir `Server`'ı süreç içinde tıpkı bir `MCPServer`'ı aldığı gibi alır; **[Test etme](../get-started/testing.md)** sayfasının anlattığı kalıp da budur.
 
 ## Sizin yerinize hiçbir şey denetlenmez {#nothing-is-checked-for-you}
 
@@ -116,6 +122,17 @@ Bu genellenebilir. Düşük seviyeli bir işleyiciden fırlatılan istisna **her
 
 Sunucu bu iki alanı asla karşılaştırmaz. Bu SDK'nın `Client`'ı karşılaştırır: bildirdiğiniz `output_schema`'yı karşılamayan bir `structured_content` döndürün, `call_tool` `Invalid structured content returned by tool search_books` ile başlayıp `jsonschema` hatasını alıntılayarak devam eden bir `RuntimeError` fırlatır. Bir şema vaat etmek ucuzdur; sözünüzü tutmak size kalır. Dönüş türleri ve şemaların tüm basamakları **[Yapılandırılmış çıktı](../servers/structured-output.md)** sayfasında.
 
+## Lehçe: JSON Schema 2020-12 {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` ve `output_schema` birer JSON Schema'dır ve lehçeyi [MCP belirtimi](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) sabitler: `$schema` anahtarı olmayan bir şema **JSON Schema 2020-12**'dir. `MCPServer`'ın ürettiği şemalar bu varsayılana dayanır (Pydantic 2020-12 yazar ve anahtarı koymaz); elle yazılmış bir dict de aynı kurala tabidir. Yani 2020-12 söz dağarcığının tamamı kullanılabilir:
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* `input_schema`'nın kökü `"type": "object"` olmalıdır. Onun yanında `oneOf`, `additionalProperties`, `anyOf`, `if`/`then`/`else`, `prefixItems`, yerel `$ref`'lerle `$defs` ve 2020-12 anahtar sözcüklerinin geri kalanı istemciye tam yazıldığı gibi ulaşır.
+* `$schema` anahtarı gerekmez. Yalnızca daha eski bir taslağı seçmek için ekleyin: `structured_content`'i bir aracın `output_schema`'sına göre doğrulayan bu SDK'nın `Client`'ı, doğrulayıcısını `$schema`'ya göre seçer ve hiç yoksa 2020-12 kullanır.
+
 ## `_meta`: model için değil, uygulama için {#\_meta-for-the-application-not-the-model}
 
 `content`, yanıtın modelin okuduğu kısmıdır. `structured_content`, aynı yanıtın tür bilgisi taşıyan veri halidir. `_meta` üçüncü kanaldır: yanıtın hiçbir şekilde parçası olmadan, **istemci uygulama** için sonuçla birlikte yolculuk eden veri.
@@ -167,7 +184,7 @@ Yapıcı, MCP'nin tanımladığı metotları kapsar. `add_request_handler` geri 
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* İlk argüman metot dizesidir. Bildirimlerin bir ikizi vardır: `add_notification_handler`.
+* İlk argüman metot dizesidir. Bildirimlerin bir ikizi vardır: `add_notification_handler`. Onun işleyicileri stdio'da ve el sıkışma neslinden HTTP bağlantılarında tetiklenir; `2026-07-28` Streamable HTTP yolunda istemcinin bildirim POST'u `202` ile onaylanır ve işleyiciye iletilmez, çünkü o revizyon HTTP üzerinden istemciden sunucuya hiçbir bildirim tanımlamaz.
 * `params_type`, gelen `params`'ın işleyiciniz çalışmadan **önce** doğrulandığı modeldir; yani özel metotlar, araçların almadığı doğrulamayı *alır*. `_meta` alanının diğer her metotta olduğu gibi ayrıştırılması için `RequestParams`'tan alt sınıf türetin.
 * İşleyici bir `BaseModel`, bir `dict` ya da `None` döndürür. SDK bunu JSON-RPC sonucuna serileştirir.
 
@@ -192,6 +209,7 @@ Bunların her biri, artık kavramlarını bildiğiniz birer fikir; her birinin k
 * `on_call_tool`, `on_get_prompt` ve `on_read_resource`, çağrıyı duraklatıp istemciden girdi istemek için normal sonuçları yerine bir `InputRequiredResult` döndürebilir; bkz. **[Çok turlu istekler](../handlers/multi-round-trip.md)** (multi-round-trip). Bu katmanın ruhuna uygun olarak sizin için hiçbir şey kurulmaz: `MCPServer` varsayılan olarak `requestState`'i mühürlerken burada ayarladığınız `request_state`, siz `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))` ile katılana kadar ağı tam yazıldığı gibi geçer: `MCPServer`'ın yaptığı mühürleme ve doğrulamanın aynısı için tek satır (iki ad da `mcp.server.request_state`'ten içe aktarılır) (**[`requestState`'i koruma](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion`, diğer ilkel öğeler için aynı `(ctx, params) -> result` biçimidir.
 * `on_subscriptions_listen`, 2026-07-28 `subscriptions/listen` akışını sunar. Bir `SubscriptionBus` üzerine kurulu bir `ListenHandler` geçirin ve olayları diğer işleyicilerinizden veri yoluna yayımlayın; bileşimin tamamı için bkz. **[Abonelikler](../handlers/subscriptions.md)**.
+* `get_tool_input_schema`, `on_list_tools`'u çağrı yolunun dışında tutar; bkz. **[Başlık parametreleri](header-parameters.md#schemas-by-name)**.
 * `server.streamable_http_app()`, `MCPServer`'ınkiyle aynı Starlette uygulamasını döndürür; onu **[Sunucunuzu çalıştırma](../run/index.md)** sayfasının herhangi bir ASGI uygulamasını dağıttığı gibi dağıtın. Burada `server.run(transport=...)` yoktur: `server.run(read_stream, write_stream, server.create_initialization_options())` bir akış çifti üzerinden tek bir bağlantıyı yürütür ve bu tek satır işin tamamıdır.
 
 ## Özet {#recap}
@@ -204,4 +222,4 @@ Bunların her biri, artık kavramlarını bildiğiniz birer fikir; her birinin k
 * `add_request_handler(method, params_type, handler)` her metodu sunar. `initialize` ayrılmıştır.
 * Bir `Server`'ın duyurduğu yetenekler, hangi işleyicileri kaydettiğinizden türetilir.
 
-`Client(server)` iki sunucuya da aynı davrandı, çünkü ikisi aynı protokolün *ta kendisi*; bütün mesele de bu. Bir alt katman ise bir sınıf bile değil: **[Middleware](middleware.md)**.
+İstemci iki sunucuya da aynı davrandı, çünkü ikisi aynı protokolün *ta kendisi*; bütün mesele de bu. Bir alt katman ise bir sınıf bile değil: **[Middleware](middleware.md)**.

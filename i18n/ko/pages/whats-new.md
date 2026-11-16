@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 11d93f1fa09eadf5, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, bd42ee3a268f6ea4, 875eb2889263424e]
   tool: 1
 ---
 # v2에서 달라진 점 {#whats-new-in-v2}
@@ -42,13 +42,13 @@ mcp = MCPServer("Demo")  # v1: FastMCP("Demo")
 
 v1은 세 겹으로 중첩된 계층을 건네주었습니다. 원시 스트림을 내놓는 트랜스포트 컨텍스트 매니저, 이를 감싸는 `ClientSession`, 그리고 직접 호출해야 하는 `await session.initialize()`입니다. v2에는 객체가 하나뿐입니다.
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client`는 서버 객체(트랜스포트 없이 인메모리로 동작하며, 테스트에 쓰는 방식입니다), URL(Streamable HTTP), 또는 `stdio_client(...)` 같은 임의의 트랜스포트 컨텍스트 매니저를 받습니다. `async with`에 진입하면 서버가 어느 시대의 프로토콜을 말하든 연결을 맺고 프로토콜 버전을 협상합니다. 그 뒤에는 `client.server_capabilities`와 `client.protocol_version`이 그냥 준비되어 있고, 서버가 자신을 식별하는 경우에는 `client.server_info`도 마찬가지입니다(2026 시대에는 식별 정보가 선택 사항이므로 이제 타입은 `Implementation | None`입니다). v1에서 등록한 샘플링 및 엘리시테이션 콜백은 여전히 동작하며(콜백 본문에는 이 페이지의 다른 모든 것과 마찬가지로 snake_case 속성 이름 변경이 적용됩니다), 이제 2026 방식의 결과 속 요청(아래 참고)에도 응답하고, 한 번에 하나씩이 아니라 동시에 실행됩니다. 저수준 인터페이스를 원하는 경우를 위해 `ClientSession`은 여전히 그 아래에 있으며 `client.session`으로 얻을 수 있습니다. 다만 이 클래스 역시 바뀌었으므로(새 디스패처 엔진 위에서 실행되고, 자체 시그니처 일부도 변경되었습니다) 아래 계층으로 내려가기 전에 **[마이그레이션 가이드](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**를 읽어 보세요.
+`Client`는 URL(Streamable HTTP), `StdioServerParameters`(stdio 하위 프로세스), `sse_client(...)` 같은 그 밖의 임의의 트랜스포트 컨텍스트 매니저, 또는 테스트에서는 서버 객체 자체(트랜스포트 없이 인메모리로 동작합니다)를 받습니다. `async with`에 진입하면 서버가 어느 시대의 프로토콜을 말하든 연결을 맺고 프로토콜 버전을 협상합니다. 그 뒤에는 `client.server_capabilities`와 `client.protocol_version`이 그냥 준비되어 있고, 서버가 자신을 식별하는 경우에는 `client.server_info`도 마찬가지입니다(2026 시대에는 식별 정보가 선택 사항이므로 이제 타입은 `Implementation | None`입니다). v1에서 등록한 샘플링 및 엘리시테이션 콜백은 여전히 동작하며(콜백 본문에는 이 페이지의 다른 모든 것과 마찬가지로 snake_case 속성 이름 변경이 적용됩니다), 이제 2026 방식의 결과 속 요청(아래 참고)에도 응답하고, 한 번에 하나씩이 아니라 동시에 실행됩니다. 저수준 인터페이스를 원하는 경우를 위해 `ClientSession`은 여전히 그 아래에 있으며 `client.session`으로 얻을 수 있습니다. 다만 이 클래스 역시 바뀌었으므로(새 디스패처 엔진 위에서 실행되고, 자체 시그니처 일부도 변경되었습니다) 아래 계층으로 내려가기 전에 **[마이그레이션 가이드](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**를 읽어 보세요.
 
-**[클라이언트](client/index.md)**에서 소개하고, **[클라이언트 트랜스포트](client/transports.md)**에서 세 가지 연결 형태를, **[클라이언트 콜백](client/callbacks.md)**에서 콜백 자체를 다루며, **[테스트](get-started/testing.md)**에서는 v1의 `create_connected_server_and_client_session()` 헬퍼를 대체하는 인메모리 패턴을 보여 줍니다.
+**[클라이언트](client/index.md)**에서 소개하고, **[클라이언트 트랜스포트](client/transports.md)**에서 네 가지 연결 형태를, **[클라이언트 콜백](client/callbacks.md)**에서 콜백 자체를 다루며, **[테스트](get-started/testing.md)**에서는 v1의 `create_connected_server_and_client_session()` 헬퍼를 대체하는 인메모리 패턴을 보여 줍니다.
 
 ### 저수준 `Server`: 이름 변경이 아닌 재구축 {#the-low-level-server-was-rebuilt-not-renamed}
 
@@ -134,7 +134,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentB
 이름 변경은 스스로 존재를 알립니다. 다음 항목은 그렇지 않습니다.
 
 * **동기 함수는 워커 스레드에서 실행됩니다.** `def` 도구(또는 리소스, 프롬프트, 리졸버)는 더 이상 이벤트 루프를 막지 않습니다. 그 대가로 본문이 더 이상 이벤트 루프 스레드 **위에서** 실행되지 않으며, 이는 특정 스레드에서 실행되어야 하는 코드에는 중요한 차이입니다. `async def` 핸들러는 영향이 없습니다. **[마이그레이션 가이드](migration.md#sync-handler-functions-now-run-on-a-worker-thread)**를 참고하세요.
-* **도구 안에서 발생시킨 `MCPError`(v1의 `McpError`)는 이제 프로토콜 오류입니다.** 모델은 이 오류를 보지 못합니다. 그 밖의 모든 예외는 여전히 모델이 읽고 반응할 수 있는 `is_error=True` 결과가 됩니다. 이 구분은 **[오류 처리](servers/handling-errors.md)**에서 다룹니다.
+* **도구 안에서 발생시킨 `MCPError`(v1의 `McpError`)는 이제 프로토콜 오류입니다.** 모델은 이 오류를 보지 못합니다. 그 밖의 모든 예외는 여전히 `is_error=True` 결과가 되지만, 모델에 전달되는 메시지는 `ToolError`의 메시지뿐입니다. 다른 예외는 이제 `Error executing tool <name>`으로 표시되고, 트레이스백은 서버 로그에 남습니다. 이 구분은 **[오류 처리](servers/handling-errors.md)**에서 다룹니다.
 * **결과는 나가기 전에 검증됩니다.** `input_schema`가 `{}`인 손수 만든 `Tool`은 이제 `tools/list`에서 실패합니다(사양은 `"type": "object"`를 요구합니다). `@mcp.tool()`로 만든 서버는 이 문제를 겪지 않습니다. 스키마를 SDK가 작성하기 때문입니다.
 * **클라이언트는 받은 것을 검증합니다.** `list_tools()`와 `call_tool()`은 서버의 응답을 협상한 프로토콜 버전에 맞춰 검사하므로, v1의 관대한 파싱이 눈감아 주던 완전히 유효하지는 않은 서버는 이제 `pydantic.ValidationError`를 발생시킵니다. 직접 제어하지 않는 서버에 연결한다면 그런 서버를 가장 먼저 발견하는 쪽이 될 것을 예상하세요. 자세한 내용은 **[마이그레이션 가이드](migration.md#client-validates-inbound-traffic-against-the-protocol-schema)**에 있습니다.
 * **URI 템플릿은 이제 진짜 RFC 6570입니다.** `{+path}`, `{?query}` 등이 동작하고, 매칭은 정규식처럼 느슨한 것이 아니라 정확하며, 추출된 값의 경로 탐색(path traversal)은 기본적으로 거부됩니다. 더 엄격해진 템플릿은 첫 요청 때가 아니라 데코레이터를 적용하는 시점에 실패합니다. **[URI 템플릿](servers/uri-templates.md)**을 참고하세요.
@@ -171,11 +171,15 @@ Streamable HTTP에서는 2026 경로에 `Mcp-Session-Id`가 없으며, 운영 �
 
 대체 방식은 호출의 방향을 뒤집습니다. 사용자로부터 무언가가 필요한 도구는 질문을 **반환**하고(`InputRequiredResult`), 클라이언트는 늘 갖고 있던 것과 같은 콜백으로 질문에 답하며, 답이 첨부된 채로 호출이 재시도됩니다. 이 루프는 `Client`가 대신 돌려 줍니다. 서버에서 결과를 직접 만드는 일은 드뭅니다. **[의존성](handlers/dependencies.md)**이 대신 해 주기 때문입니다. 매개변수에 `Resolve(ask_quantity)` 어노테이션을 달면(`ask_quantity`는 직접 작성하는 평범한 함수입니다), SDK가 연결이 지원하는 메커니즘, 즉 레거시 세션에서는 실시간 엘리시테이션 요청, 2026에서는 다중 왕복을 통해 질문합니다. 도구 본문 하나로 두 시대를 지원합니다.
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-이 파일 하나에 핵심이 모두 담겨 있습니다. 서버 하나, `Resolve` 기반 도구 하나, 그리고 레거시 클라이언트와 최신 클라이언트가 모두 인메모리로 답을 받습니다. 메커니즘(SDK가 대신 봉인하고 검증하는 `request_state` 포함)은 **[다중 왕복 요청](handlers/multi-round-trip.md)**에서 설명하고, 질문하는 쪽은 **[엘리시테이션](handlers/elicitation.md)**에서 다룹니다.
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+이 두 파일에 핵심이 모두 담겨 있습니다. 서버 하나, `Resolve` 기반 도구 하나, 그리고 레거시 클라이언트와 최신 클라이언트가 모두 실행 중인 같은 서버에서 답을 받습니다(**[레거시 클라이언트 지원](run/legacy-clients.md)**에서 이 두 파일을 하나씩 짚어 봅니다). 메커니즘(SDK가 대신 봉인하고 검증하는 `request_state` 포함)은 **[다중 왕복 요청](handlers/multi-round-trip.md)**에서 설명하고, 질문하는 쪽은 **[엘리시테이션](handlers/elicitation.md)**에서 다룹니다.
 
 !!! warning "포팅한 v1 서버의 동작이 바뀌는 유일한 지점입니다"
     가장 먼저 부딪히는 것은 직접 작성한 테스트입니다. `Client(mcp)`는 기본적으로 v2 서버와 2026-07-28을
@@ -200,7 +204,7 @@ Streamable HTTP에서는 2026 경로에 `Mcp-Session-Id`가 없으며, 운영 �
 ### 나머지 변경 사항 한눈에 보기 {#the-rest-quickly}
 
 * **식별 정보는 선택적인 메시지별 메타데이터입니다.** 요청 쪽의 `clientInfo` `_meta` 키는 선택 사항이고(필수 쌍은 `protocolVersion` + `clientCapabilities`입니다), `serverInfo`는 `server/discover` 결과 본문에서 빠졌습니다. 대신 서버가 2026 시대의 모든 결과의 `_meta`에 찍어 넣습니다([사양 #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). SDK는 항상 찍어 넣으며, 서버가 자신을 식별하지 않는 경우(예를 들어 미들웨어가 키를 제거한 경우) `client.server_info`는 `None`입니다. 와이어에 찍힌 모습은 **[저수준 Server](advanced/low-level-server.md)**에서 볼 수 있습니다.
-* **본문을 파싱하지 않고도 요청을 라우팅할 수 있습니다.** 최신 방식의 HTTP 요청에는 `Mcp-Method`가 실리고(도구 성격의 호출 세 가지에는 `Mcp-Name`도 실립니다), `x-mcp-header`로 어노테이션한 도구 입력 스키마 속성은 `Mcp-Param-*` 헤더로 복제되어 서버가 교차 검증합니다([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). 게이트웨이와 속도 제한기는 헤더만으로 라우팅할 수 있습니다. 규칙은 **[마이그레이션 가이드](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)**에 있습니다.
+* **본문을 파싱하지 않고도 요청을 라우팅할 수 있습니다.** 최신 방식의 HTTP 요청에는 `Mcp-Method`가 실리고(도구 성격의 호출 세 가지에는 `Mcp-Name`도 실립니다), `x-mcp-header`로 어노테이션한 도구 입력 스키마 속성은 `Mcp-Param-*` 헤더로 복제되어 서버가 교차 검증합니다([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). 게이트웨이와 속도 제한기는 헤더만으로 라우팅할 수 있습니다. 인자에 표시를 다는 방법은 **[헤더 매개변수](advanced/header-parameters.md)**에서 볼 수 있습니다.
 * **결과에 캐시 힌트가 실립니다.** 목록 및 읽기 결과는 `ttlMs`, `cacheScope` 두 필드를 선언합니다([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)). 메서드별로 `cache_hints=` 인자로 설정하며, `Client`는 내장 응답 캐시로 이를 따릅니다. 힌트를 보내지 않는 서버(2026 이전의 모든 서버)는 이전과 동일한, 캐시되지 않은 트래픽을 받습니다. **[캐시 힌트](client/caching.md)**를 참고하세요.
 * **확장은 일급입니다.** 서버와 클라이언트는 역방향 DNS 식별자 아래에 선택적 기능 묶음을 선언합니다([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)). 내장 `Apps` 확장(MCP Apps)이 참조 구현입니다. **[확장](advanced/extensions.md)**과 **[MCP Apps](advanced/apps.md)**를 참고하세요.
 * **오류 코드가 표준화되었습니다.** 없는 리소스는 `error.data`에 URI를 담은 `-32602` 오류이고, 사양이 새로 예약한 코드는 `-32020`(헤더 불일치), `-32021`(필수 기능 누락), `-32022`(지원하지 않는 프로토콜 버전)입니다. **[문제 해결](troubleshooting.md)**은 정확한 메시지를 기준으로 정리되어 있습니다.

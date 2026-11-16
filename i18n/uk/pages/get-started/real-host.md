@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3c4f2f06b4e978b6, 22520eecae3d1961, f4e1709db18d635a, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
+  sections: [3c4f2f06b4e978b6, 51ea5fbcb0e93563, 32d8808606ffdae0, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
   tool: 1
 ---
 # Підключення до справжнього хоста {#connect-to-a-real-host}
@@ -11,7 +11,7 @@ translation:
 
 ## Один сервер, усі хости {#one-server-every-host}
 
-```python title="server.py" hl_lines="3 33-34"
+```python title="server.py" hl_lines="4 34-35"
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
@@ -50,7 +50,7 @@ uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py
 
     А хост — це не більше ніж застосунок з MCP-клієнтом усередині, тож роль хоста може
     зіграти й ваш власний Python: сторінка **[Транспорти клієнта](../client/transports.md)** запускає
-    цей самий файл як підпроцес через `stdio_client(...)`, а **[Тестування](testing.md)**
+    цей самий файл як підпроцес через `Client(StdioServerParameters(...))`, а **[Тестування](testing.md)**
     підключається до нього в пам'яті взагалі без процесу.
 
 ## Claude Desktop {#claude-desktop}
