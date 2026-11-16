@@ -9,27 +9,13 @@ from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
     EmptyResult,
-    ListToolsResult,
-    PaginatedRequestParams,
     SetLevelRequestParams,
     TextContent,
-    Tool,
 )
 
 from mcp.server import Server, ServerRequestContext
 from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPDeprecationWarning
-
-
-async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(
-        tools=[
-            Tool(
-                name="echo",
-                input_schema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-            )
-        ]
-    )
 
 
 async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -50,7 +36,7 @@ async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestPa
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", MCPDeprecationWarning)
     server = Server(  # pyright: ignore[reportDeprecated]
-        "stdio-echo", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
+        "stdio-echo", on_call_tool=call_tool, on_set_logging_level=set_logging_level
     )
 
 

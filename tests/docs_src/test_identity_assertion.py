@@ -181,7 +181,6 @@ async def test_the_whole_grant_is_one_token_request() -> None:
             ("POST", "/token"),
             ("POST", "/mcp"),
             ("POST", "/mcp"),
-            ("POST", "/mcp"),
         ]
     )
     token_request = dict(parse_qsl(log[2][2].decode()))

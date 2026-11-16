@@ -13,10 +13,7 @@ from inline_snapshot import snapshot
 from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
-    ListToolsResult,
-    PaginatedRequestParams,
     TextContent,
-    Tool,
 )
 
 from mcp.client.client import Client
@@ -34,15 +31,12 @@ pytestmark = pytest.mark.anyio
 def _server() -> Server:
     """A low-level server with one echo tool, so the recorded exchange covers tools/list and tools/call."""
 
-    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="echo", description="Echo text.", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         assert params.name == "echo"
         assert params.arguments is not None
         return CallToolResult(content=[TextContent(text=str(params.arguments["text"]))])
 
-    return Server("legacy", on_list_tools=list_tools, on_call_tool=call_tool)
+    return Server("legacy", on_call_tool=call_tool)
 
 
 @requirement("hosting:http:legacy-no-modern-vocabulary")
@@ -74,12 +68,12 @@ async def test_legacy_streamable_http_exchange_carries_no_modern_protocol_vocabu
     recorded.frames.extend(m.message for m in recording.sent)
     recorded.frames.extend(m.message for m in recording.received if isinstance(m, SessionMessage))
 
-    # The handshake, the implicit tools/list (output-schema cache), tools/call, the standalone GET
-    # stream, and the closing DELETE all crossed the HTTP seam; the transport seam saw a JSON-RPC
+    # The handshake, tools/call, the standalone GET stream, and the closing DELETE all crossed
+    # the HTTP seam; the transport seam saw a JSON-RPC
     # frame for each direction of each. Asserting non-empty so the vocabulary scan cannot pass on
     # nothing recorded.
     assert {r.method for r in recorded.requests} == snapshot({"POST", "GET", "DELETE"})
     assert len(recorded.responses) == len(recorded.requests)
-    assert len(recorded.frames) >= 6
+    assert len(recorded.frames) >= 5
 
     assert_no_modern_vocabulary(recorded)

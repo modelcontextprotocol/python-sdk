@@ -30,7 +30,6 @@ from mcp_types import (
     ListToolsResult,
     PaginatedRequestParams,
     TextContent,
-    Tool,
 )
 from mcp_types.version import LATEST_MODERN_VERSION
 from starlette.applications import Starlette
@@ -63,14 +62,11 @@ async def test_configured_sse_limit_accepts_a_tool_result_larger_than_one_mebiby
     """SDK-defined: a larger SSE limit accepts a large tool result sent as one POST SSE event."""
     payload = "x" * (2 * 1024 * 1024)
 
-    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="large", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         assert params.name == "large"
         return CallToolResult(content=[TextContent(text=payload)])
 
-    manager = StreamableHTTPSessionManager(app=Server("large-result", on_list_tools=list_tools, on_call_tool=call_tool))
+    manager = StreamableHTTPSessionManager(app=Server("large-result", on_call_tool=call_tool))
     app = Starlette(routes=[Mount("/mcp", app=manager.handle_request)])
 
     with anyio.fail_after(5):
@@ -92,16 +88,11 @@ async def test_default_sse_limit_fails_one_large_tool_call_and_keeps_the_session
     """SDK-defined: the 1 MiB default rejects one oversized tool result without poisoning the session."""
     calls: list[str] = []
 
-    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name=name, input_schema={"type": "object"}) for name in ("large", "small")])
-
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         calls.append(params.name)
         return CallToolResult(content=[TextContent(text="x" * (2 * 1024 * 1024) if params.name == "large" else "ok")])
 
-    manager = StreamableHTTPSessionManager(
-        app=Server("bounded-result", on_list_tools=list_tools, on_call_tool=call_tool)
-    )
+    manager = StreamableHTTPSessionManager(app=Server("bounded-result", on_call_tool=call_tool))
     app = Starlette(routes=[Mount("/mcp", app=manager.handle_request)])
 
     with anyio.fail_after(5):

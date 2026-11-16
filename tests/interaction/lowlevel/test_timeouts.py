@@ -82,11 +82,6 @@ async def test_server_request_timeout_sends_cancellation_to_the_client() -> None
     callback_started = anyio.Event()
     errors: list[ErrorData] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="impatient", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "impatient"
         request = types.CreateMessageRequest(
@@ -101,7 +96,7 @@ async def test_server_request_timeout_sends_cancellation_to_the_client() -> None
         release.set()
         return CallToolResult(content=[TextContent(text="gave up")])
 
-    server = Server("impatient", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("impatient", on_call_tool=call_tool)
     recording = RecordingTransport(InMemoryTransport(server))
 
     async def sampling_callback(
@@ -135,23 +130,13 @@ async def test_server_request_timeout_sends_cancellation_to_the_client() -> None
 async def test_session_serves_requests_after_timeout() -> None:
     """A timed-out request does not poison the session: the next request succeeds."""
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(
-            tools=[
-                types.Tool(name="block", input_schema={"type": "object"}),
-                types.Tool(name="echo", input_schema={"type": "object"}),
-            ]
-        )
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         if params.name == "echo":
             return CallToolResult(content=[TextContent(text="still alive")])
         await anyio.Event().wait()  # blocks until the courtesy cancellation interrupts it
         raise NotImplementedError  # unreachable
 
-    server = Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("blocker", on_call_tool=call_tool)
 
     async with Client(server, mode="legacy") as client:
         with pytest.raises(MCPError):

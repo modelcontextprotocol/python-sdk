@@ -369,9 +369,8 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     proving the envelope merge is additive: the caller's key sits alongside the three envelope keys
     on the wire and inside the handler. Asserted at the wire via the ``mounted_app`` httpx2 event
     hooks because none of the headers, the envelope, or the handshake-absence is observable through
-    the public client API. The recorded log shows two POSTs: the ``tools/call`` itself and the
-    client's implicit ``tools/list`` output-schema fetch (see ``client:output-schema:auto-list``),
-    both of which must satisfy the stateless contract.
+    the public client API. The recorded log shows two POSTs, the ``tools/call`` and a following
+    ``tools/list``, both of which must satisfy the stateless contract.
     """
     observed_metas: list[dict[str, Any]] = []
     server = _server(on_meta=observed_metas.append)
@@ -403,6 +402,7 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
                 {"a": 2, "b": 3},
                 meta={"custom-key": "x", "io.modelcontextprotocol/protocolVersion": "evil"},
             )
+            await session.list_tools()
 
     assert result.model_dump(by_alias=True, mode="json", exclude_none=True) == snapshot(
         {
@@ -413,7 +413,7 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
         }
     )
 
-    # Exactly the tools/call POST and the implicit tools/list POST -- no initialize, no
+    # Exactly the tools/call POST and the tools/list POST -- no initialize, no
     # notifications/initialized, no standalone GET stream, no closing DELETE.
     bodies = [json.loads(r.content) for r in requests]
     assert [(r.method, body["method"]) for r, body in zip(requests, bodies, strict=True)] == snapshot(
@@ -435,7 +435,7 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
             "io.modelcontextprotocol/clientCapabilities": {},
         }
     )
-    # The implicit tools/list carries the envelope but no caller meta: proves the envelope is
+    # The tools/list carries the envelope but no caller meta: proves the envelope is
     # stamped on every request, not just on requests where the caller passed meta=.
     assert bodies[1]["params"]["_meta"] == snapshot(
         {

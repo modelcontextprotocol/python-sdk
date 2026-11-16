@@ -364,12 +364,7 @@ async def test_settings_dict_is_held_by_reference_not_copied() -> None:
         observed.append(ctx.session.client_params.capabilities.extensions)
         return CallToolResult(content=[])
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="probe", input_schema={"type": "object"})])
-
-    server = Server("probe", on_call_tool=call_tool, on_list_tools=list_tools)
+    server = Server("probe", on_call_tool=call_tool)
     settings = {"tier": "bronze"}
     client = Client(server, extensions=[advertise("com.example/loyalty", settings)])
     settings["tier"] = "gold"
@@ -438,21 +433,8 @@ async def test_claimed_shape_routes_to_its_owning_extensions_resolver() -> None:
     assert result.content == [TextContent(text="routed")]
 
 
-async def test_resolver_product_gets_the_direct_paths_output_schema_revalidation() -> None:
-    """The resolver's product is revalidated against the tool's output schema exactly like a direct result."""
-
-    async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
-        return CallToolResult(content=[TextContent(text="unstructured")])
-
-    async with Client(_structured_voucher_server(), extensions=[_VoucherExtension(resolve)]) as client:
-        with anyio.fail_after(5), pytest.raises(RuntimeError) as exc_info:
-            await client.call_tool("issue", {})
-
-    assert str(exc_info.value) == snapshot("Tool issue has an output schema but did not return structured content")
-
-
 async def test_resolver_error_result_is_returned_not_raised() -> None:
-    """An `isError` resolver product skips output-schema revalidation and comes back as-is."""
+    """An `isError` resolver product comes back as-is."""
 
     async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
         return CallToolResult(content=[TextContent(text="voucher printer on fire")], is_error=True)

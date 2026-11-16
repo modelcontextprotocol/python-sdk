@@ -15,11 +15,9 @@ from mcp_types import (
     CallToolResult,
     Implementation,
     InputRequiredResult,
-    ListToolsResult,
     Result,
     ServerCapabilities,
     TextContent,
-    Tool,
 )
 from mcp_types.methods import validate_server_result
 from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
@@ -52,9 +50,6 @@ _COMPLETE_TOOL_RESULT = CallToolResult(content=[TextContent(type="text", text="o
     by_alias=True, mode="json", exclude_none=True
 )
 _CLAIMED_TASK_RESULT = {"resultType": "task", "taskId": "t-1"}
-_TOOL_LISTING = ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})]).model_dump(
-    by_alias=True, mode="json", exclude_none=True
-)
 _INITIALIZE_RESULT = types.InitializeResult(
     protocol_version=LATEST_HANDSHAKE_VERSION,
     capabilities=ServerCapabilities(),
@@ -87,8 +82,6 @@ class _RecordingDispatcher:
         self.calls.append((method, params, opts or {}))
         if method == "tools/call":
             return self._tool_result
-        if method == "tools/list":
-            return _TOOL_LISTING
         if method == "initialize":
             return _INITIALIZE_RESULT
         return {}

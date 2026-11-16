@@ -164,20 +164,13 @@ async def test_initialize_minimal_server_advertises_no_capabilities(connect: Con
 async def test_initialize_server_sees_client_info(connect: Connect) -> None:
     """The client identity supplied to Client is visible to server handlers after initialization."""
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(
-            tools=[types.Tool(name="whoami", description="Report the caller.", input_schema={"type": "object"})]
-        )
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "whoami"
         assert ctx.session.client_params is not None
         client_info = ctx.session.client_params.client_info
         return CallToolResult(content=[TextContent(text=f"{client_info.name} {client_info.version}")])
 
-    server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("introspector", on_call_tool=call_tool)
     async with connect(server, client_info=Implementation(name="acme-agent", version="9.9.9")) as client:
         result = await client.call_tool("whoami", {})
 
@@ -187,13 +180,6 @@ async def test_initialize_server_sees_client_info(connect: Connect) -> None:
 @requirement("lifecycle:initialize:client-capabilities")
 async def test_initialize_server_sees_client_capabilities(connect: Connect) -> None:
     """The client capabilities visible to the server reflect which callbacks the client configured."""
-
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(
-            tools=[types.Tool(name="abilities", description="Report capabilities.", input_schema={"type": "object"})]
-        )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "abilities"
@@ -215,7 +201,7 @@ async def test_initialize_server_sees_client_capabilities(connect: Connect) -> N
         """Registered only so the client declares the roots capability; never called."""
         raise NotImplementedError
 
-    server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("introspector", on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("abilities", {})

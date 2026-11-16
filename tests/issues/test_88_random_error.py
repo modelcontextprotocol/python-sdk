@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import anyio
-import mcp_types as types
 import pytest
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -11,8 +10,6 @@ from mcp_types import (
     REQUEST_TIMEOUT,
     CallToolRequestParams,
     CallToolResult,
-    ListToolsResult,
-    PaginatedRequestParams,
     TextContent,
 )
 
@@ -40,22 +37,6 @@ async def test_notification_validation_error(tmp_path: Path):
     request_count = 0
     slow_request_lock = anyio.Event()
 
-    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                types.Tool(
-                    name="slow",
-                    description="A slow tool",
-                    input_schema={"type": "object"},
-                ),
-                types.Tool(
-                    name="fast",
-                    description="A fast tool",
-                    input_schema={"type": "object"},
-                ),
-            ]
-        )
-
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         nonlocal request_count
         request_count += 1
@@ -69,7 +50,7 @@ async def test_notification_validation_error(tmp_path: Path):
             text = f"fast {request_count}"
         return CallToolResult(content=[TextContent(type="text", text=text)])
 
-    server = Server(name="test", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
+    server = Server(name="test", on_call_tool=handle_call_tool)
 
     async def server_handler(
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],

@@ -76,12 +76,7 @@ async def test_server_accepts_capability_for_client_advertised_extension() -> No
         supported.append(ctx.session.check_client_capability(queried))
         return types.CallToolResult(content=[])
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="probe", input_schema={"type": "object"})])
-
-    server = Server("checker", on_call_tool=call_tool, on_list_tools=list_tools)
+    server = Server("checker", on_call_tool=call_tool)
     async with Client(server, extensions=[advertise(_EXTENSION_ID, {"mimeTypes": ["text/html"]})]) as client:
         await client.call_tool("probe", {})
 
@@ -99,12 +94,7 @@ async def test_server_rejects_capability_for_undeclared_extension() -> None:
         supported.append(ctx.session.check_client_capability(queried))
         return types.CallToolResult(content=[])
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="probe", input_schema={"type": "object"})])
-
-    server = Server("checker", on_call_tool=call_tool, on_list_tools=list_tools)
+    server = Server("checker", on_call_tool=call_tool)
     async with Client(server, extensions=[advertise(_EXTENSION_ID, {"mimeTypes": ["text/html"]})]) as client:
         await client.call_tool("probe", {})
 
@@ -122,12 +112,7 @@ async def test_server_rejects_capability_when_client_advertises_no_extensions() 
         supported.append(ctx.session.check_client_capability(queried))
         return types.CallToolResult(content=[])
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="probe", input_schema={"type": "object"})])
-
-    server = Server("checker", on_call_tool=call_tool, on_list_tools=list_tools)
+    server = Server("checker", on_call_tool=call_tool)
     async with Client(server) as client:
         await client.call_tool("probe", {})
 

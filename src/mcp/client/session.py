@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache, reduce
 from operator import or_
 from types import TracebackType, UnionType
-from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, Self, TypeAlias, cast, get_args, overload
+from typing import Annotated, Any, Final, Literal, Protocol, Self, TypeAlias, cast, get_args, overload
 
 import anyio
 import anyio.abc
@@ -59,11 +58,6 @@ from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY, event_from_wire
 from mcp.shared.transport_context import TransportContext
 
-if TYPE_CHECKING:
-    # `jsonschema` is imported lazily inside `validate_tool_result`: pulling it (and its
-    # `attrs`/`referencing` tree) in at module scope costs every client that never validates.
-    from jsonschema.protocols import Validator
-
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 DISCOVER_TIMEOUT_SECONDS = 10.0
 _NOTIFICATION_QUEUE_SIZE: Final = 256
@@ -108,17 +102,6 @@ def _later_revision_fields(method: str, version: str) -> frozenset[str]:
         if row is not None:
             later |= _wire_fields(row)
     return frozenset(later) - _wire_fields(current)
-
-
-def _same_schema(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
-    """JSON equality for two output schemas.
-
-    Python `==` is not JSON equality: it conflates `True`/`1` and `False`/`0`, which JSON
-    Schema keeps distinct (`const: true` vs `const: 1`). Canonical serialization compares as
-    JSON does; where it is stricter (`1` vs `1.0`), erring toward "changed" only costs a
-    recompile, never a stale validator.
-    """
-    return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
 def _preconnect_stamp(data: dict[str, Any], opts: CallOptions) -> None:
@@ -437,10 +420,8 @@ class ClientSession:
         self._logging_callback = logging_callback or _default_logging_callback
         self._log_level: types.LoggingLevel | None = log_level
         self._message_handler = message_handler or _default_message_handler
+        # Unused here; downstream clients such as FastMCP read it to build typed tool results.
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
-        # Compiled output-schema validators, derived from `_tool_output_schemas` and owned by
-        # `_absorb_tool_listing`, which evicts a tool's entry whenever its schema changes.
-        self._tool_output_validators: dict[str, Validator] = {}
         self._x_mcp_header_maps: dict[str, dict[tuple[str, ...], str]] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._discover_result: types.DiscoverResult | None = None
@@ -1098,9 +1079,6 @@ class ClientSession:
             progress_callback=progress_callback,
         )
 
-        if isinstance(result, types.CallToolResult) and not result.is_error:
-            await self.validate_tool_result(name, result)
-
         # The input_required arm stays first; a claimed shape is terminal for the multi-round-trip driver.
         if isinstance(result, types.InputRequiredResult) and not allow_input_required:
             raise _input_required_unexpected("call_tool")
@@ -1115,72 +1093,13 @@ class ClientSession:
             return {}
         return mcp_param_headers(header_map, arguments)
 
+    @deprecated(
+        "The client no longer validates tool results against the server's output schema; "
+        "validate `structured_content` against your own model instead.",
+        category=MCPDeprecationWarning,
+    )
     async def validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
-        """Revalidate a `CallToolResult` against the tool's declared output schema.
-
-        Raises:
-            RuntimeError: Structured content is missing or does not conform to the schema, or the
-                schema is invalid or has a `$ref` that does not resolve within the schema document.
-        """
-        if name not in self._tool_output_schemas:
-            # refresh output schema cache
-            await self.list_tools()
-
-        output_schema = None
-        if name in self._tool_output_schemas:
-            output_schema = self._tool_output_schemas.get(name)
-        else:
-            logger.warning(f"Tool {name} not listed by server, cannot validate any structured content")
-
-        if output_schema is not None:
-            from jsonschema import exceptions as jsonschema_exceptions
-            from referencing.exceptions import Unresolvable
-
-            if result.structured_content is None and "structured_content" not in result.model_fields_set:
-                raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
-            validator = self._output_schema_validator(name, output_schema)
-            # `best_match` picks the same error the previous `jsonschema.validate()` call raised,
-            # so the message a caller sees is unchanged. It is untyped upstream.
-            errors = validator.iter_errors(result.structured_content)
-            try:
-                error = cast(
-                    "Exception | None",
-                    jsonschema_exceptions.best_match(errors),  # pyright: ignore[reportUnknownMemberType]
-                )
-            except Unresolvable as e:
-                # A `$ref` did not resolve within the schema document.
-                raise RuntimeError(f"Invalid schema for tool {name}: {e}") from e
-            if error is not None:
-                raise RuntimeError(f"Invalid structured content returned by tool {name}: {error}") from error
-
-    def _output_schema_validator(self, name: str, output_schema: dict[str, Any]) -> Validator:
-        """Compiled validator for the tool's cached output schema, built once per schema value.
-
-        Compiling is ~60x the cost of validating, so a one-shot `jsonschema.validate()` per
-        result dominates `call_tool`; the compiled validator is cached instead. It stays valid
-        because `_absorb_tool_listing` evicts a tool's validator whenever it absorbs a different
-        schema for that tool, so a cached entry always matches `output_schema`.
-
-        Raises:
-            RuntimeError: The schema is not a valid JSON Schema. Raised on every call, since a
-                failed compile is never cached.
-        """
-        from jsonschema import SchemaError
-        from jsonschema.validators import validator_for
-        from referencing import Registry
-
-        if (validator := self._tool_output_validators.get(name)) is not None:
-            return validator
-
-        validator_cls = validator_for(output_schema)
-        try:
-            validator_cls.check_schema(output_schema)
-        except SchemaError as e:
-            raise RuntimeError(f"Invalid schema for tool {name}: {e}")
-        # An explicit empty registry: `$ref`s resolve within the schema document and the bundled metaschemas.
-        validator = validator_cls(output_schema, registry=Registry())
-        self._tool_output_validators[name] = validator
-        return validator
+        """Does nothing. The client no longer validates tool results against the server's output schema."""
 
     async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request.
@@ -1309,14 +1228,8 @@ class ClientSession:
                 kept.append(tool)
             result.tools = kept
 
-        # Cache tool output schemas for future validation; cursor pages only ever add. A
-        # changed schema evicts its compiled validator; an unchanged one (a re-listing, or the
-        # response cache re-absorbing a served hit) keeps it. Only validated tools pay the check.
+        # Cursor pages only ever add.
         for tool in result.tools:
-            if tool.name in self._tool_output_validators and not _same_schema(
-                self._tool_output_schemas.get(tool.name), tool.output_schema
-            ):
-                del self._tool_output_validators[tool.name]
             self._tool_output_schemas[tool.name] = tool.output_schema
 
         if complete:
@@ -1325,7 +1238,6 @@ class ClientSession:
             names = {tool.name for tool in result.tools}
             self._x_mcp_header_maps = {k: v for k, v in self._x_mcp_header_maps.items() if k in names}
             self._tool_output_schemas = {k: v for k, v in self._tool_output_schemas.items() if k in names}
-            self._tool_output_validators = {k: v for k, v in self._tool_output_validators.items() if k in names}
 
         return result
 

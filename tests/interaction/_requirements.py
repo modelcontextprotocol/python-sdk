@@ -956,34 +956,23 @@ REQUIREMENTS: dict[str, Requirement] = {
     # ═══════════════════════════════════════════════════════════════════════════
     # Tools: SDK guarantees
     # ═══════════════════════════════════════════════════════════════════════════
-    "client:output-schema:skip-on-error": Requirement(
-        source="sdk",
-        behavior="The client skips structured-content validation when the tool result has isError true.",
-    ),
-    "client:output-schema:validate": Requirement(
+    "client:output-schema:returned-as-sent": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#output-schema",
         behavior=(
             "A tool result whose structuredContent does not conform to the tool's declared outputSchema "
-            "is rejected by the client: the call raises instead of returning the invalid result."
-        ),
-    ),
-    "client:output-schema:missing-structured": Requirement(
-        source="sdk",
-        behavior="A tool that declares an output schema but returns no structuredContent fails client-side validation.",
-    ),
-    "client:output-schema:auto-list": Requirement(
-        source="sdk",
-        behavior=(
-            "Calling a tool whose output schema is not yet cached issues an implicit tools/list to "
-            "populate the cache; subsequent calls of the same tool do not."
+            "is returned to the caller unchanged; the client does not validate it."
         ),
         divergence=Divergence(
             note=(
-                "Design concern rather than spec violation: the implicit request is invisible to the "
-                "caller, and against a server that registers only on_call_tool a successful call surfaces "
-                "as METHOD_NOT_FOUND from a tools/list the caller never asked for."
+                "The spec says clients SHOULD validate structured results against the output schema. The "
+                "server supplies both, so the SDK leaves the check to the caller, who can validate "
+                "structuredContent against a model of their own."
             ),
         ),
+    ),
+    "client:call-tool:no-implicit-list": Requirement(
+        source="sdk",
+        behavior="call_tool sends only tools/call; it never issues a tools/list the caller did not ask for.",
     ),
     "mcpserver:output-schema:missing-structured": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#output-schema",

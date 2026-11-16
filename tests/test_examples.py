@@ -80,10 +80,6 @@ async def test_direct_call_tool_result_return():
 @pytest.mark.anyio
 async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Test the desktop server"""
-    # Build a real Desktop directory under tmp_path rather than patching
-    # Path.iterdir — a class-level patch breaks jsonschema_specifications'
-    # import-time schema discovery when this test happens to be the first
-    # tool call in an xdist worker.
     desktop = tmp_path / "Desktop"
     desktop.mkdir()
     (desktop / "file1.txt").touch()

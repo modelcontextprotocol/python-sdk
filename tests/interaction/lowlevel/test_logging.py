@@ -66,11 +66,6 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect, un
     async def collect(params: LoggingMessageNotificationParams) -> None:
         received.append(params)
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="chatty", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "chatty"
         await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
@@ -86,7 +81,7 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect, un
         raise NotImplementedError
 
     server = Server(  # pyright: ignore[reportDeprecated]
-        "logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
+        "logger", on_call_tool=call_tool, on_set_logging_level=set_logging_level
     )
 
     async with connect(server, logging_callback=collect, log_level="debug") as client:
@@ -109,11 +104,6 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
     async def collect(params: LoggingMessageNotificationParams) -> None:
         received.append(params)
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="siren", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "siren"
         for level in ALL_LEVELS:
@@ -127,7 +117,7 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
         raise NotImplementedError
 
     server = Server(  # pyright: ignore[reportDeprecated]
-        "logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
+        "logger", on_call_tool=call_tool, on_set_logging_level=set_logging_level
     )
 
     async with connect(server, logging_callback=collect, log_level="debug") as client:
@@ -143,18 +133,13 @@ def _siren_server() -> Server:
     request-scoped by construction, so they still ride the requesting stream on every leg.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="siren", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "siren"
         for level in ALL_LEVELS:
             await ctx.session.send_log_message(level=level, data=f"a {level} message")  # pyright: ignore[reportDeprecated]
         return CallToolResult(content=[TextContent(text="logged")])
 
-    return Server("logger", on_list_tools=list_tools, on_call_tool=call_tool)
+    return Server("logger", on_call_tool=call_tool)
 
 
 @requirement("logging:per-request:opt-in")

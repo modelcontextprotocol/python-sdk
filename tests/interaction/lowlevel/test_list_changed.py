@@ -44,17 +44,12 @@ async def test_tool_list_changed_notification(connect: Connect) -> None:
         received.append(message)
         seen.set()
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="install", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "install"
         await ctx.session.send_tool_list_changed()
         return CallToolResult(content=[TextContent(text="installed")])
 
-    server = Server("registry", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("registry", on_call_tool=call_tool)
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("install", {})
@@ -74,11 +69,6 @@ async def test_resource_list_changed_notification(connect: Connect) -> None:
         received.append(message)
         seen.set()
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="mount", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "mount"
         await ctx.session.send_resource_list_changed()
@@ -90,7 +80,7 @@ async def test_resource_list_changed_notification(connect: Connect) -> None:
         """Registered so the resources capability is advertised; the client never lists resources."""
         raise NotImplementedError
 
-    server = Server("registry", on_list_tools=list_tools, on_call_tool=call_tool, on_list_resources=list_resources)
+    server = Server("registry", on_call_tool=call_tool, on_list_resources=list_resources)
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("mount", {})
@@ -110,11 +100,6 @@ async def test_prompt_list_changed_notification(connect: Connect) -> None:
         received.append(message)
         seen.set()
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="learn", input_schema={"type": "object"})])
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "learn"
         await ctx.session.send_prompt_list_changed()
@@ -126,7 +111,7 @@ async def test_prompt_list_changed_notification(connect: Connect) -> None:
         """Registered so the prompts capability is advertised; the client never lists prompts."""
         raise NotImplementedError
 
-    server = Server("registry", on_list_tools=list_tools, on_call_tool=call_tool, on_list_prompts=list_prompts)
+    server = Server("registry", on_call_tool=call_tool, on_list_prompts=list_prompts)
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("learn", {})
