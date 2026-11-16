@@ -37,6 +37,8 @@ from mcp_types import (
     LoggingMessageNotificationParams,
     NotificationParams,
     PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
     Tool,
 )
 from mcp_types.version import LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
@@ -1202,13 +1204,13 @@ async def test_modern_post_rejects_a_duplicated_routing_header() -> None:
 async def test_modern_tools_call_mis_shaped_envelope_skips_validation_without_an_error_log(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A mis-shaped envelope value is a debug-logged client fault; the wire reply is dispatch's INVALID_PARAMS."""
+    """A mis-shaped optional envelope value clears the ladder and fails during dispatch: in-band 200 INVALID_PARAMS."""
     body = _tool_call_body({"region": "eu"})
     body["params"]["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"
     with caplog.at_level(logging.DEBUG, logger=_streamable_http_modern.__name__):
         async with _asgi_client(_x_mcp_server()) as http:
             response = await http.post("/mcp", json=body, headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"})
-    assert response.status_code == 400
+    assert response.status_code == 200
     assert response.json()["error"]["code"] == INVALID_PARAMS
     module_records = [r for r in caplog.records if r.name == _streamable_http_modern.__name__]
     assert all(r.levelno < logging.ERROR for r in module_records)
@@ -1353,3 +1355,101 @@ async def test_json_response_mode_still_streams_subscriptions_listen() -> None:
         "io.modelcontextprotocol/subscriptionId": 9,
         SERVER_INFO_META_KEY: {"name": "test", "version": "1.2.3"},
     }
+
+
+def _read_resource_body(uri: str = "demo://does-not-exist", *, progress_token: str | None = None) -> dict[str, Any]:
+    meta: dict[str, Any] = {
+        PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION,
+        CLIENT_INFO_META_KEY: {"name": "raw", "version": "0.0.0"},
+        CLIENT_CAPABILITIES_META_KEY: {},
+    }
+    if progress_token is not None:
+        meta["progressToken"] = progress_token
+    return {
+        "jsonrpc": "2.0",
+        "id": 7800,
+        "method": "resources/read",
+        "params": {"uri": uri, "_meta": meta},
+    }
+
+
+def _unknown_resource_mcp_server() -> MCPServer:
+    mcp = MCPServer("repro")
+
+    @mcp.resource("demo://widget")
+    def widget() -> str:
+        return "<html></html>"
+
+    return mcp
+
+
+@pytest.mark.parametrize(
+    ("json_response", "accept"),
+    [
+        pytest.param(True, "application/json", id="json-mode"),
+        pytest.param(False, "application/json, text/event-stream", id="sse-deferral-fallback"),
+    ],
+)
+async def test_modern_handler_invalid_params_returns_http_200_in_json_and_sse_deferral(
+    json_response: bool, accept: str
+) -> None:
+    """Spec-mandated: a dispatched handler INVALID_PARAMS (-32602, e.g. unknown resource)
+    MUST return HTTP 200 with the JSON-RPC error in-band, in both JSON mode and SSE
+    deferral fallback when the handler returns without emitting a notification."""
+    mcp = _unknown_resource_mcp_server()
+    headers = {MCP_METHOD_HEADER: "resources/read", MCP_NAME_HEADER: "demo://does-not-exist"}
+    async with _asgi_client(mcp._lowlevel_server, json_response=json_response, accept=accept) as http:
+        with anyio.fail_after(5):
+            response = await http.post("/mcp", json=_read_resource_body(), headers=headers)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";", 1)[0] == "application/json"
+    payload = response.json()
+    assert payload["id"] == 7800
+    assert payload["error"]["code"] == INVALID_PARAMS
+
+
+async def test_modern_handler_invalid_params_after_progress_streams_sse_200() -> None:
+    """Spec-mandated: in SSE mode, emitting a progress notification before raising
+    handler INVALID_PARAMS (-32602) returns HTTP 200 text/event-stream with the progress
+    event followed by the terminal -32602 error."""
+
+    async def read_resource(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:
+        await ctx.session.report_progress(1.0, total=1.0)
+        raise MCPError(
+            code=INVALID_PARAMS,
+            message=f"Unknown resource: {params.uri}",
+            data={"uri": str(params.uri)},
+        )
+
+    server: Server[Any] = Server("test", on_read_resource=read_resource)
+    headers = {MCP_METHOD_HEADER: "resources/read", MCP_NAME_HEADER: "demo://does-not-exist"}
+    async with _asgi_client(server, json_response=False) as http:
+        with anyio.fail_after(5):
+            response = await http.post(
+                "/mcp", json=_read_resource_body(progress_token="tok-missing"), headers=headers
+            )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
+    events = _sse_payloads(response.text)
+    assert len(events) == 2
+    assert events[0]["method"] == "notifications/progress"
+    assert events[0]["params"]["progressToken"] == "tok-missing"
+    assert events[1]["id"] == 7800
+    assert events[1]["error"]["code"] == INVALID_PARAMS
+
+
+async def test_modern_ladder_invalid_params_rejection_stays_http_400() -> None:
+    """Spec-mandated: a pre-dispatch ladder rejection carrying -32602 (missing required
+    `_meta` envelope key) MUST still answer HTTP 400, preserving the origin split."""
+    mcp = _unknown_resource_mcp_server()
+    body = _read_resource_body()
+    del body["params"]["_meta"][CLIENT_CAPABILITIES_META_KEY]
+    headers = {MCP_METHOD_HEADER: "resources/read", MCP_NAME_HEADER: "demo://does-not-exist"}
+    async with _asgi_client(mcp._lowlevel_server, json_response=True, accept="application/json") as http:
+        response = await http.post("/mcp", json=body, headers=headers)
+
+    assert response.status_code == 400
+    assert response.headers["content-type"].split(";", 1)[0] == "application/json"
+    assert response.json()["error"]["code"] == INVALID_PARAMS

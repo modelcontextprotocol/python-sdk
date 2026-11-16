@@ -13,8 +13,8 @@ mode handles the request directly in the ASGI task. SSE mode runs the handler
 as a sibling task and defers committing to `text/event-stream` until the
 handler emits a notification or `_SSE_PING_INTERVAL` elapses, whichever
 comes first: a handler that completes (or raises) within that window without
-emitting still gets a JSON response with the table-mapped HTTP status, so
-the spec's `404`/`400` MUSTs hold for kernel-dispatch errors; a handler that
+emitting still gets a JSON response with the handler error status map (`404`/`400`
+only for the spec-assigned codes, `200` for handler `INVALID_PARAMS`); a handler that
 runs silent past the window commits SSE so the keepalive ping can keep the
 connection open behind a proxy idle-read timeout.
 """
@@ -25,6 +25,7 @@ import json
 import logging
 from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import anyio
@@ -34,8 +35,11 @@ from mcp_types import (
     CLIENT_INFO_META_KEY,
     HEADER_MISMATCH,
     INVALID_REQUEST,
+    METHOD_NOT_FOUND,
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
+    UNSUPPORTED_PROTOCOL_VERSION,
     ErrorData,
     JSONRPCError,
     JSONRPCNotification,
@@ -171,14 +175,33 @@ async def _write_rejection(
     await _write(rej, scope, receive, send)
 
 
+_HANDLER_ERROR_HTTP_STATUS: Final[Mapping[int, int]] = MappingProxyType(
+    {
+        HEADER_MISMATCH: 400,
+        MISSING_REQUIRED_CLIENT_CAPABILITY: 400,
+        UNSUPPORTED_PROTOCOL_VERSION: 400,
+        METHOD_NOT_FOUND: 404,
+    }
+)
+"""HTTP statuses assigned to dispatched (post-ladder) JSON-RPC errors.
+
+Streamable HTTP 2026-07-28 (§Sending Messages item 6) assigns non-200 HTTP
+statuses only to these four codes once a request clears the inbound validation
+ladder. Other dispatched errors — including handler-origin `INVALID_PARAMS`
+(-32602, e.g. unknown resources) — travel in-band with HTTP 200.
+"""
+
+
 async def _write(
     msg: JSONRPCResponse | JSONRPCError,
     scope: Scope,
     receive: Receive,
     send: Send,
+    *,
+    error_statuses: Mapping[int, int] = ERROR_CODE_HTTP_STATUS,
 ) -> None:
-    """Serialise a JSON-RPC reply with the table-mapped HTTP status."""
-    status = ERROR_CODE_HTTP_STATUS.get(msg.error.code, 200) if isinstance(msg, JSONRPCError) else 200
+    """Serialise a JSON-RPC reply with its origin-appropriate HTTP status."""
+    status = error_statuses.get(msg.error.code, 200) if isinstance(msg, JSONRPCError) else 200
     body = msg.model_dump(mode="json", by_alias=True, exclude_none=True)
     if isinstance(msg, JSONRPCError) and msg.id is None:
         # JSON-RPC requires `id: null` to appear on the wire when the request
@@ -459,7 +482,7 @@ async def handle_modern_request(
         msg = await _to_jsonrpc_response(
             req.id, serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state)
         )
-        await _write(msg, scope, receive, send)
+        await _write(msg, scope, receive, send, error_statuses=_HANDLER_ERROR_HTTP_STATUS)
         return
 
     send_ch, recv_ch = anyio.create_memory_object_stream[bytes](0)
@@ -494,10 +517,9 @@ async def handle_modern_request(
 
         if done:
             # Handler completed within the deferral window without emitting:
-            # `application/json` with the table-mapped status. Kernel-dispatch
-            # errors (METHOD_NOT_FOUND, missing-capability, INVALID_PARAMS)
-            # resolve here in practice.
-            await _write(result[0], scope, receive, send)
+            # `application/json` with the handler error status map (404/400 for
+            # spec-assigned codes; 200 in-band for handler INVALID_PARAMS / INTERNAL_ERROR).
+            await _write(result[0], scope, receive, send, error_statuses=_HANDLER_ERROR_HTTP_STATUS)
         else:
             # First notification arrived, or the deferral window elapsed: commit
             # `text/event-stream` and start pinging so a proxy idle-read timeout
