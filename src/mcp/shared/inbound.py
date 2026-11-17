@@ -51,6 +51,7 @@ __all__ = [
     "encode_header_value",
     "find_duplicated_routing_header",
     "find_invalid_x_mcp_header",
+    "has_modern_envelope",
     "mcp_param_headers",
     "unsupported_protocol_version_rejection",
     "validate_mcp_param_headers",
@@ -349,6 +350,22 @@ class InboundLadderRejection:
 
 
 _ROUTING_HEADER_NAMES: Final = frozenset({MCP_PROTOCOL_VERSION_HEADER, MCP_METHOD_HEADER, MCP_NAME_HEADER})
+
+
+def has_modern_envelope(params: Mapping[str, Any] | None) -> bool:
+    """Whether `params._meta` carries the reserved protocol-version key.
+
+    The `io.modelcontextprotocol/protocolVersion` key exists only in
+    2026-07-28+ envelopes and its prefix is spec-reserved, so legacy traffic
+    never mints it (a bare `_meta` is not evidence - legacy requests carry
+    `progressToken` there). The version key alone is the signal, not the full
+    required pair, so a half-built envelope still routes modern and gets the
+    classifier's INVALID_PARAMS naming the missing key.
+    """
+    if not params:
+        return False
+    meta = params.get("_meta")
+    return isinstance(meta, Mapping) and PROTOCOL_VERSION_META_KEY in meta
 
 
 def find_duplicated_routing_header(headers: Iterable[tuple[str, str]]) -> str | None:

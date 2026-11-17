@@ -64,7 +64,7 @@ from mcp.shared._context_streams import ContextReceiveStream
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError, NoBackChannelError
-from mcp.shared.inbound import InboundLadderRejection, classify_inbound_request
+from mcp.shared.inbound import InboundLadderRejection, classify_inbound_request, has_modern_envelope
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, handler_exception_to_error_data
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
@@ -501,22 +501,6 @@ async def serve_loop(
     )
 
 
-def _has_modern_envelope(params: Mapping[str, Any] | None) -> bool:
-    """Whether `params._meta` carries the reserved protocol-version key.
-
-    The `io.modelcontextprotocol/protocolVersion` key exists only in
-    2026-07-28+ envelopes and its prefix is spec-reserved, so legacy traffic
-    never mints it (a bare `_meta` is not evidence - legacy requests carry
-    `progressToken` there). The version key alone is the signal, not the full
-    required pair, so a half-built envelope still routes modern and gets the
-    classifier's INVALID_PARAMS naming the missing key.
-    """
-    if not params:
-        return False
-    meta = params.get("_meta")
-    return isinstance(meta, Mapping) and PROTOCOL_VERSION_META_KEY in meta
-
-
 def _initialize_after_modern_data(params: Mapping[str, Any] | None) -> dict[str, Any]:
     """Error data for an `initialize` arriving on a modern-locked connection.
 
@@ -626,7 +610,7 @@ async def serve_dual_era_loop(
     try:
         async with _replay_from_opening_request(read_stream) as (opening, replayed):
             opens_modern = (
-                opening is not None and opening.method != "initialize" and _has_modern_envelope(opening.params)
+                opening is not None and opening.method != "initialize" and has_modern_envelope(opening.params)
             )
             if opens_modern:
                 await _serve_modern_stream(
@@ -738,7 +722,7 @@ async def _serve_legacy_stream(
     async def on_request(
         dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
-        if method != "initialize" and _has_modern_envelope(params):
+        if method != "initialize" and has_modern_envelope(params):
             raise MCPError(
                 code=INVALID_REQUEST,
                 message="this connection serves the handshake protocol era; "

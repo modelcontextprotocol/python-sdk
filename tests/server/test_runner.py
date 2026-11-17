@@ -65,7 +65,6 @@ from mcp.server.models import InitializationOptions
 from mcp.server.runner import (
     ServerRunner,
     _extract_meta,
-    _has_modern_envelope,
     _initialize_after_modern_data,
     _NoServerRequestsDispatchContext,
     aclose_shielded,
@@ -78,6 +77,7 @@ from mcp.server.subscriptions import SUBSCRIPTION_ID_META_KEY, InMemorySubscript
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.inbound import has_modern_envelope
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import MessageMetadata, SessionMessage
 from mcp.shared.peer import dump_params
@@ -1931,15 +1931,15 @@ def test_has_modern_envelope_keys_on_the_protocol_version_key():
     never mints it (bare `_meta` / `progressToken` is not evidence), and a
     half-built envelope still routes modern so the classifier - not the legacy
     path - names its missing required key."""
-    assert not _has_modern_envelope(None)
-    assert not _has_modern_envelope({})
-    assert not _has_modern_envelope({"_meta": None})
-    assert not _has_modern_envelope({"_meta": {"progressToken": 1}})
+    assert not has_modern_envelope(None)
+    assert not has_modern_envelope({})
+    assert not has_modern_envelope({"_meta": None})
+    assert not has_modern_envelope({"_meta": {"progressToken": 1}})
     version_only = {PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION}
-    assert _has_modern_envelope({"_meta": version_only})
+    assert has_modern_envelope({"_meta": version_only})
     pair_only = {k: v for k, v in _modern_envelope().items() if k != CLIENT_INFO_META_KEY}
-    assert _has_modern_envelope({"_meta": pair_only})
-    assert _has_modern_envelope(_modern_params())
+    assert has_modern_envelope({"_meta": pair_only})
+    assert has_modern_envelope(_modern_params())
 
 
 def test_initialize_after_modern_data_arms():

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import math
+from collections import deque
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 from uuid import uuid4
 
 import anyio
@@ -26,7 +28,7 @@ from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE as DEFAU
 from mcp.server.transport_security import RequestBodyLimitMiddleware as RequestBodyLimitMiddleware
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
-from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER, has_modern_envelope
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.transport_context import TransportContext
 
@@ -40,6 +42,41 @@ DEFAULT_SESSION_IDLE_TIMEOUT: Final = 30 * 60
 
 DEFAULT_MAX_SESSIONS: Final = 10_000
 """Default maximum number of concurrent stateful Streamable HTTP sessions per session manager."""
+
+
+async def _peek_modern_envelope(receive: Receive) -> tuple[Receive, bool]:
+    """Read the POST body and report whether it is a request carrying the 2026-07-28 envelope.
+
+    Returns a `receive` that replays everything read, so the chosen handler sees the body untouched.
+    The body is already complete and size-limited by `RequestBodyLimitMiddleware`. An unparseable
+    body, a notification, a batch and `initialize` are not evidence of the modern era and stay on the
+    legacy path, which owns their errors.
+    """
+    messages: deque[Message] = deque()
+    body = bytearray()
+    while True:
+        message = await receive()
+        messages.append(message)
+        if message["type"] != "http.request":
+            break
+        body.extend(message.get("body", b""))
+        if not message.get("more_body", False):
+            break
+
+    async def replay() -> Message:
+        return messages.popleft() if messages else await receive()
+
+    try:
+        decoded: Any = json.loads(body)
+    except (ValueError, RecursionError):
+        return replay, False
+    if not isinstance(decoded, dict):
+        return replay, False
+    request = cast("dict[str, Any]", decoded)
+    if "id" not in request or request.get("method") == "initialize":
+        return replay, False
+    params: Any = request.get("params")
+    return replay, isinstance(params, dict) and has_modern_envelope(cast("dict[str, Any]", params))
 
 
 class StreamableHTTPSessionManager:
@@ -184,11 +221,13 @@ class StreamableHTTPSessionManager:
         if self._task_group is None:
             raise RuntimeError("Task group is not initialized. Make sure to use run().")
 
-        # TODO(L49): header-only era-routing for now; body-primary classification
-        # is a follow-up. The legacy paths below own only the known
-        # initialize-handshake versions; anything else (including unknown
-        # values) goes to the modern entry so the classifier can validate it
-        # and return a structured rejection. 2025 paths below remain unchanged.
+        # The legacy paths below own only the known initialize-handshake versions;
+        # anything else (including unknown values) goes to the modern entry so
+        # the classifier can validate it and return a structured rejection. A
+        # request that carries the 2026-07-28 `_meta` envelope goes there too,
+        # whatever its header says, so the classifier answers a header that
+        # disagrees with the envelope (or is absent) with HeaderMismatch rather
+        # than the legacy path serving it as a 2025 request.
         header = MCP_PROTOCOL_VERSION_HEADER.encode("ascii")
         pv = next((v.decode("latin-1") for k, v in scope["headers"] if k == header), None)
         if pv is not None and pv not in HANDSHAKE_PROTOCOL_VERSIONS:
@@ -196,6 +235,13 @@ class StreamableHTTPSessionManager:
                 self.app, self.security_settings, self.json_response, self._lifespan_state, scope, receive, send
             )
             return
+        if scope["method"] == "POST":
+            receive, carries_modern_envelope = await _peek_modern_envelope(receive)
+            if carries_modern_envelope:
+                await handle_modern_request(
+                    self.app, self.security_settings, self.json_response, self._lifespan_state, scope, receive, send
+                )
+                return
 
         # Dispatch to the appropriate handler
         if self.stateless:

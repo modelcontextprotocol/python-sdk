@@ -12,15 +12,17 @@ import anyio
 import httpx2
 import pytest
 from mcp_types import (
+    HEADER_MISMATCH,
     INTERNAL_ERROR,
     INVALID_REQUEST,
+    PARSE_ERROR,
     CallToolRequestParams,
     CallToolResult,
     ListToolsResult,
     PaginatedRequestParams,
     TextContent,
 )
-from mcp_types.version import LATEST_HANDSHAKE_VERSION
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from starlette.applications import Starlette
 from starlette.routing import Mount
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -36,7 +38,9 @@ from mcp.server.streamable_http_manager import (
     DEFAULT_MAX_SESSIONS,
     DEFAULT_SESSION_IDLE_TIMEOUT,
     StreamableHTTPSessionManager,
+    _peek_modern_envelope,
 )
+from tests.interaction._connect import base_headers, initialize_via_http, mounted_app
 from tests.interaction.transports import StreamingASGITransport
 
 # The in-process app is mounted at this origin purely so URLs are well-formed; nothing listens here.
@@ -1065,3 +1069,160 @@ async def test_anonymous_session_accepts_anonymous_requests(
     session_id = await _open_session(manager, None)
 
     assert await _request_session(manager, session_id, None) != 404
+
+
+def _era_routing_server() -> Server:
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    return Server("era-routing", on_list_tools=list_tools)
+
+
+def _modern_params() -> dict[str, Any]:
+    return {
+        "_meta": {
+            "io.modelcontextprotocol/protocolVersion": LATEST_MODERN_VERSION,
+            "io.modelcontextprotocol/clientCapabilities": {},
+        }
+    }
+
+
+def _rpc_body(method: str, params: dict[str, Any]) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+
+
+def _rpc_message(response: httpx2.Response) -> dict[str, Any]:
+    """Decode the JSON-RPC reply, whether it travelled as JSON or as a single SSE event."""
+    if response.headers["content-type"].startswith("text/event-stream"):
+        data = next(line[len("data:") :] for line in response.text.splitlines() if line.startswith("data:"))
+        return json.loads(data)
+    return response.json()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stateless", [True, False])
+@pytest.mark.parametrize("method", ["tools/list", "server/discover"])
+@pytest.mark.parametrize("header_version", [LATEST_HANDSHAKE_VERSION, None])
+async def test_modern_envelope_with_a_missing_or_2025_version_header_is_a_header_mismatch(
+    stateless: bool, method: str, header_version: str | None
+) -> None:
+    """The envelope, not the header, decides the era: a header that disagrees is HeaderMismatch."""
+    headers = base_headers() | {"mcp-method": method}
+    if header_version is not None:
+        headers["mcp-protocol-version"] = header_version
+    async with mounted_app(_era_routing_server(), stateless_http=stateless) as (http, _):
+        response = await http.post("/mcp", json=_rpc_body(method, _modern_params()), headers=headers)
+
+    assert response.status_code == 400
+    assert _rpc_message(response)["error"]["code"] == HEADER_MISMATCH
+
+
+@pytest.mark.anyio
+async def test_modern_envelope_with_a_matching_header_is_still_served() -> None:
+    headers = base_headers() | {"mcp-protocol-version": LATEST_MODERN_VERSION, "mcp-method": "tools/list"}
+    async with mounted_app(_era_routing_server(), stateless_http=True) as (http, _):
+        response = await http.post("/mcp", json=_rpc_body("tools/list", _modern_params()), headers=headers)
+
+    assert response.status_code == 200
+    assert _rpc_message(response)["result"]["resultType"] == "complete"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("params", [{}, {"_meta": {"progressToken": "p1"}}])
+async def test_2025_request_without_an_envelope_is_served_as_legacy(params: dict[str, Any]) -> None:
+    """A bare `_meta` (progress tokens) is not era evidence; the body reaches the legacy handler intact."""
+    headers = base_headers() | {"mcp-protocol-version": LATEST_HANDSHAKE_VERSION}
+    async with mounted_app(_era_routing_server(), stateless_http=True) as (http, _):
+        response = await http.post("/mcp", json=_rpc_body("tools/list", params), headers=headers)
+
+    assert response.status_code == 200
+    result = _rpc_message(response)["result"]
+    assert result["tools"] == []
+    assert "resultType" not in result
+
+
+@pytest.mark.anyio
+async def test_stateful_2025_session_is_unaffected_by_the_body_peek() -> None:
+    async with mounted_app(_era_routing_server()) as (http, _):
+        session_id = await initialize_via_http(http)
+        headers = base_headers(session_id=session_id) | {"mcp-protocol-version": LATEST_HANDSHAKE_VERSION}
+        response = await http.post("/mcp", json=_rpc_body("tools/list", {}), headers=headers)
+
+    assert response.status_code == 200
+    assert _rpc_message(response)["result"]["tools"] == []
+
+
+@pytest.mark.anyio
+async def test_unparseable_2025_body_keeps_its_legacy_parse_error() -> None:
+    headers = base_headers() | {"mcp-protocol-version": LATEST_HANDSHAKE_VERSION}
+    async with mounted_app(_era_routing_server(), stateless_http=True) as (http, _):
+        response = await http.post("/mcp", content=b"{not json", headers=headers)
+
+    assert response.status_code == 400
+    assert _rpc_message(response)["error"]["code"] == PARSE_ERROR
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("body", "status"),
+    [
+        pytest.param(
+            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": _modern_params()},
+            202,
+            id="notification",
+        ),
+        pytest.param(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": LATEST_HANDSHAKE_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": "client", "version": "1"},
+                    **_modern_params(),
+                },
+            },
+            200,
+            id="initialize",
+        ),
+        pytest.param([_rpc_body("tools/list", _modern_params())], 400, id="batch"),
+    ],
+)
+async def test_messages_that_are_not_modern_requests_stay_on_the_legacy_path(body: Any, status: int) -> None:
+    """Notifications, `initialize` and batches are not routed on the envelope, even if they carry one."""
+    headers = base_headers() | {"mcp-protocol-version": LATEST_HANDSHAKE_VERSION}
+    async with mounted_app(_era_routing_server(), stateless_http=True) as (http, _):
+        response = await http.post("/mcp", json=body, headers=headers)
+
+    assert response.status_code == status
+    assert "-32020" not in response.text
+
+
+@pytest.mark.anyio
+async def test_peek_replays_every_message_then_defers_to_the_underlying_receive() -> None:
+    messages: list[Message] = [
+        {"type": "http.request", "body": b'{"jsonrpc":"2.0","id":1,', "more_body": True},
+        {"type": "http.request", "body": b'"method":"ping"}', "more_body": False},
+        {"type": "http.disconnect"},
+    ]
+    pending = iter(messages)
+
+    async def receive() -> Message:
+        return next(pending)
+
+    replay, carries_modern_envelope = await _peek_modern_envelope(receive)
+
+    assert carries_modern_envelope is False
+    assert [await replay(), await replay(), await replay()] == messages
+
+
+@pytest.mark.anyio
+async def test_peek_stops_at_a_disconnect_without_a_body() -> None:
+    async def receive() -> Message:
+        return {"type": "http.disconnect"}
+
+    replay, carries_modern_envelope = await _peek_modern_envelope(receive)
+
+    assert carries_modern_envelope is False
+    assert await replay() == {"type": "http.disconnect"}
