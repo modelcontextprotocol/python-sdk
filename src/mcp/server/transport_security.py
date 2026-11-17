@@ -57,14 +57,9 @@ class TransportSecurityMiddleware:
         if host in self.settings.allowed_hosts:
             return True
 
-        # Check wildcard port patterns
-        for allowed in self.settings.allowed_hosts:
-            if allowed.endswith(":*"):
-                # Extract base host from pattern
-                base_host = allowed[:-2]
-                # Check if the actual host starts with base host and has a port
-                if host.startswith(base_host + ":"):
-                    return True
+        base_host, _, port = host.rpartition(":")
+        if port.isascii() and port.isdigit() and f"{base_host}:*" in self.settings.allowed_hosts:
+            return True
 
         logger.warning(f"Invalid Host header: {host}")
         return False
@@ -79,14 +74,9 @@ class TransportSecurityMiddleware:
         if origin in self.settings.allowed_origins:
             return True
 
-        # Check wildcard port patterns
-        for allowed in self.settings.allowed_origins:
-            if allowed.endswith(":*"):
-                # Extract base origin from pattern
-                base_origin = allowed[:-2]
-                # Check if the actual origin starts with base origin and has a port
-                if origin.startswith(base_origin + ":"):
-                    return True
+        base_origin, _, port = origin.rpartition(":")
+        if port.isascii() and port.isdigit() and f"{base_origin}:*" in self.settings.allowed_origins:
+            return True
 
         logger.warning(f"Invalid Origin header: {origin}")
         return False
