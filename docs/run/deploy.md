@@ -70,7 +70,7 @@ Four processes, one socket. And now the question every deployment has to answer:
 
 For a client speaking the **2026-07-28** protocol, no. A modern request is one self-contained POST: no `initialize` handshake before it, no `Mcp-Session-Id` on the response, nothing for a second request to come back *to*. Route it to any worker.
 
-That is not a mode you switch on. `stateless_http=True` looks like it should be, but the transport routes on the `MCP-Protocol-Version` request header, hands a modern request to the modern handler, and **returns**. The line that reads `stateless_http` comes *after* that return. It isn't that the flag is ignored on the 2026-07-28 path; it is never reached. `stateless_http` is a knob for the **legacy** leg only, and the modern path is sessionless by construction.
+That is not a mode you switch on. `stateless_http=True` looks like it should be, but the transport routes on the `MCP-Protocol-Version` request header (and the request's `_meta` envelope), hands a modern request to the modern handler, and **returns**. The line that reads `stateless_http` comes *after* that return. It isn't that the flag is ignored on the 2026-07-28 path; it is never reached. `stateless_http` is a knob for the **legacy** leg only, and the modern path is sessionless by construction.
 
 For a legacy client on spec version 2025-11-25 or earlier, the answer depends on that flag:
 

@@ -4,7 +4,7 @@ MCP has two protocol eras: the `initialize`-handshake era, up to spec version `2
 
 This page is about the server side of that split, and the answer fits in one sentence: **the `streamable_http_app()` you already deploy serves both.**
 
-The SDK routes every request by its `MCP-Protocol-Version` header. A request naming `2026-07-28` goes to the modern handler. A request naming a handshake-era version, or carrying no header at all (which is how a pre-2026 client's `initialize` arrives), goes to the transport those clients expect: `initialize` handshake, sessions and all. It happens per request, before your code, on the one app.
+The SDK routes every request by its `MCP-Protocol-Version` header and its body. A request naming `2026-07-28`, or carrying the 2026-07-28 `_meta` envelope, goes to the modern handler; if such a request's header is missing or names another version, it is rejected with `400` and `HeaderMismatch` (`-32020`). Any other request naming a handshake-era version, or carrying no header at all (which is how a pre-2026 client's `initialize` arrives), goes to the transport those clients expect: `initialize` handshake, sessions and all. It happens per request, before your code, on the one app.
 
 So a legacy client is not something you build *for*. It is something that connects *to* the server you already wrote. You configure nothing.
 
@@ -163,7 +163,7 @@ Two lines, no `if`, no version check, and you are done. That is the entire list 
 
 ## Recap
 
-* One `streamable_http_app()` serves both protocol eras. The SDK routes each request by its `MCP-Protocol-Version` header; there is nothing to configure and no era knob to look for.
+* One `streamable_http_app()` serves both protocol eras. The SDK routes each request by its `MCP-Protocol-Version` header and, for requests carrying the 2026-07-28 envelope, its body; there is nothing to configure and no era knob to look for.
 * A legacy client costs you a session: an in-process `Mcp-Session-Id` record with no distributed store behind it. More than one worker means **sticky routing**, or the wrong worker answers `404 Session not found`. **[Deploy & scale](deploy.md)** has the multi-worker story.
 * `stateless_http=True` is the one knob, and it is **legacy-leg-only**. It buys free load balancing for legacy clients at the price of both server-to-client channels on that leg: server-initiated requests raise `NoBackChannelError` (a top-level error at the client, not an `is_error` result), and notifications are dropped.
 * A `2026-07-28` connection is sessionless either way. `stateless_http` never touches it.

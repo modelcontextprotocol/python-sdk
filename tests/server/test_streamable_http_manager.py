@@ -1101,7 +1101,7 @@ def _rpc_message(response: httpx2.Response) -> dict[str, Any]:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("stateless", [True, False])
-@pytest.mark.parametrize("method", ["tools/list", "server/discover"])
+@pytest.mark.parametrize("method", ["tools/list", "server/discover", "initialize"])
 @pytest.mark.parametrize("header_version", [LATEST_HANDSHAKE_VERSION, None])
 async def test_modern_envelope_with_a_missing_or_2025_version_header_is_a_header_mismatch(
     stateless: bool, method: str, header_version: str | None
@@ -1171,26 +1171,11 @@ async def test_unparseable_2025_body_keeps_its_legacy_parse_error() -> None:
             202,
             id="notification",
         ),
-        pytest.param(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": LATEST_HANDSHAKE_VERSION,
-                    "capabilities": {},
-                    "clientInfo": {"name": "client", "version": "1"},
-                    **_modern_params(),
-                },
-            },
-            200,
-            id="initialize",
-        ),
         pytest.param([_rpc_body("tools/list", _modern_params())], 400, id="batch"),
     ],
 )
 async def test_messages_that_are_not_modern_requests_stay_on_the_legacy_path(body: Any, status: int) -> None:
-    """Notifications, `initialize` and batches are not routed on the envelope, even if they carry one."""
+    """Notifications and batches are not routed on the envelope, even if they carry one."""
     headers = base_headers() | {"mcp-protocol-version": LATEST_HANDSHAKE_VERSION}
     async with mounted_app(_era_routing_server(), stateless_http=True) as (http, _):
         response = await http.post("/mcp", json=body, headers=headers)
@@ -1226,3 +1211,18 @@ async def test_peek_stops_at_a_disconnect_without_a_body() -> None:
 
     assert carries_modern_envelope is False
     assert await replay() == {"type": "http.disconnect"}
+
+
+@pytest.mark.anyio
+async def test_legacy_initialize_without_an_envelope_still_completes_the_handshake() -> None:
+    headers = base_headers() | {"mcp-protocol-version": LATEST_HANDSHAKE_VERSION}
+    params = {
+        "protocolVersion": LATEST_HANDSHAKE_VERSION,
+        "capabilities": {},
+        "clientInfo": {"name": "client", "version": "1"},
+    }
+    async with mounted_app(_era_routing_server(), stateless_http=True) as (http, _):
+        response = await http.post("/mcp", json=_rpc_body("initialize", params), headers=headers)
+
+    assert response.status_code == 200
+    assert _rpc_message(response)["result"]["protocolVersion"] == LATEST_HANDSHAKE_VERSION

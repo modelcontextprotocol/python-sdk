@@ -49,8 +49,9 @@ async def _peek_modern_envelope(receive: Receive) -> tuple[Receive, bool]:
 
     Returns a `receive` that replays everything read, so the chosen handler sees the body untouched.
     The body is already complete and size-limited by `RequestBodyLimitMiddleware`. An unparseable
-    body, a notification, a batch and `initialize` are not evidence of the modern era and stay on the
-    legacy path, which owns their errors.
+    body, a notification and a batch are not routed on the envelope and stay on the legacy path,
+    which owns their errors. `initialize` is routed like any other request: a handshake never carries
+    the reserved version key, so an enveloped one is judged against its header by the modern entry.
     """
     messages: deque[Message] = deque()
     body = bytearray()
@@ -73,7 +74,7 @@ async def _peek_modern_envelope(receive: Receive) -> tuple[Receive, bool]:
     if not isinstance(decoded, dict):
         return replay, False
     request = cast("dict[str, Any]", decoded)
-    if "id" not in request or request.get("method") == "initialize":
+    if "id" not in request:
         return replay, False
     params: Any = request.get("params")
     return replay, isinstance(params, dict) and has_modern_envelope(cast("dict[str, Any]", params))
