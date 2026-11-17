@@ -57,8 +57,8 @@ class TransportSecurityMiddleware:
         if host in self.settings.allowed_hosts:
             return True
 
-        base_host, _, port = host.rpartition(":")
-        if port.isascii() and port.isdigit() and f"{base_host}:*" in self.settings.allowed_hosts:
+        base_host, colon, port = host.rpartition(":")
+        if colon and port.isascii() and port.isdigit() and f"{base_host}:*" in self.settings.allowed_hosts:
             return True
 
         logger.warning(f"Invalid Host header: {host}")
@@ -74,8 +74,8 @@ class TransportSecurityMiddleware:
         if origin in self.settings.allowed_origins:
             return True
 
-        base_origin, _, port = origin.rpartition(":")
-        if port.isascii() and port.isdigit() and f"{base_origin}:*" in self.settings.allowed_origins:
+        base_origin, colon, port = origin.rpartition(":")
+        if colon and port.isascii() and port.isdigit() and f"{base_origin}:*" in self.settings.allowed_origins:
             return True
 
         logger.warning(f"Invalid Origin header: {origin}")
