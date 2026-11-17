@@ -41,10 +41,15 @@ SETTINGS = TransportSecuritySettings(
         pytest.param("evil.example:9000", None, 421, id="host-wildcard-base-mismatch"),
         pytest.param("good.example", None, None, id="host-exact-no-origin"),
         pytest.param("wild.example:9000", None, None, id="host-wildcard-match"),
+        pytest.param("wild.example:abc", None, 421, id="host-wildcard-non-numeric-port"),
+        pytest.param("wild.example:", None, 421, id="host-wildcard-empty-port"),
         pytest.param("good.example", "http://evil.example", 403, id="origin-no-match"),
         pytest.param("good.example", "http://evil.example:9000", 403, id="origin-wildcard-base-mismatch"),
         pytest.param("good.example", "http://good.example", None, id="origin-exact"),
         pytest.param("good.example", "http://wild.example:9000", None, id="origin-wildcard-match"),
+        pytest.param(
+            "good.example", "http://wild.example:9000.other.example", 403, id="origin-wildcard-non-numeric-port"
+        ),
     ],
 )
 async def test_validate_request_checks_host_then_origin(
@@ -54,6 +59,15 @@ async def test_validate_request_checks_host_then_origin(
     middleware = TransportSecurityMiddleware(SETTINGS)
     response = await middleware.validate_request(_request(host, origin))
     assert (None if response is None else response.status_code) == expected
+
+
+@pytest.mark.anyio
+async def test_validate_request_wildcard_port_needs_a_colon() -> None:
+    """A bare `:*` entry does not match a Host that is only digits."""
+    middleware = TransportSecurityMiddleware(TransportSecuritySettings(allowed_hosts=[":*"]))
+    response = await middleware.validate_request(_request("8080", None))
+    assert response is not None
+    assert response.status_code == 421
 
 
 @pytest.mark.anyio
