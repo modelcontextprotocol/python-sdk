@@ -1,4 +1,3 @@
-import re
 from typing import Any, cast
 from urllib.parse import urljoin, urlparse
 
@@ -22,6 +21,15 @@ from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
     """Extract field from WWW-Authenticate header.
 
+    ``field_name`` is matched as a whole auth-param name (RFC 7235 section 2.1):
+    only where an auth-param can start - the header's start, or after a comma,
+    a semicolon, or whitespace - and never inside another parameter's quoted
+    value. A longer name (``x_scope=``) or free text such as
+    ``error_description="... scope=admin ..."`` therefore never answers for the
+    parameter itself. A quoted value is unquoted with its backslash escapes
+    resolved and may be empty; an unquoted value is the token up to the next
+    comma or whitespace.
+
     Returns:
         Field value if found in WWW-Authenticate header, None otherwise
     """
@@ -29,15 +37,56 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
     if not www_auth_header:
         return None
 
-    # Pattern matches: field_name="value" or field_name=value (unquoted)
-    pattern = rf'{field_name}=(?:"([^"]+)"|([^\s,]+))'
-    match = re.search(pattern, www_auth_header)
+    return _find_auth_param(www_auth_header, field_name)
 
-    if match:
-        # Return quoted value if present, otherwise unquoted value
-        return match.group(1) or match.group(2)
 
+def _find_auth_param(header: str, name: str) -> str | None:
+    """Value of the auth-param called `name`, scanning outside quoted strings only."""
+    prefix = f"{name}="
+    i = 0
+    while i < len(header):
+        if header[i] == '"':
+            i = _skip_quoted(header, i)
+            continue
+        if header.startswith(prefix, i) and (i == 0 or header[i - 1] in " \t,;"):
+            return _read_auth_param_value(header, i + len(prefix))
+        i += 1
     return None
+
+
+def _skip_quoted(header: str, start: int) -> int:
+    """Index just past the quoted string opening at `start`, or `len(header)` if it never closes."""
+    i = start + 1
+    while i < len(header):
+        if header[i] == "\\":
+            i += 2
+            continue
+        if header[i] == '"':
+            return i + 1
+        i += 1
+    return len(header)
+
+
+def _read_auth_param_value(header: str, start: int) -> str | None:
+    """Decode the value starting at `start`: a quoted string, or an unquoted token."""
+    if start < len(header) and header[start] == '"':
+        value: list[str] = []
+        i = start + 1
+        while i < len(header):
+            if header[i] == "\\" and i + 1 < len(header):
+                value.append(header[i + 1])
+                i += 2
+                continue
+            if header[i] == '"':
+                return "".join(value)
+            value.append(header[i])
+            i += 1
+        return None  # unterminated quoted string
+    i = start
+    while i < len(header) and header[i] not in " \t,":
+        i += 1
+    token = header[start:i]
+    return token or None
 
 
 def extract_scope_from_www_auth(response: Response) -> str | None:

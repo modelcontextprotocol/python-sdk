@@ -3667,3 +3667,62 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+def _www_auth_response(header: str, status_code: int = 401) -> httpx2.Response:
+    return httpx2.Response(
+        status_code,
+        headers={"WWW-Authenticate": header},
+        request=httpx2.Request("GET", "https://api.example.com/mcp"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("header", "field_name", "expected"),
+    [
+        # A longer parameter name is a different parameter, not this one.
+        ('Bearer error="invalid_token", x_scope="admin"', "scope", None),
+        ('Bearer error="invalid_token", not_scope="evil", scope="read write"', "scope", "read write"),
+        # Text inside another parameter's quoted value is not a parameter either.
+        ('Bearer error_description="the scope=admin is not granted", scope="read"', "scope", "read"),
+        # A quoted value may hold the separators and the looked-for name.
+        ('Bearer scope="read, write"', "scope", "read, write"),
+        ("Bearer scope=read", "scope", "read"),
+        ("scope=read", "scope", "read"),
+        # A quoted string that is not the looked-for value is skipped whole, escapes and all.
+        ('Bearer realm="a\\"b", scope="read"', "scope", "read"),
+        ('Bearer realm="unterminated, scope=read', "scope", None),
+        # An unrelated *resource_metadata parameter is never discovered from.
+        ('Bearer error="invalid_token", x_resource_metadata="https://evil.example/prm"', "resource_metadata", None),
+        (
+            'Bearer resource_metadata="https://api.example.com/prm", error="invalid_token"',
+            "resource_metadata",
+            "https://api.example.com/prm",
+        ),
+        # Unquoted values are tokens; a quoted one may be empty or carry escapes.
+        ("Bearer error=insufficient_scope", "error", "insufficient_scope"),
+        ('Bearer scope=""', "scope", ""),
+        ('Bearer scope="a\\"b"', "scope", 'a"b'),
+        # A malformed header yields no value rather than a guess.
+        ('Bearer scope=, error="invalid_token"', "scope", None),
+        ('Bearer scope="unterminated', "scope", None),
+        ("", "scope", None),
+    ],
+)
+def test_extract_field_from_www_auth_matches_the_whole_auth_param_name(
+    header: str, field_name: str, expected: str | None
+) -> None:
+    """RFC 7235 auth-param names are whole tokens: a suffix match must not answer for another parameter."""
+    assert extract_field_from_www_auth(_www_auth_response(header), field_name) == expected
+
+
+def test_extract_field_from_www_auth_keeps_working_across_a_multi_challenge_header() -> None:
+    """A header carrying two challenges still resolves the parameter from the challenge that declares it."""
+    header = 'Basic realm="example", Bearer scope="read write"'
+    assert extract_scope_from_www_auth(_www_auth_response(header)) == "read write"
+
+
+def test_extract_field_from_www_auth_without_the_header_returns_none() -> None:
+    assert (
+        extract_field_from_www_auth(httpx2.Response(401, request=httpx2.Request("GET", "https://x")), "scope") is None
+    )
