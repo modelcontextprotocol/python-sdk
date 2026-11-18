@@ -147,8 +147,12 @@ async def test_http_error_status_sends_jsonrpc_error() -> None:
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
 
-                with pytest.raises(MCPError, match="Server returned an error response"):  # pragma: no branch
+                with pytest.raises(MCPError, match="Server returned an error response") as exc_info:  # pragma: no branch
                     await session.list_tools()
+                assert exc_info.value.error.data == {
+                    "http_status": 500,
+                    "reason": "Internal Server Error",
+                }
 
 
 async def test_http_error_on_notification_does_not_hang() -> None:

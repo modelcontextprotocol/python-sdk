@@ -423,7 +423,14 @@ class StreamableHTTPTransport:
                         else:
                             error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
                     else:
-                        error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                        error_data = ErrorData(
+                            code=INTERNAL_ERROR,
+                            message="Server returned an error response",
+                            data={
+                                "http_status": response.status_code,
+                                "reason": response.reason_phrase,
+                            },
+                        )
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
                 return
