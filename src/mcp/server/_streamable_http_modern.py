@@ -25,6 +25,7 @@ import json
 import logging
 from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import anyio
@@ -34,8 +35,11 @@ from mcp_types import (
     CLIENT_INFO_META_KEY,
     HEADER_MISMATCH,
     INVALID_REQUEST,
+    METHOD_NOT_FOUND,
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
+    UNSUPPORTED_PROTOCOL_VERSION,
     ErrorData,
     JSONRPCError,
     JSONRPCNotification,
@@ -55,7 +59,7 @@ from mcp.server.runner import modern_error_data, serve_one
 from mcp.server.streamable_http import check_accept_headers
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared.dispatcher import CallOptions
-from mcp.shared.exceptions import NoBackChannelError
+from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.inbound import (
     ERROR_CODE_HTTP_STATUS,
     MCP_PARAM_HEADER_PREFIX,
@@ -123,21 +127,25 @@ class _SingleExchangeDispatchContext:
         await self.notify("notifications/progress", params)
 
 
-async def _to_jsonrpc_response(
+async def _execute_jsonrpc(
     request_id: RequestId, coro: Awaitable[dict[str, Any]]
-) -> JSONRPCResponse | JSONRPCError:
-    """Await ``coro`` and wrap its outcome as the JSON-RPC reply for ``request_id``.
+) -> tuple[JSONRPCResponse | JSONRPCError, bool]:
+    """Await ``coro`` and return ``(reply, from_handler)``.
 
-    The exception-to-wire boundary for the modern HTTP entry, composed around
-    `serve_one`: `modern_error_data` maps the shared ladder and surfaces
-    anything else as a generic `INTERNAL_ERROR` so handler internals never
-    reach the wire.
+    ``MCPError`` originates from dispatch/handlers (including ``MCPError``
+    conversions inside ``ServerRunner``) so HTTP status selection uses
+    ``_HANDLER_ERROR_HTTP_STATUS``. Request/envelope ``ValidationError``
+    (e.g. a mis-shaped ``_meta`` envelope) keeps ``from_handler=False`` so it
+    maps through ``ERROR_CODE_HTTP_STATUS`` (400), and unmapped exceptions map
+    to ``INTERNAL_ERROR`` (HTTP 200).
     """
     try:
         result = await coro
+    except MCPError as exc:
+        return JSONRPCError(jsonrpc="2.0", id=request_id, error=modern_error_data(exc)), True
     except Exception as exc:
-        return JSONRPCError(jsonrpc="2.0", id=request_id, error=modern_error_data(exc))
-    return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
+        return JSONRPCError(jsonrpc="2.0", id=request_id, error=modern_error_data(exc)), False
+    return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result), False
 
 
 _SSE_PING_INTERVAL: float = 15.0
@@ -171,14 +179,35 @@ async def _write_rejection(
     await _write(rej, scope, receive, send)
 
 
+_HANDLER_ERROR_HTTP_STATUS: Final[Mapping[int, int]] = MappingProxyType(
+    {
+        HEADER_MISMATCH: 400,
+        MISSING_REQUIRED_CLIENT_CAPABILITY: 400,
+        UNSUPPORTED_PROTOCOL_VERSION: 400,
+        METHOD_NOT_FOUND: 404,
+    }
+)
+"""HTTP status overrides for handler/dispatch-origin JSON-RPC errors.
+
+Only error codes with a transport HTTP status in the 2026-07-28 spec map
+above `200`. `-32602 INVALID_PARAMS` is intentionally omitted here because
+handler-origin `-32602` (such as a missing resource URI) is an in-band JSON-RPC
+error on HTTP 200, whereas malformed request envelopes fail on the inbound
+ladder via :func:`_write_rejection` (`400`).
+"""
+
+
 async def _write(
     msg: JSONRPCResponse | JSONRPCError,
     scope: Scope,
     receive: Receive,
     send: Send,
+    *,
+    from_handler: bool = False,
 ) -> None:
-    """Serialise a JSON-RPC reply with the table-mapped HTTP status."""
-    status = ERROR_CODE_HTTP_STATUS.get(msg.error.code, 200) if isinstance(msg, JSONRPCError) else 200
+    """Serialise a JSON-RPC reply with the origin-appropriate HTTP status."""
+    status_map = _HANDLER_ERROR_HTTP_STATUS if from_handler else ERROR_CODE_HTTP_STATUS
+    status = status_map.get(msg.error.code, 200) if isinstance(msg, JSONRPCError) else 200
     body = msg.model_dump(mode="json", by_alias=True, exclude_none=True)
     if isinstance(msg, JSONRPCError) and msg.id is None:
         # JSON-RPC requires `id: null` to appear on the wire when the request
@@ -456,20 +485,20 @@ async def handle_modern_request(
         # A listen response IS a notification stream, so it always takes the
         # SSE path below regardless of the JSON-response preference (the
         # TypeScript and Go SDKs route it the same way).
-        msg = await _to_jsonrpc_response(
+        msg, is_handler_error = await _execute_jsonrpc(
             req.id, serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state)
         )
-        await _write(msg, scope, receive, send)
+        await _write(msg, scope, receive, send, from_handler=is_handler_error)
         return
 
     send_ch, recv_ch = anyio.create_memory_object_stream[bytes](0)
     dctx.sink = send_ch
-    result: list[JSONRPCResponse | JSONRPCError] = []
+    result: list[tuple[JSONRPCResponse | JSONRPCError, bool]] = []
 
     async def run_handler() -> None:
         async with send_ch:
             result.append(
-                await _to_jsonrpc_response(
+                await _execute_jsonrpc(
                     req.id,
                     serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state),
                 )
@@ -494,10 +523,11 @@ async def handle_modern_request(
 
         if done:
             # Handler completed within the deferral window without emitting:
-            # `application/json` with the table-mapped status. Kernel-dispatch
-            # errors (METHOD_NOT_FOUND, missing-capability, INVALID_PARAMS)
-            # resolve here in practice.
-            await _write(result[0], scope, receive, send)
+            # `application/json` with the handler-mapped status. Spec-assigned
+            # dispatch errors (`METHOD_NOT_FOUND`, missing-capability) still map
+            # to 404/400, while handler `INVALID_PARAMS` stays in-band on 200.
+            msg, is_handler_error = result[0]
+            await _write(msg, scope, receive, send, from_handler=is_handler_error)
         else:
             # First notification arrived, or the deferral window elapsed: commit
             # `text/event-stream` and start pinging so a proxy idle-read timeout
@@ -522,6 +552,6 @@ async def handle_modern_request(
                         event = await recv_ch.receive()
                     except anyio.EndOfStream:
                         done = True
-            await send({"type": "http.response.body", "body": _sse_event(result[0]), "more_body": False})
+            await send({"type": "http.response.body", "body": _sse_event(result[0][0]), "more_body": False})
 
         tg.cancel_scope.cancel()

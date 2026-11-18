@@ -316,11 +316,13 @@ ERROR_CODE_HTTP_STATUS: Final[Mapping[int, int]] = MappingProxyType(
         METHOD_NOT_FOUND: 404,
     }
 )
-"""HTTP status to send for a JSON-RPC `error.code`.
+"""HTTP status to send for a transport/ladder-origin JSON-RPC `error.code`.
 
-Consulted for classifier-origin *and* handler-origin errors, so one table
-decides the wire status regardless of where the error was produced. Unmapped
-codes fall back to the caller's default (typically 200).
+Consulted for parse errors, malformed envelopes, and classifier ladder
+rejections (where `-32602` for missing `_meta` envelope fields maps to HTTP
+400). Handler-origin errors are mapped separately by `_streamable_http_modern`
+so in-band `-32602` handler errors stay on HTTP 200. Unmapped codes fall back
+to the caller's default (typically 200).
 """
 
 

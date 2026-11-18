@@ -46,8 +46,8 @@ from trio.testing import MockClock
 
 from mcp.server import Server, ServerRequestContext, _streamable_http_modern, runner
 from mcp.server._streamable_http_modern import (
+    _execute_jsonrpc,
     _SingleExchangeDispatchContext,
-    _to_jsonrpc_response,
     handle_modern_request,
 )
 from mcp.server.context import CallNext, HandlerResult
@@ -356,36 +356,38 @@ async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_hang
     assert "abandoning remaining callbacks" in caplog.text  # pragma: lax no cover
 
 
-# --- _to_jsonrpc_response ------------------------------------------------------
+# --- _execute_jsonrpc ----------------------------------------------------------
 
 
-async def test_to_jsonrpc_response_wraps_success_as_jsonrpc_response() -> None:
+async def test_execute_jsonrpc_wraps_success_as_jsonrpc_response() -> None:
     """SDK-defined: a handler coroutine resolving to a result dict is wrapped as a
     `JSONRPCResponse` carrying the supplied id and the dict verbatim as `result`."""
 
     async def ok() -> dict[str, Any]:
         return {"k": "v"}
 
-    reply = await _to_jsonrpc_response(7, ok())
+    reply, from_handler = await _execute_jsonrpc(7, ok())
+    assert from_handler is False
     assert isinstance(reply, JSONRPCResponse)
     assert reply.id == 7
     assert reply.result == {"k": "v"}
 
 
-async def test_to_jsonrpc_response_maps_mcp_error_to_jsonrpc_error() -> None:
+async def test_execute_jsonrpc_maps_mcp_error_to_jsonrpc_error() -> None:
     """SDK-defined: an `MCPError` raised by the handler coroutine is wrapped as a
     `JSONRPCError` whose `error` carries the same code, message, and data."""
 
     async def fail() -> dict[str, Any]:
         raise MCPError(code=METHOD_NOT_FOUND, message="nope", data="x")
 
-    reply = await _to_jsonrpc_response("rid", fail())
+    reply, from_handler = await _execute_jsonrpc("rid", fail())
+    assert from_handler is True
     assert isinstance(reply, JSONRPCError)
     assert reply.id == "rid"
     assert reply.error == ErrorData(code=METHOD_NOT_FOUND, message="nope", data="x")
 
 
-async def test_to_jsonrpc_response_maps_validation_error_to_invalid_params() -> None:
+async def test_execute_jsonrpc_maps_validation_error_to_invalid_params() -> None:
     """SDK-defined: a pydantic `ValidationError` escaping the handler coroutine is
     mapped to `INVALID_PARAMS` with a generic message (validator detail does not
     reach the wire)."""
@@ -394,12 +396,13 @@ async def test_to_jsonrpc_response_maps_validation_error_to_invalid_params() -> 
         Tool.model_validate({"name": 123})  # raises ValidationError
         raise NotImplementedError
 
-    reply = await _to_jsonrpc_response(1, fail())
+    reply, from_handler = await _execute_jsonrpc(1, fail())
+    assert from_handler is False
     assert isinstance(reply, JSONRPCError)
     assert reply.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
 
 
-async def test_to_jsonrpc_response_maps_unmapped_exception_to_internal_error_and_logs(
+async def test_execute_jsonrpc_maps_unmapped_exception_to_internal_error_and_logs(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """SDK-defined: an unmapped exception is logged server-side and surfaced as
@@ -409,7 +412,8 @@ async def test_to_jsonrpc_response_maps_unmapped_exception_to_internal_error_and
     async def fail() -> dict[str, Any]:
         raise RuntimeError("boom")
 
-    reply = await _to_jsonrpc_response(1, fail())
+    reply, from_handler = await _execute_jsonrpc(1, fail())
+    assert from_handler is False
     assert isinstance(reply, JSONRPCError)
     assert reply.error.code == INTERNAL_ERROR
     # Handler internals never reach the wire.
@@ -1353,3 +1357,56 @@ async def test_json_response_mode_still_streams_subscriptions_listen() -> None:
         "io.modelcontextprotocol/subscriptionId": 9,
         SERVER_INFO_META_KEY: {"name": "test", "version": "1.2.3"},
     }
+
+
+async def test_handler_invalid_params_answers_http_200_while_envelope_invalid_params_stays_400() -> None:
+    """Spec-mandated: handler-origin `-32602 INVALID_PARAMS` travels in-band on HTTP 200 in both JSON
+    and pre-commit SSE modes, whereas ladder `-32602` (malformed `_meta` envelope) remains HTTP 400."""
+
+    async def read_resource(ctx: ServerRequestContext, params: Any) -> Any:
+        raise MCPError(code=INVALID_PARAMS, message="Resource not found: 'demo://does-not-exist'")
+
+    meta = _list_tools_body()["params"]["_meta"]
+    read_body = {
+        "jsonrpc": "2.0",
+        "id": 7800,
+        "method": "resources/read",
+        "params": {"uri": "demo://does-not-exist", "_meta": meta},
+    }
+    read_headers = {MCP_METHOD_HEADER: "resources/read", MCP_NAME_HEADER: "demo://does-not-exist"}
+
+    for json_response in (True, False):
+        async with _asgi_client(Server("test", on_read_resource=read_resource), json_response=json_response) as http:
+            res = await http.post("/mcp", json=read_body, headers=read_headers)
+        assert res.status_code == 200
+        assert res.json() == {
+            "jsonrpc": "2.0",
+            "id": 7800,
+            "error": {"code": INVALID_PARAMS, "message": "Resource not found: 'demo://does-not-exist'"},
+        }
+
+    mcp = MCPServer("repro")
+
+    @mcp.resource("demo://widget")
+    def widget() -> str:
+        return "<html></html>"
+
+    async with _asgi_client(mcp._lowlevel_server, json_response=True) as http:  # pyright: ignore[reportPrivateUsage]
+        mcp_res = await http.post("/mcp", json=read_body, headers=read_headers)
+    assert mcp_res.status_code == 200
+    assert mcp_res.json()["error"]["code"] == INVALID_PARAMS
+
+    bad_envelope_meta = {k: v for k, v in meta.items() if k != CLIENT_CAPABILITIES_META_KEY}
+    async with _asgi_client(Server("test", on_read_resource=read_resource), json_response=True) as http:
+        ladder_res = await http.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 7802,
+                "method": "resources/read",
+                "params": {"uri": "demo://does-not-exist", "_meta": bad_envelope_meta},
+            },
+            headers=read_headers,
+        )
+    assert ladder_res.status_code == 400
+    assert ladder_res.json()["error"]["code"] == INVALID_PARAMS
