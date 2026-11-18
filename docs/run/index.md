@@ -41,6 +41,19 @@ Nothing prints, and it doesn't return. It is waiting on stdin for a host to spea
 
 That also means stdout **is the wire**. While serving, the SDK moves the wire to a private descriptor and diverts output that is *flushed* to stdout (a subprocess writing to its inherited stdout, a flushed `print()`) to stderr, where it can't corrupt the stream. Output flushed to stdout *before* serving begins (a wrapper script echoing, an unbuffered import-time print) still lands on the wire, and so does a `print()` that stays buffered until the interpreter drains it at exit. For output you actually want, the `logging` module is the right tool: its handler flushes each record to stderr as it happens. That story is in **[Logging](../handlers/logging.md)**.
 
+When stdin reaches EOF, the server gives in-flight handlers a drain window (one second by default)
+to finish their responses. After the session returns, the stdio transport gives pending output
+up to one additional second to finish writing. These are separate budgets: the handler timeout
+does not bound the entire process shutdown, including application cleanup.
+
+Keep reading stdout after closing stdin if you need the remaining responses. If stdout stays
+full and unread, transport shutdown stops waiting when its output drain expires; an unfinished
+response may be lost. A closed stdout read end still surfaces a write error such as
+`BrokenPipeError`. The SDK does not close caller-supplied streams. If a timed-out write is still
+running, another stdio transport on the same process output is refused until that write finishes.
+For custom output streams, the caller must also let any abandoned write finish before closing
+or reusing the stream.
+
 ### Try it
 
 ```console
