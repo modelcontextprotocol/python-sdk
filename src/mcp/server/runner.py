@@ -502,19 +502,10 @@ async def serve_loop(
 
 
 def _has_modern_envelope(params: Mapping[str, Any] | None) -> bool:
-    """Whether `params._meta` carries the reserved protocol-version key.
+    """Whether `params._meta` carries the reserved protocol-version key."""
+    from mcp.shared.inbound import has_modern_envelope
 
-    The `io.modelcontextprotocol/protocolVersion` key exists only in
-    2026-07-28+ envelopes and its prefix is spec-reserved, so legacy traffic
-    never mints it (a bare `_meta` is not evidence - legacy requests carry
-    `progressToken` there). The version key alone is the signal, not the full
-    required pair, so a half-built envelope still routes modern and gets the
-    classifier's INVALID_PARAMS naming the missing key.
-    """
-    if not params:
-        return False
-    meta = params.get("_meta")
-    return isinstance(meta, Mapping) and PROTOCOL_VERSION_META_KEY in meta
+    return has_modern_envelope(params)
 
 
 def _initialize_after_modern_data(params: Mapping[str, Any] | None) -> dict[str, Any]:

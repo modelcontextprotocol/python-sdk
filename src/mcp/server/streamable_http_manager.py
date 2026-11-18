@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import math
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 from uuid import uuid4
 
 import anyio
@@ -26,7 +27,7 @@ from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE as DEFAU
 from mcp.server.transport_security import RequestBodyLimitMiddleware as RequestBodyLimitMiddleware
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
-from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER, has_modern_envelope
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.transport_context import TransportContext
 
@@ -196,6 +197,14 @@ class StreamableHTTPSessionManager:
                 self.app, self.security_settings, self.json_response, self._lifespan_state, scope, receive, send
             )
             return
+
+        if scope["method"] == "POST":
+            raw_body, receive = await _buffer_and_replay_body(receive)
+            if _body_has_modern_envelope(raw_body):
+                await handle_modern_request(
+                    self.app, self.security_settings, self.json_response, self._lifespan_state, scope, receive, send
+                )
+                return
 
         # Dispatch to the appropriate handler
         if self.stateless:
@@ -393,6 +402,47 @@ class StreamableHTTPSessionManager:
         if not transport.is_terminated:
             with anyio.CancelScope(shield=True):
                 await transport.terminate()
+
+
+def _body_has_modern_envelope(raw_body: bytes) -> bool:
+    """Return True when a POST body carries a non-initialize 2026-07-28+ _meta envelope."""
+    try:
+        decoded: Any = json.loads(raw_body)
+    except (ValueError, RecursionError):
+        return False
+    if not isinstance(decoded, dict):
+        return False
+    payload = cast("dict[str, Any]", decoded)
+    if payload.get("method") == "initialize":
+        return False
+    raw_params: Any = payload.get("params")
+    return isinstance(raw_params, dict) and has_modern_envelope(cast("dict[str, Any]", raw_params))
+
+
+async def _buffer_and_replay_body(receive: Receive) -> tuple[bytes, Receive]:
+    """Read the ASGI request body once and return `(body_bytes, replay_receive)`."""
+    buffered: list[Message] = []
+    chunks: list[bytes] = []
+    while True:
+        message = await receive()
+        buffered.append(message)
+        if message["type"] != "http.request":
+            break
+        chunks.append(message.get("body", b""))
+        if not message.get("more_body", False):
+            break
+
+    idx = 0
+
+    async def replay() -> Message:
+        nonlocal idx
+        if idx < len(buffered):
+            msg = buffered[idx]
+            idx += 1
+            return msg
+        return await receive()
+
+    return b"".join(chunks), replay
 
 
 def _error_response(message: str, status_code: int, code: int = INVALID_REQUEST) -> Response:

@@ -1065,3 +1065,47 @@ async def test_anonymous_session_accepts_anonymous_requests(
     session_id = await _open_session(manager, None)
 
     assert await _request_session(manager, session_id, None) != 404
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("version_header", [LATEST_HANDSHAKE_VERSION, None])
+async def test_modern_envelope_routes_to_modern_handler_regardless_of_header(
+    version_header: str | None,
+) -> None:
+    """A 2026-07-28 _meta envelope must not fall back to legacy when the header is missing or 2025-era."""
+    from mcp_types import HEADER_MISMATCH, PROTOCOL_VERSION_META_KEY
+    from mcp_types.version import LATEST_MODERN_VERSION
+
+    from mcp.shared.inbound import MCP_METHOD_HEADER, MCP_PROTOCOL_VERSION_HEADER
+
+    app = Server("test-modern-routing")
+    manager = StreamableHTTPSessionManager(app=app, stateless=True, json_response=True)
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {
+            "_meta": {
+                PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION,
+                "io.modelcontextprotocol/clientCapabilities": {},
+            }
+        },
+    }
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        MCP_METHOD_HEADER: "tools/list",
+    }
+    if version_header is not None:
+        headers[MCP_PROTOCOL_VERSION_HEADER] = version_header
+
+    async with manager.run():
+        async with httpx2.AsyncClient(
+            transport=StreamingASGITransport(manager.handle_request),
+            base_url=BASE_URL,
+        ) as client:
+            response = await client.post("/mcp", json=body, headers=headers)
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"]["code"] == HEADER_MISMATCH
