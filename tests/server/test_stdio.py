@@ -1,11 +1,14 @@
 import gc
 import io
 import os
+import subprocess
 import sys
+import tempfile
 import threading
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from io import TextIOWrapper
+from typing import Literal
 
 import anyio
 import anyio.to_thread
@@ -13,15 +16,27 @@ import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    LATEST_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
+    CallToolRequestParams,
+    CallToolResult,
+    ClientCapabilities,
+    Implementation,
+    InitializeRequestParams,
     JSONRPCMessage,
+    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+    Tool,
     jsonrpc_message_adapter,
 )
 from typing_extensions import Buffer
 
+from mcp.server import Server, ServerRequestContext, stdio
 from mcp.server.mcpserver import MCPServer
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
@@ -168,6 +183,250 @@ async def _read_from(fd: int) -> bytes:
     fail_after on the loop thread into a red TimeoutError instead.
     """
     return await anyio.to_thread.run_sync(os.read, fd, 65536, abandon_on_cancel=True)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("operation", ["write", "flush"])
+async def test_stdio_server_bounds_an_injected_stdout_operation(
+    monkeypatch: pytest.MonkeyPatch, operation: Literal["write", "flush"]
+) -> None:
+    """SDK-defined drain cancellation returns without closing caller-owned output."""
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    class GatedOutput(io.StringIO):
+        def write(self, text: str) -> int:
+            if operation == "write":
+                self.wait_for_release()
+            return super().write(text)
+
+        def flush(self) -> None:
+            if operation == "flush":
+                self.wait_for_release()
+            super().flush()
+
+        def wait_for_release(self) -> None:
+            started.set()
+            release.wait(5)
+            finished.set()
+
+    output = GatedOutput()
+    monkeypatch.setattr(stdio, "_STDOUT_DRAIN_TIMEOUT_SECONDS", 0.01)
+    try:
+        with anyio.fail_after(5):
+            async with stdio_server(stdin=anyio.AsyncFile(io.StringIO()), stdout=anyio.AsyncFile(output)) as (
+                read_stream,
+                write_stream,
+            ):
+                read_stream.close()
+                await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=1, result={})))
+                assert await anyio.to_thread.run_sync(started.wait, 5)
+            assert not output.closed
+            assert not finished.is_set()
+    finally:
+        release.set()
+        assert await anyio.to_thread.run_sync(finished.wait, 5)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("operation", ["write", "flush"])
+async def test_stdio_server_surfaces_an_injected_stdout_error(
+    monkeypatch: pytest.MonkeyPatch, operation: Literal["write", "flush"]
+) -> None:
+    """SDK-defined writer errors propagate from either write or flush."""
+    failure = BrokenPipeError("reader disconnected")
+
+    def fail(*args: object) -> None:
+        raise failure
+
+    output = io.StringIO()
+    monkeypatch.setattr(output, operation, fail)
+
+    with (
+        anyio.fail_after(5),
+        pytest.RaisesGroup(pytest.RaisesExc(BrokenPipeError, check=lambda exc: exc is failure), flatten_subgroups=True),
+    ):
+        async with stdio_server(stdin=anyio.AsyncFile(io.StringIO()), stdout=anyio.AsyncFile(output)) as (
+            read_stream,
+            write_stream,
+        ):
+            read_stream.close()
+            await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=1, result={})))
+            await anyio.sleep_forever()
+
+
+@pytest.mark.anyio
+async def test_stdio_server_ignores_closed_output_during_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SDK-defined teardown tolerates output that is already closed by its owner."""
+    output = io.StringIO()
+
+    def closed_write(text: str) -> int:
+        raise anyio.ClosedResourceError
+
+    monkeypatch.setattr(output, "write", closed_write)
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(io.StringIO()), stdout=anyio.AsyncFile(output)) as (
+            read_stream,
+            write_stream,
+        ):
+            read_stream.close()
+            await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=1, result={})))
+    assert not output.closed
+
+
+@pytest.mark.anyio
+async def test_stdio_server_completes_partial_raw_stdout_writes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SDK-defined framing survives a short OS write without truncating a response."""
+    real_write = os.write
+
+    def short_write(fd: int, data: Buffer) -> int:
+        return real_write(fd, memoryview(data)[:3])
+
+    response = JSONRPCResponse(jsonrpc="2.0", id=1, result={"text": "中文"})
+    with _pipe_planted_on_fd1(monkeypatch) as (out_r, _):
+        monkeypatch.setattr(os, "write", short_write)
+        with anyio.fail_after(5):
+            async with stdio_server(stdin=anyio.AsyncFile(io.StringIO())) as (read_stream, write_stream):
+                read_stream.close()
+                await write_stream.send(SessionMessage(response))
+            assert await _read_from(out_r) == _frame(response).replace(b"\n", os.linesep.encode())
+
+
+@pytest.mark.anyio
+async def test_stdio_server_retains_the_claim_until_a_timed_out_writer_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A later stdio transport must not share the wire with an abandoned write."""
+    started = threading.Event()
+    release = threading.Event()
+    real_write = os.write
+
+    def gated_write(fd: int, data: Buffer) -> int:
+        started.set()
+        release.wait(5)
+        return real_write(fd, data)
+
+    with _pipe_planted_on_fd1(monkeypatch):
+        monkeypatch.setattr(os, "write", gated_write)
+        monkeypatch.setattr(stdio, "_STDOUT_DRAIN_TIMEOUT_SECONDS", 0.01)
+        try:
+            with anyio.fail_after(5):
+                async with stdio_server(stdin=anyio.AsyncFile(io.StringIO())) as (read_stream, write_stream):
+                    read_stream.close()
+                    await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=1, result={})))
+                    assert await anyio.to_thread.run_sync(started.wait, 5)
+                with pytest.raises(RuntimeError):
+                    await stdio_server(stdin=anyio.AsyncFile(io.StringIO())).__aenter__()
+                pending_io = stdio._claims[1].pending_io
+                assert pending_io is not None
+        finally:
+            release.set()
+        assert await anyio.to_thread.run_sync(pending_io.wait, 5)
+        async with stdio_server(stdin=anyio.AsyncFile(io.StringIO())) as (read_stream, _):
+            read_stream.close()
+
+
+@pytest.mark.parametrize("output", ["unread", "drained", "closed", "degraded", "explicit"])
+def test_stdio_process_exits_after_stdin_eof_with_a_large_response(output: str) -> None:
+    """SDK-defined shutdown must finish even when stdout stops accepting a response.
+
+    A raw subprocess peer is necessary: the typed client cannot half-close stdin while
+    deliberately leaving stdout unread, and a coroutine returning does not prove process exit.
+    """
+    server_code = """
+import sys
+import anyio
+from mcp.server.mcpserver import MCPServer
+from mcp.server import Server
+import mcp.server.stdio as stdio
+from mcp_types import CallToolResult, TextContent
+
+if sys.argv[1] == 'degraded':
+    def no_duplicate(fd):
+        raise OSError('descriptor isolation unavailable')
+    stdio._dup_above_std = no_duplicate
+
+server = MCPServer('stdout-shutdown')
+@server.tool()
+def big() -> str:
+    return 'x' * 1_000_000
+
+if sys.argv[1] == 'explicit':
+    async def big_response(ctx, params):
+        return CallToolResult(content=[TextContent(type='text', text='x' * 1_000_000)])
+    lowlevel = Server('stdout-shutdown', on_call_tool=big_response)
+    async def main():
+        async with stdio.stdio_server(stdout=anyio.wrap_file(sys.stdout)) as (read, write):
+            await lowlevel.run(read, write, lowlevel.create_initialization_options(), drain_on_read_close=True)
+    anyio.run(main)
+else:
+    server.run()
+print('server exited', file=sys.stderr, flush=True)
+"""
+    # A traceback can fill Windows' small stderr pipe and block process exit.
+    stderr_file = tempfile.TemporaryFile()
+    process = subprocess.Popen(
+        [sys.executable, "-c", server_code, output],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=stderr_file,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    # Cover startup and pipe reads too. Coverage-instrumented child startup on
+    # a host-mounted filesystem can consume its own five-second operation budget.
+    watchdog = threading.Timer(15, process.kill)
+    watchdog.daemon = True
+    watchdog.start()
+    initialize = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=0,
+        method="initialize",
+        params={
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "shutdown-test", "version": "1"},
+        },
+    )
+    try:
+        process.stdin.write(_frame(initialize))
+        process.stdin.flush()
+        line = process.stdout.readline()
+        response = jsonrpc_message_adapter.validate_json(line)
+        assert isinstance(response, JSONRPCResponse) and response.id == 0
+        process.stdin.write(
+            b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n'
+            b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"big","arguments":{}}}\n'
+        )
+        process.stdin.flush()
+        # A byte proves the large response has reached the actual OS pipe.
+        response_bytes = process.stdout.read(1)
+        if output == "closed":
+            process.stdout.close()
+        process.stdin.close()
+        if output == "drained":
+            response_bytes += process.stdout.read()
+            response = jsonrpc_message_adapter.validate_json(response_bytes)
+            assert isinstance(response, JSONRPCResponse) and response.id == 1
+            assert response.result["content"] == [{"type": "text", "text": "x" * 1_000_000}]
+        returncode = process.wait(timeout=5)
+        stderr_file.seek(0)
+        stderr = stderr_file.read()
+        if output == "closed":
+            assert returncode != 0
+            assert b"BrokenPipeError" in stderr
+        else:
+            assert returncode == 0, stderr.decode()
+            assert b"server exited" in stderr
+    finally:
+        watchdog.cancel()
+        process.kill()
+        process.wait(timeout=5)
+        watchdog.join(5)
+        process.stdin.close()
+        process.stdout.close()
+        stderr_file.close()
 
 
 @pytest.mark.anyio
@@ -692,3 +951,87 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     # resultType is modern-only: proves the request was served at the discovered version.
     assert responses[1].result["tools"] == []
     assert responses[1].result["resultType"] == "complete"
+
+
+@pytest.mark.anyio
+async def test_stdio_server_drains_in_flight_responses_on_stdin_eof():
+    """When stdin reaches EOF (e.g., bash-redirected input), already-received
+    requests must still be able to emit their responses on stdout."""
+    stdin = io.StringIO()
+    stdout = io.StringIO()
+
+    tool_started_count = 0
+    both_tools_started = anyio.Event()
+    allow_tools_to_finish = anyio.Event()
+
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="slow", description="test", input_schema={"type": "object"})])
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        nonlocal tool_started_count
+        tool_started_count += 1
+        if tool_started_count == 2:
+            both_tools_started.set()
+        await allow_tools_to_finish.wait()
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    server = Server("test", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
+
+    init_req = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=0,
+        method="initialize",
+        params=InitializeRequestParams(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ClientCapabilities(),
+            client_info=Implementation(name="test", version="1.0"),
+        ).model_dump(by_alias=True, mode="json", exclude_none=True),
+    )
+    initialized = JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+    list_tools = JSONRPCRequest(jsonrpc="2.0", id=10, method="tools/list")
+    call_1 = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method="tools/call",
+        params=CallToolRequestParams(name="slow", arguments={}).model_dump(by_alias=True, mode="json"),
+    )
+    call_2 = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=2,
+        method="tools/call",
+        params=CallToolRequestParams(name="slow", arguments={}).model_dump(by_alias=True, mode="json"),
+    )
+
+    for message in (init_req, initialized, list_tools, call_1, call_2):
+        stdin.write(message.model_dump_json(by_alias=True, exclude_none=True) + "\n")
+    stdin.seek(0)
+
+    async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+        read_stream,
+        write_stream,
+    ):
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+
+                async def run_server() -> None:
+                    await server.run(
+                        read_stream,
+                        write_stream,
+                        server.create_initialization_options(),
+                        drain_on_read_close=True,
+                    )
+
+                tg.start_soon(run_server)
+                await both_tools_started.wait()
+                allow_tools_to_finish.set()
+
+    stdout.seek(0)
+    output_lines = [line.strip() for line in stdout.readlines()]
+    messages = [jsonrpc_message_adapter.validate_json(line) for line in output_lines]
+    ids: set[int | str] = set()
+    for message in messages:
+        assert isinstance(message, JSONRPCResponse)
+        ids.add(message.id)
+
+    assert 1 in ids
+    assert 2 in ids
