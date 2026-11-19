@@ -461,6 +461,81 @@ class TestResourceTemplateMetadata:
         assert resource.meta["cacheable"] is True
 
 
+class TestTemplateReturnedResourceWins:
+    """A template function may return a concrete Resource for the matched URI.
+
+    Its explicitly set fields must survive the wrapping: read_resource() reports
+    the wrapping FunctionResource's mime_type/meta, so a returned BinaryResource
+    served as text/plain (and losing its meta) is the bug in #3874.
+    """
+
+    @pytest.mark.anyio
+    async def test_returned_resource_mime_type_and_meta_survive(self):
+        from mcp.server.mcpserver.resources.types import BinaryResource
+
+        def get_bin(name: str) -> BinaryResource:
+            return BinaryResource(
+                uri=f"bin://{name}",
+                name=name,
+                data=b"\x89PNG\r\n\x1a\n",
+                mime_type="image/png",
+                meta={"source": "camera"},
+            )
+
+        template = ResourceTemplate.from_function(fn=get_bin, uri_template="bin://{name}")
+
+        resource = await template.create_resource("bin://cat.png", {"name": "cat.png"}, Context())
+
+        assert isinstance(resource, FunctionResource)
+        assert resource.uri == "bin://cat.png"
+        assert resource.mime_type == "image/png"
+        assert resource.meta == {"source": "camera"}
+        assert await resource.read() == b"\x89PNG\r\n\x1a\n"
+
+    @pytest.mark.anyio
+    async def test_unset_fields_fall_back_to_the_template(self):
+        from mcp.server.mcpserver.resources.types import TextResource
+
+        def get_doc(slug: str) -> TextResource:
+            # Only uri/text are set; mime_type keeps its Resource default and
+            # must not override the template's declared type.
+            return TextResource(uri=f"doc://{slug}", text=f"# {slug}")
+
+        template = ResourceTemplate.from_function(
+            fn=get_doc,
+            uri_template="doc://{slug}",
+            mime_type="text/markdown",
+            meta={"template": True},
+        )
+
+        resource = await template.create_resource("doc://guide", {"slug": "guide"}, Context())
+
+        assert resource.mime_type == "text/markdown"
+        assert resource.meta == {"template": True}
+        assert await resource.read() == "# guide"
+
+    @pytest.mark.anyio
+    async def test_read_resource_reports_the_returned_mime_type(self):
+        from mcp.server.mcpserver.resources.types import BinaryResource
+
+        mcp = MCPServer("test")
+
+        @mcp.resource("bin://{name}")
+        def get_bin(name: str) -> BinaryResource:
+            return BinaryResource(
+                uri=f"bin://{name}",
+                name=name,
+                data=b"\x89PNG\r\n\x1a\n",
+                mime_type="image/png",
+                meta={"source": "camera"},
+            )
+
+        contents = list(await mcp.read_resource("bin://cat.png"))
+
+        assert contents[0].mime_type == "image/png"
+        assert contents[0].meta == {"source": "camera"}
+
+
 @pytest.mark.anyio
 async def test_sync_fn_runs_in_worker_thread():
     """Sync template functions must run in a worker thread, not the event loop."""

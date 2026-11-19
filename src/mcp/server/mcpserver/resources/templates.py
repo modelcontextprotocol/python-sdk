@@ -231,6 +231,25 @@ class ResourceTemplate(BaseModel):
             if isinstance(result, InputRequiredResult):
                 return result
 
+            if isinstance(result, Resource):
+                # The template function returned a concrete resource (e.g. BinaryResource)
+                # to describe THIS URI's content. Its explicitly set fields win over the
+                # template defaults — otherwise a blob would be served as text/plain and the
+                # per-URI meta would be dropped, since read_resource() reports the wrapping
+                # FunctionResource's mime_type/meta.
+                explicit = result.model_fields_set
+                return FunctionResource(
+                    uri=uri,  # type: ignore
+                    name=result.name or self.name,
+                    title=result.title if "title" in explicit else self.title,
+                    description=result.description if "description" in explicit else self.description,
+                    mime_type=result.mime_type if "mime_type" in explicit else self.mime_type,
+                    icons=result.icons if "icons" in explicit else self.icons,
+                    annotations=result.annotations if "annotations" in explicit else self.annotations,
+                    meta=result.meta if "meta" in explicit else self.meta,
+                    fn=result.read,
+                )
+
             return FunctionResource(
                 uri=uri,  # type: ignore
                 name=self.name,
