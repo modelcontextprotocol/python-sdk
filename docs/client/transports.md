@@ -48,6 +48,15 @@ environment variables or pass an explicit `verify=ssl_context` to your `httpx2.A
 (background in
 [`httpx` and `httpx-sse` replaced by `httpx2`](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)).
 
+### Closing a legacy session
+
+When a legacy server assigns a session ID, exiting the client sends a `DELETE` request by default.
+The transport shields that request from caller cancellation for up to five seconds, so a cancelled
+operation still has a chance to release its server session without waiting indefinitely on cleanup.
+If termination fails or times out, the server may retain the session until its idle timeout expires.
+Pass `terminate_on_close=False` to `streamable_http_client` to leave the session open intentionally.
+Modern connections have no legacy session to terminate.
+
 ### Larger SSE events
 
 Pass `max_sse_event_size` when a server sends a large tool result or notification in one SSE event:

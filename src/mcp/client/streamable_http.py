@@ -59,6 +59,7 @@ LAST_EVENT_ID = "last-event-id"
 DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
 MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
 DEFAULT_MAX_SSE_EVENT_SIZE = 1024 * 1024
+_SESSION_TERMINATION_TIMEOUT = 5.0
 
 
 class StreamableHTTPError(Exception):
@@ -705,7 +706,7 @@ class StreamableHTTPTransport:
                 logger.debug("Server does not allow session termination")
             elif response.status_code not in (200, 204):
                 logger.warning(f"Session termination failed: {response.status_code}")  # pragma: no cover
-        except Exception as exc:  # pragma: no cover
+        except Exception as exc:
             logger.warning(f"Session termination failed: {exc}")
 
 
@@ -732,6 +733,7 @@ async def streamable_http_client(
             client's `follow_redirects` setting is not consulted; the SDK's OAuth providers apply the
             same rule to the requests they make.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
+            Termination is shielded from caller cancellation and bounded to five seconds.
         max_sse_event_size: Maximum bytes buffered for one SSE event. None disables the limit.
             JSON responses are not affected.
 
@@ -788,6 +790,9 @@ async def streamable_http_client(
                 yield read_stream, write_stream
             finally:
                 if transport.session_id and terminate_on_close:
-                    await transport.terminate_session(client)
+                    # Caller cancellation must not abort cleanup, but a stalled
+                    # endpoint must not keep the transport alive indefinitely.
+                    with anyio.move_on_after(_SESSION_TERMINATION_TIMEOUT, shield=True):
+                        await transport.terminate_session(client)
                 tg.cancel_scope.cancel()
         await resync_tracer()

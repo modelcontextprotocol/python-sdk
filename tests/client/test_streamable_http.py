@@ -8,11 +8,12 @@ that the public client never exposes.
 import base64
 import json
 from collections.abc import AsyncIterator, Callable, Mapping
-from typing import Any
+from typing import Any, Literal
 
 import anyio
 import httpx2
 import pytest
+from anyio.lowlevel import checkpoint
 from inline_snapshot import snapshot
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
@@ -56,6 +57,134 @@ from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, Ses
 from mcp.shared.transport_context import TransportContext
 from tests.interaction.transports import StreamingASGITransport
 from tests.shared.test_dispatcher import Recorder, echo_handlers
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("cancel", "terminate_on_close"),
+    [("none", False), ("before", False), ("none", True), ("before", True), ("during", True)],
+)
+async def test_client_exit_terminates_the_legacy_session_even_when_cancelled(
+    cancel: Literal["none", "before", "during"], terminate_on_close: bool
+) -> None:
+    """SDK-defined: terminate_on_close removes a legacy session even during caller cancellation.
+
+    A request hook supplies a cancellable I/O checkpoint before DELETE reaches the server.
+    """
+    session_ids: list[str] = []
+    deleted: list[str] = []
+    delete_started = anyio.Event()
+    cancellation_started = anyio.Event()
+
+    async def cancel_during_delete(scope: anyio.CancelScope) -> None:
+        with anyio.fail_after(5):
+            await delete_started.wait()
+        scope.cancel()
+        cancellation_started.set()
+
+    async def before_request(request: httpx2.Request) -> None:
+        if request.method == "DELETE":
+            if cancel == "during":
+                delete_started.set()
+                with anyio.fail_after(5):
+                    await cancellation_started.wait()
+            await checkpoint()
+
+    async def after_response(response: httpx2.Response) -> None:
+        if session_id := response.headers.get("mcp-session-id"):
+            session_ids.append(session_id)
+        if response.request.method == "DELETE":
+            assert response.status_code == 200
+            deleted.append(response.request.headers["mcp-session-id"])
+
+    manager = StreamableHTTPSessionManager(app=Server("cleanup"), json_response=True)
+    app = Starlette(routes=[Mount("/mcp", app=manager.handle_request)])
+    with anyio.fail_after(5):
+        async with (
+            manager.run(),
+            httpx2.AsyncClient(
+                transport=StreamingASGITransport(app),
+                event_hooks={"request": [before_request], "response": [after_response]},
+            ) as http,
+        ):
+            client = Client(
+                streamable_http_client(
+                    "http://localhost/mcp/", http_client=http, terminate_on_close=terminate_on_close
+                ),
+                mode="legacy",
+            )
+            async with anyio.create_task_group() as tasks:
+                with anyio.CancelScope() as scope:
+                    # coverage.py misattributes context-manager arcs on cancellation.
+                    async with client:  # pragma: no branch
+                        assert session_ids
+                        if cancel == "before":
+                            scope.cancel()
+                        elif cancel == "during":
+                            tasks.start_soon(cancel_during_delete, scope)
+
+            session_id = session_ids[0]
+            probe = await http.post(
+                "http://localhost/mcp/",
+                headers={
+                    "mcp-session-id": session_id,
+                    "mcp-protocol-version": "2025-11-25",
+                    "accept": "application/json, text/event-stream",
+                },
+                json={"jsonrpc": "2.0", "id": 99, "method": "ping"},
+            )
+            assert probe.status_code == (404 if terminate_on_close else 200)
+            assert deleted == ([session_id] if terminate_on_close else [])
+            if not terminate_on_close:
+                await http.delete("http://localhost/mcp/", headers={"mcp-session-id": session_id})
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("cancel", [False, True])
+@pytest.mark.parametrize("failure", ["timeout", "connection"])
+async def test_failed_session_delete_does_not_block_or_swallow_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+    cancel: bool,
+    failure: Literal["timeout", "connection"],
+) -> None:
+    """SDK-defined: a stalled cleanup request cannot indefinitely shield caller cancellation."""
+    monkeypatch.setattr("mcp.client.streamable_http._SESSION_TERMINATION_TIMEOUT", 0.01)
+    delete_started = anyio.Event()
+    delete_cancelled = anyio.Event()
+    never = anyio.Event()
+
+    async def before_request(request: httpx2.Request) -> None:
+        if request.method == "DELETE":
+            delete_started.set()
+            if failure == "connection":
+                raise httpx2.ConnectError("Server unavailable", request=request)
+            try:
+                with anyio.fail_after(5):
+                    await never.wait()
+            except anyio.get_cancelled_exc_class():
+                delete_cancelled.set()
+                raise
+
+    manager = StreamableHTTPSessionManager(app=Server("stalled-cleanup"), json_response=True)
+    app = Starlette(routes=[Mount("/mcp", app=manager.handle_request)])
+    with anyio.fail_after(5):
+        async with (
+            manager.run(),
+            httpx2.AsyncClient(
+                transport=StreamingASGITransport(app), event_hooks={"request": [before_request]}
+            ) as http,
+        ):
+            # coverage.py misattributes context-manager arcs on cancellation.
+            with anyio.CancelScope() as scope:  # pragma: no branch
+                async with Client(  # pragma: no branch
+                    streamable_http_client("http://localhost/mcp/", http_client=http), mode="legacy"
+                ):
+                    if cancel:
+                        scope.cancel()
+
+    assert delete_started.is_set()
+    assert delete_cancelled.is_set() is (failure == "timeout")
+    assert scope.cancelled_caught is cancel
 
 
 @pytest.mark.anyio
