@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError
-from mcp.server.mcpserver.resources import FunctionResource, ResourceTemplate
+from mcp.server.mcpserver.resources import BinaryResource, FunctionResource, ResourceTemplate, TextResource
 from mcp.server.mcpserver.resources.templates import (
     DEFAULT_RESOURCE_SECURITY,
     ResourceSecurity,
@@ -505,6 +505,34 @@ async def test_create_resource_passes_input_required_result_through_unchanged():
     template = ResourceTemplate.from_function(fn=ask, uri_template="ask://{topic}")
     result = await template.create_resource("ask://databases", {"topic": "databases"}, Context())
     assert result is sentinel
+
+
+@pytest.mark.anyio
+async def test_handler_returned_resource_supplies_its_content_metadata():
+    """A template handler may return a Resource to pick per-URI content metadata; the template's
+    own declarations only fill what that Resource leaves at its model defaults."""
+    server = MCPServer("test")
+
+    @server.resource("bin://{name}")
+    def get_bin(name: str) -> BinaryResource:
+        return BinaryResource(
+            uri=f"bin://{name}", name=name, data=b"\x89PNG", mime_type="image/png", meta={"source": "camera"}
+        )
+
+    @server.resource("doc://{name}", mime_type="text/markdown")
+    def get_doc(name: str) -> TextResource:
+        return TextResource(uri=f"doc://{name}", name=name, text="# hi")
+
+    declared = await server.read_resource("bin://cat.png")
+    assert not isinstance(declared, InputRequiredResult)
+    [png] = list(declared)
+    assert png.mime_type == "image/png"
+    assert png.meta == {"source": "camera"}
+
+    inherited = await server.read_resource("doc://readme")
+    assert not isinstance(inherited, InputRequiredResult)
+    [markdown] = list(inherited)
+    assert markdown.mime_type == "text/markdown"
 
 
 class _Chart:

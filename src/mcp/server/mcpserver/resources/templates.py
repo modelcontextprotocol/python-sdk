@@ -12,7 +12,8 @@ from mcp_types import Annotations, Icon, InputRequiredResult
 from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.mcpserver.exceptions import ResourceError, UnexpectedResourceError
-from mcp.server.mcpserver.resources.types import FunctionResource, Resource
+from mcp.server.mcpserver.resources.base import Resource
+from mcp.server.mcpserver.resources.types import FunctionResource
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.shared._callable_inspection import is_async_callable
@@ -231,15 +232,26 @@ class ResourceTemplate(BaseModel):
             if isinstance(result, InputRequiredResult):
                 return result
 
+            # A handler-returned Resource describes this URI's content, so the mime_type and
+            # meta it declares win over the template-wide declaration, which stays the
+            # fallback for anything it left at its model default.
+            mime_type = self.mime_type
+            meta = self.meta
+            if isinstance(result, Resource):
+                if "mime_type" in result.model_fields_set:
+                    mime_type = result.mime_type
+                if result.meta is not None:
+                    meta = result.meta
+
             return FunctionResource(
                 uri=uri,  # type: ignore
                 name=self.name,
                 title=self.title,
                 description=self.description,
-                mime_type=self.mime_type,
+                mime_type=mime_type,
                 icons=self.icons,
                 annotations=self.annotations,
-                meta=self.meta,
+                meta=meta,
                 fn=lambda: result,  # Capture result in closure
             )
         except (ResourceError, MCPError):
