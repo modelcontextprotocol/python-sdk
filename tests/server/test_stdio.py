@@ -13,8 +13,11 @@ import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
+    ErrorData,
+    JSONRPCError,
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -95,6 +98,127 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> Non
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+
+def _bad_text_line(id_json: str = "3") -> str:
+    """A pure-ASCII request line pydantic rejects: a lone surrogate escape (issue #3894)."""
+    return f'{{"jsonrpc":"2.0","id":{id_json},"method":"ping","params":{{"text":"bad \\ud83d bad"}}}}'
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("line", "expected_id"),
+    [
+        ("not json at all", None),
+        ("[1,2,3]", None),
+        ('{"foo": 1}', None),
+        (_bad_text_line("true"), None),
+        (_bad_text_line("{}"), None),
+        (_bad_text_line("3"), 3),
+        (_bad_text_line('"s3"'), "s3"),
+    ],
+    ids=["not-json", "array", "no-id-no-method", "boolean-id", "object-id", "int-id", "str-id"],
+)
+async def test_stdio_server_answers_an_invalid_line_with_a_parse_error(
+    line: str, expected_id: str | int | None
+) -> None:
+    """A line that fails validation is answered with -32700 echoing a recoverable id, and serving continues.
+
+    Spec-mandated reply shape (JSON-RPC 2.0) with SDK-defined id recovery: the
+    raw line is re-parsed with stdlib json, which tolerates the lone surrogate
+    escapes pydantic-core rejects, so a client's pending call can correlate.
+    The typed API cannot produce these lines, so they are scripted raw.
+    """
+    ping = JSONRPCRequest(jsonrpc="2.0", id=4, method="ping")
+    stdin = io.StringIO(line + "\n" + ping.model_dump_json(by_alias=True, exclude_none=True) + "\n")
+    stdout = io.StringIO()
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+            read_stream,
+            write_stream,
+        ):
+            async with read_stream:
+                failure = await read_stream.receive()
+                assert isinstance(failure, Exception)
+
+                followup = await read_stream.receive()
+                assert isinstance(followup, SessionMessage)
+                assert followup.message == ping
+            await write_stream.aclose()
+
+    stdout.seek(0)
+    output_lines = stdout.readlines()
+    assert len(output_lines) == 1
+    assert jsonrpc_message_adapter.validate_json(output_lines[0].strip()) == JSONRPCError(
+        jsonrpc="2.0", id=expected_id, error=ErrorData(code=PARSE_ERROR, message="Parse error")
+    )
+
+
+@pytest.mark.anyio
+async def test_stdio_server_does_not_answer_a_notification_shaped_line() -> None:
+    """A notification-shaped line that fails validation is dropped, never answered.
+
+    JSON-RPC 2.0 §4.1: the server MUST NOT reply to a notification; the
+    unreadable line surfaces as an in-stream exception and later traffic
+    continues (issue #3894).
+    """
+    notification_line = (
+        '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"echo","arguments":{"text":"bad \\ud83d bad"}}}'
+    )
+    ping = JSONRPCRequest(jsonrpc="2.0", id=4, method="ping")
+    response = JSONRPCResponse(jsonrpc="2.0", id=4, result={})
+    stdin = io.StringIO(notification_line + "\n" + ping.model_dump_json(by_alias=True, exclude_none=True) + "\n")
+    stdout = io.StringIO()
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+            read_stream,
+            write_stream,
+        ):
+            async with read_stream:
+                failure = await read_stream.receive()
+                assert isinstance(failure, Exception)
+
+                followup = await read_stream.receive()
+                assert isinstance(followup, SessionMessage)
+                assert followup.message == ping
+
+                await write_stream.send(SessionMessage(response))
+            await write_stream.aclose()
+
+    stdout.seek(0)
+    assert [jsonrpc_message_adapter.validate_json(line) for line in stdout.readlines()] == [response]
+
+
+@pytest.mark.anyio
+async def test_stdio_server_drops_the_parse_error_reply_when_the_write_stream_is_closed() -> None:
+    """A parse error reply racing a closed write stream is dropped without killing the reader.
+
+    SDK-defined: the dispatcher closes the write stream when the connection
+    ends, and the transport's best-effort reply must not turn that shutdown
+    into an error; stdin keeps being read afterwards.
+    """
+    ping = JSONRPCRequest(jsonrpc="2.0", id=4, method="ping")
+    stdin = io.StringIO(_bad_text_line("3") + "\n" + ping.model_dump_json(by_alias=True, exclude_none=True) + "\n")
+    stdout = io.StringIO()
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+            read_stream,
+            write_stream,
+        ):
+            write_stream.close()
+            async with read_stream:
+                failure = await read_stream.receive()
+                assert isinstance(failure, Exception)
+
+                followup = await read_stream.receive()
+                assert isinstance(followup, SessionMessage)
+                assert followup.message == ping
+            await write_stream.aclose()
+
+    assert stdout.getvalue() == ""
 
 
 @contextmanager
@@ -607,15 +731,18 @@ class _NotifyingStdout(io.RawIOBase):
         pass
 
 
-def _serve_stdio_and_collect(
-    monkeypatch: pytest.MonkeyPatch, server: MCPServer, frames: list[JSONRPCRequest], responses: int
+def _serve_stdio_lines_and_collect(
+    monkeypatch: pytest.MonkeyPatch, server: MCPServer, lines: list[str], responses: int
 ) -> list[JSONRPCMessage]:
-    """Serve `frames` over process stdio and return the parsed response lines.
+    """Serve raw wire lines over process stdio and return the parsed response lines.
 
-    Runs the blocking server.run("stdio") in a daemon thread and signals stdin EOF only after
-    `responses` lines arrive - as a real client would - so handlers never race EOF cancellation.
+    `_serve_stdio_and_collect` frames typed messages; malformed wire input can
+    only be produced as raw lines, so this twin takes them verbatim. Runs the
+    blocking server.run("stdio") in a daemon thread and signals stdin EOF only
+    after `responses` lines arrive - as a real client would - so handlers
+    never race EOF cancellation.
     """
-    payload = "".join(f.model_dump_json(by_alias=True, exclude_none=True) + "\n" for f in frames).encode()
+    payload = "".join(line + "\n" for line in lines).encode()
     stdin = _GatedStdin(payload)
     stdout = _NotifyingStdout()
     monkeypatch.setattr(sys, "stdin", TextIOWrapper(stdin, encoding="utf-8"))
@@ -632,6 +759,18 @@ def _serve_stdio_and_collect(
     assert not thread.is_alive(), 'run("stdio") did not return after stdin EOF'
     assert arrived, f"expected {responses} response line(s); stdout carried: {stdout.getvalue()!r}"
     return [jsonrpc_message_adapter.validate_json(line) for line in stdout.getvalue().decode().splitlines()]
+
+
+def _serve_stdio_and_collect(
+    monkeypatch: pytest.MonkeyPatch, server: MCPServer, frames: list[JSONRPCRequest], responses: int
+) -> list[JSONRPCMessage]:
+    """Serve `frames` over process stdio and return the parsed response lines."""
+    return _serve_stdio_lines_and_collect(
+        monkeypatch,
+        server,
+        [frame.model_dump_json(by_alias=True, exclude_none=True) for frame in frames],
+        responses,
+    )
 
 
 def test_mcpserver_run_stdio_serves_until_stdin_closes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -692,3 +831,26 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     # resultType is modern-only: proves the request was served at the discovered version.
     assert responses[1].result["tools"] == []
     assert responses[1].result["resultType"] == "complete"
+
+
+def test_mcpserver_run_stdio_answers_a_malformed_line_and_keeps_serving(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`run("stdio")` replies -32700 with the recovered id to a lone-surrogate line, then serves normally.
+
+    Regression for issue #3894: the reply rides the real dispatcher path, so
+    the wire carries the Parse error for id 3 followed by the response to id 4.
+    """
+    bad_line = (
+        '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"echo","arguments":{"text":"bad \\ud83d bad"}}}'
+    )
+    ping = JSONRPCRequest(jsonrpc="2.0", id=4, method="ping")
+
+    server = MCPServer(name="ParseErrorStdioServer")
+    responses = _serve_stdio_lines_and_collect(
+        monkeypatch,
+        server,
+        [bad_line, ping.model_dump_json(by_alias=True, exclude_none=True)],
+        2,
+    )
+
+    assert responses[0] == JSONRPCError(jsonrpc="2.0", id=3, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
+    assert responses[1] == JSONRPCResponse(jsonrpc="2.0", id=4, result={})

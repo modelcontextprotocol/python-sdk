@@ -11,6 +11,8 @@ Example:
     ```
 """
 
+import json
+import logging
 import os
 import sys
 import threading
@@ -18,7 +20,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from io import TextIOWrapper
-from typing import BinaryIO, Literal, TextIO
+from typing import Any, BinaryIO, Literal, TextIO, cast
 
 import anyio
 import anyio.lowlevel
@@ -27,6 +29,8 @@ import mcp_types as types
 from mcp.os.win32.utilities import rebind_std_handle_to_fd
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
+
+logger = logging.getLogger(__name__)
 
 if sys.platform != "win32":  # pragma: no branch
     import fcntl  # pragma: lax no cover - POSIX-only line, uncovered on Windows runners
@@ -158,6 +162,38 @@ def _claim_fd(
     return os.fdopen(private_fd, mode, closefd=False), release
 
 
+def _parse_error_reply(line: str) -> types.JSONRPCError | None:
+    """The Parse error owed for a line that failed JSON-RPC validation, or ``None``.
+
+    JSON-RPC 2.0: a message the server cannot read is answered with -32700,
+    echoing the request id when the raw line yields it - stdlib ``json``
+    tolerates escapes pydantic-core rejects (e.g. a lone surrogate escape),
+    so the id often survives validation - and ``null`` otherwise. A
+    notification-shaped line (an object without an ``id`` member, the same
+    key-presence rule as the streamable-HTTP entry) is never answered.
+    """
+    try:
+        document: object = json.loads(line)
+    except ValueError:
+        document = None
+    if not isinstance(document, dict):
+        return types.JSONRPCError(
+            jsonrpc="2.0", id=None, error=types.ErrorData(code=types.PARSE_ERROR, message="Parse error")
+        )
+    # json.loads is untyped; the dict-ness is proven above, so narrow explicitly.
+    decoded = cast("dict[str, Any]", document)
+    if "id" not in decoded and "method" in decoded:
+        return None
+    request_id: object = decoded.get("id")
+    if isinstance(request_id, str | int) and not isinstance(request_id, bool):
+        return types.JSONRPCError(
+            jsonrpc="2.0", id=request_id, error=types.ErrorData(code=types.PARSE_ERROR, message="Parse error")
+        )
+    return types.JSONRPCError(
+        jsonrpc="2.0", id=None, error=types.ErrorData(code=types.PARSE_ERROR, message="Parse error")
+    )
+
+
 @asynccontextmanager
 async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
     """Serve MCP over the process's stdin and stdout.
@@ -188,7 +224,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                         try:
                             message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
                         except Exception as exc:
+                            logger.exception("failed to parse JSON-RPC line")
                             await read_stream_writer.send(exc)
+                            if (reply := _parse_error_reply(line)) is not None:
+                                try:
+                                    await write_stream.send(SessionMessage(reply))
+                                except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                                    logger.debug("dropped parse error reply: write stream closed")
                             continue
 
                         session_message = SessionMessage(message)
