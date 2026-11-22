@@ -1,8 +1,10 @@
 import json
+import math
 import multiprocessing
 import socket
 import time
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
+from datetime import timedelta
 from typing import Any
 from unittest.mock import Mock
 
@@ -24,19 +26,24 @@ from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.types import (
+    CallToolResult,
     EmptyResult,
     ErrorData,
     Implementation,
     InitializeResult,
     JSONRPCResponse,
+    ListRootsResult,
+    ListToolsResult,
     ReadResourceResult,
     ServerCapabilities,
     TextContent,
     TextResourceContents,
     Tool,
+    ToolsCapability,
 )
 from tests.test_helpers import wait_for_server
 
@@ -640,3 +647,243 @@ async def test_sse_client_does_not_follow_redirect_to_another_origin_on_connect(
 
     assert exc_info.group_contains(httpx.HTTPStatusError, match="307 Temporary Redirect")
     assert received == ["http://test/sse"]
+
+
+class _RejectingSseServer:
+    """An in-process SSE server that answers on its event stream and fails chosen message POSTs."""
+
+    def __init__(self, endpoint: str = "/messages/?session_id=abc123") -> None:
+        self.endpoint = endpoint
+        self.post_status: dict[str, int] = {}
+        self.post_error: dict[str, Exception] = {}
+        self.before_rejecting: Callable[[], Awaitable[None]] | None = None
+        self._events, self._events_reader = anyio.create_memory_object_stream[str](math.inf)
+
+    async def __aenter__(self) -> "_RejectingSseServer":
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        self._events.close()
+        self._events_reader.close()
+
+    def client_factory(
+        self,
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(self._handle))
+
+    def push(self, message: dict[str, Any]) -> None:
+        self._events.send_nowait(f"event: message\ndata: {json.dumps(message)}\n\n")
+
+    async def _event_stream(self) -> AsyncGenerator[bytes, None]:
+        yield f"event: endpoint\ndata: {self.endpoint}\n\n".encode()
+        async for event in self._events_reader:  # pragma: no branch
+            yield event.encode()
+
+    async def _handle(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=self._event_stream())
+        message = json.loads(request.content)
+        method = message.get("method")
+        if method in self.post_error:
+            raise self.post_error[method]
+        if method in self.post_status:
+            if self.before_rejecting is not None:
+                await self.before_rejecting()
+            return httpx.Response(self.post_status[method])
+        if method is not None and "id" in message:
+            self.push(
+                {"jsonrpc": "2.0", "id": message["id"], "result": self._result(method, message.get("params", {}))}
+            )
+        return httpx.Response(202)
+
+    @staticmethod
+    def _result(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        if method == "initialize":
+            result = InitializeResult(
+                protocolVersion=params["protocolVersion"],
+                capabilities=ServerCapabilities(tools=ToolsCapability()),
+                serverInfo=Implementation(name=SERVER_NAME, version="1.0"),
+            )
+        elif method == "tools/list":
+            result = ListToolsResult(tools=[Tool(name="test_tool", inputSchema={"type": "object"})])
+        elif method == "tools/call":
+            result = CallToolResult(content=[TextContent(type="text", text=f"Called {params['name']}")])
+        else:
+            result = EmptyResult()
+        return result.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [302, 401, 429, 500, 503])
+async def test_sse_client_initialize_post_http_error_fails_initialize_promptly(status_code: int) -> None:
+    """A non-2xx on the initialize POST fails initialize at once instead of after the session
+    read timeout (#2110: the status error was only logged, so the caller waited out the timeout)."""
+    server = _RejectingSseServer()
+    server.post_status["initialize"] = status_code
+    with anyio.fail_after(5):
+        async with (
+            server,
+            sse_client("http://test/sse", httpx_client_factory=server.client_factory) as streams,
+            ClientSession(*streams, read_timeout_seconds=timedelta(seconds=20)) as session,
+        ):
+            with pytest.raises(McpError) as exc_info:
+                await session.initialize()
+            assert exc_info.value.error == snapshot(ErrorData(code=-32603, message="Server returned an error response"))
+
+
+@pytest.mark.anyio
+async def test_sse_client_request_post_http_error_fails_request_and_session_survives() -> None:
+    """A non-2xx on a later request's POST fails that request at once, and the writer keeps
+    sending: the next requests in the same session still reach the server (#2110)."""
+    server = _RejectingSseServer()
+    with anyio.fail_after(5):
+        async with (
+            server,
+            sse_client("http://test/sse", httpx_client_factory=server.client_factory) as streams,
+            ClientSession(*streams, read_timeout_seconds=timedelta(seconds=20)) as session,
+        ):
+            await session.initialize()
+            server.post_status["tools/call"] = 500
+
+            with pytest.raises(McpError) as exc_info:
+                await session.call_tool("test_tool", {})
+            assert exc_info.value.error.code == types.INTERNAL_ERROR
+
+            assert isinstance(await session.send_ping(), EmptyResult)
+            server.post_status.clear()
+            result = await session.call_tool("test_tool", {})
+            assert result.content == [TextContent(type="text", text="Called test_tool")]
+
+
+@pytest.mark.anyio
+async def test_sse_client_request_post_network_error_fails_request_and_session_survives() -> None:
+    """A POST that raises before any response fails its request with CONNECTION_CLOSED, and the
+    writer keeps sending (#2110)."""
+    server = _RejectingSseServer()
+    with anyio.fail_after(5):
+        async with (
+            server,
+            sse_client("http://test/sse", httpx_client_factory=server.client_factory) as streams,
+            ClientSession(*streams, read_timeout_seconds=timedelta(seconds=20)) as session,
+        ):
+            await session.initialize()
+            server.post_error["tools/call"] = httpx.ConnectError("connection refused")
+
+            with pytest.raises(McpError) as exc_info:
+                await session.call_tool("test_tool", {})
+            assert exc_info.value.error == snapshot(
+                ErrorData(code=-32000, message="Failed to send message: connection refused")
+            )
+
+            assert isinstance(await session.send_ping(), EmptyResult)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "expected"),
+    [
+        ("/messages/?session_id=abc123", ErrorData(code=-32600, message="Session terminated")),
+        ("/messages/", ErrorData(code=-32603, message="Server returned an error response")),
+    ],
+)
+async def test_sse_client_request_post_404_reports_session_terminated_only_with_a_session(
+    endpoint: str, expected: ErrorData
+) -> None:
+    """A 404 on a POST to an endpoint that carries a session id means the session is gone, as in
+    the streamable HTTP transport; without a session id it is a generic error."""
+    server = _RejectingSseServer(endpoint=endpoint)
+    with anyio.fail_after(5):
+        async with (
+            server,
+            sse_client("http://test/sse", httpx_client_factory=server.client_factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
+            server.post_status["tools/call"] = 404
+            with pytest.raises(McpError) as exc_info:
+                await session.call_tool("test_tool", {})
+            assert exc_info.value.error == expected
+
+
+@pytest.mark.anyio
+async def test_sse_client_notification_post_error_leaves_session_usable() -> None:
+    """A failed notification POST has no waiting caller, so it is only logged and the session
+    keeps working."""
+    server = _RejectingSseServer()
+    server.post_status["notifications/initialized"] = 500
+    with anyio.fail_after(5):
+        async with (
+            server,
+            sse_client("http://test/sse", httpx_client_factory=server.client_factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
+            assert isinstance(await session.send_ping(), EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_failed_post_while_answering_a_server_request_does_not_deadlock() -> None:
+    """The session answers server requests inside its receive loop, so its reply can be waiting on
+    the writer while a POST fails. Both must still complete: the failed request gets its error and
+    the reply reaches the server."""
+    server = _RejectingSseServer()
+    roots_requested = anyio.Event()
+
+    async def list_roots(context: RequestContext[ClientSession, Any]) -> ListRootsResult:
+        roots_requested.set()
+        return ListRootsResult(roots=[])
+
+    async def ask_for_roots_first() -> None:
+        server.push({"jsonrpc": "2.0", "id": "srv-1", "method": "roots/list"})
+        await roots_requested.wait()
+
+    server.before_rejecting = ask_for_roots_first
+    with anyio.fail_after(5):
+        async with (
+            server,
+            sse_client("http://test/sse", httpx_client_factory=server.client_factory) as streams,
+            ClientSession(*streams, list_roots_callback=list_roots) as session,
+        ):
+            await session.initialize()
+            server.post_status["tools/call"] = 500
+            with pytest.raises(McpError):
+                await session.call_tool("test_tool", {})
+            assert isinstance(await session.send_ping(), EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_post_error_after_reader_closed_is_contained() -> None:
+    """A failed POST whose error can no longer be delivered, because the read stream already
+    closed, is contained: the writer keeps sending."""
+    posted: list[str] = []
+    second_post = anyio.Event()
+
+    async def serve(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, text="event: endpoint\ndata: /messages/\n\n"
+            )
+        posted.append(json.loads(request.content)["method"])
+        if len(posted) == 2:
+            second_post.set()
+        return httpx.Response(500)
+
+    def factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(serve))
+
+    with anyio.fail_after(5):
+        async with sse_client("http://test/sse", httpx_client_factory=factory) as (read_stream, write_stream):
+            with pytest.raises(anyio.EndOfStream):
+                await read_stream.receive()
+            for request_id, method in [(1, "first/call"), (2, "second/call")]:
+                request = types.JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params={})
+                await write_stream.send(SessionMessage(types.JSONRPCMessage(request)))
+            await second_post.wait()
+    assert posted == ["first/call", "second/call"]

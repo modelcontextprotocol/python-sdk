@@ -31,6 +31,12 @@ def _extract_session_id_from_endpoint(endpoint_url: str) -> str | None:
     return query_params.get("sessionId", [None])[0] or query_params.get("session_id", [None])[0]
 
 
+def _post_status_error(status_code: int, *, has_session: bool) -> types.ErrorData:
+    if status_code == 404 and has_session:
+        return types.ErrorData(code=types.INVALID_REQUEST, message="Session terminated")
+    return types.ErrorData(code=types.INTERNAL_ERROR, message="Server returned an error response")
+
+
 @asynccontextmanager
 async def sse_client(
     url: str,
@@ -138,23 +144,53 @@ async def sse_client(
                         finally:
                             await read_stream_writer.aclose()
 
+                    async def resolve_failed_request(request_id: types.RequestId, error: types.ErrorData) -> None:
+                        reply = types.JSONRPCMessage(types.JSONRPCError(jsonrpc="2.0", id=request_id, error=error))
+                        try:
+                            await read_stream_writer.send(SessionMessage(reply))
+                        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                            logger.debug(f"Read stream closed before request {request_id} could be resolved")
+
+                    async def send_message(session_message: SessionMessage, endpoint_url: str) -> None:
+                        message = session_message.message
+                        logger.debug(f"Sending client message: {session_message}")
+                        try:
+                            response = await request_within_origin(
+                                client,
+                                "POST",
+                                endpoint_url,
+                                json=message.model_dump(
+                                    by_alias=True,
+                                    mode="json",
+                                    exclude_none=True,
+                                ),
+                            )
+                        except Exception as exc:
+                            # Auth flows and event hooks can raise any type from inside the POST, and
+                            # letting one escape would stop the writer and leave the caller waiting.
+                            logger.exception("Error sending client message")
+                            error = types.ErrorData(
+                                code=types.CONNECTION_CLOSED, message=f"Failed to send message: {exc}"
+                            )
+                        else:
+                            if response.is_success:
+                                logger.debug(f"Client message sent successfully: {response.status_code}")
+                                return
+                            logger.error(f"Client message POST returned HTTP status {response.status_code}")
+                            error = _post_status_error(
+                                response.status_code,
+                                has_session=_extract_session_id_from_endpoint(endpoint_url) is not None,
+                            )
+                        if isinstance(message.root, types.JSONRPCRequest):
+                            # The session handles server requests inside its receive loop, so a reply
+                            # can be waiting on this writer; delivering from here would deadlock.
+                            tg.start_soon(resolve_failed_request, message.root.id, error)
+
                     async def post_writer(endpoint_url: str):
                         try:
                             async with write_stream_reader:
                                 async for session_message in write_stream_reader:
-                                    logger.debug(f"Sending client message: {session_message}")
-                                    response = await request_within_origin(
-                                        client,
-                                        "POST",
-                                        endpoint_url,
-                                        json=session_message.message.model_dump(
-                                            by_alias=True,
-                                            mode="json",
-                                            exclude_none=True,
-                                        ),
-                                    )
-                                    response.raise_for_status()
-                                    logger.debug(f"Client message sent successfully: {response.status_code}")
+                                    await send_message(session_message, endpoint_url)
                         except Exception:  # pragma: no cover
                             logger.exception("Error in post_writer")  # pragma: no cover
                         finally:
