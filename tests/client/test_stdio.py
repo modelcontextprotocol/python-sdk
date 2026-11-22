@@ -324,6 +324,30 @@ async def test_invalid_json_from_the_server_surfaces_as_an_in_stream_exception(
 
 
 @pytest.mark.anyio
+async def test_invalid_utf8_from_the_server_surfaces_as_an_in_stream_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Undecodable bytes mid-session are replaced rather than ending the session.
+
+    A server emitting a malformed line must not take the transport down with it; the line
+    arrives as an Exception and the messages after it still come through.
+    """
+    ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+
+    install_fake_process(monkeypatch, process)
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS) as (read_stream, _):
+            await process.feed(b"\xff\xfe\n" + _line(ping))
+
+            error = await read_stream.receive()
+            # The undecodable bytes become U+FFFD, which then fails JSON-RPC validation.
+            assert isinstance(error, ValueError)
+            assert await _next_message(read_stream) == ping
+
+
+@pytest.mark.anyio
 async def test_a_server_that_dies_before_responding_fails_initialize_with_connection_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

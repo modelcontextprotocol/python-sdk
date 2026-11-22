@@ -107,8 +107,12 @@ class StdioServerParameters(BaseModel):
     encoding: str = "utf-8"
     """Text encoding for messages to and from the server."""
 
-    encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict"
-    """Encoding error handler; see https://docs.python.org/3/library/codecs.html#error-handlers."""
+    encoding_error_handler: Literal["strict", "ignore", "replace"] = "replace"
+    """Encoding error handler; see https://docs.python.org/3/library/codecs.html#error-handlers.
+
+    Defaults to `"replace"` so that malformed output from the server becomes U+FFFD and the
+    line surfaces as a parse error on the read stream, leaving the session able to carry on.
+    """
 
 
 @asynccontextmanager
