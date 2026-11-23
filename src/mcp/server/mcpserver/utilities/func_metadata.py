@@ -1,10 +1,16 @@
 import functools
 import inspect
+import ipaddress
 import json
 import sys
 from collections.abc import Awaitable, Callable, Sequence
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
+from enum import Enum
 from itertools import chain
+from pathlib import Path, PurePath
 from typing import Annotated, Any, NotRequired, Union, cast, get_args, get_origin
+from uuid import UUID
 
 import anyio
 import anyio.to_thread
@@ -490,6 +496,34 @@ def func_metadata(
     return FuncMetadata(arg_model=arguments_model)
 
 
+_WRAPPED_SCALAR_TYPES: tuple[type[Any], ...] = (
+    str,
+    int,
+    float,
+    bool,
+    bytes,
+    type(None),
+    list,
+    tuple,
+    set,
+    frozenset,
+    date,
+    datetime,
+    time,
+    timedelta,
+    Decimal,
+    UUID,
+    Path,
+    PurePath,
+    ipaddress.IPv4Address,
+    ipaddress.IPv6Address,
+    ipaddress.IPv4Network,
+    ipaddress.IPv6Network,
+    ipaddress.IPv4Interface,
+    ipaddress.IPv6Interface,
+)
+
+
 def _create_output_model(original_annotation: Any, type_expr: Any, func_name: str) -> tuple[Any, bool]:
     """Pick the type structured output is validated against for the given return annotation.
 
@@ -545,8 +579,13 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         elif type_annotation is dict:
             model = dict[str, Any]
 
-        # Case 4: Primitive types and bare collections that need wrapping
-        elif type_annotation in (str, int, float, bool, bytes, type(None), list, tuple, set, frozenset):
+        # Case 4: Primitive types, standard scalars, enums, and bare collections that need wrapping
+        elif (
+            type_annotation in _WRAPPED_SCALAR_TYPES
+            or issubclass(type_annotation, Enum)
+            or hasattr(type_annotation, "__get_pydantic_core_schema__")
+            or hasattr(type_annotation, "__get_pydantic_json_schema__")
+        ):
             model = _create_wrapped_model(func_name, original_annotation)
             wrap_output = True
 
@@ -569,7 +608,7 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
 _no_default = object()
 
 
-def _create_model_from_class(cls: type[Any], type_hints: dict[str, Any]) -> type[BaseModel]:
+def _create_model_from_class(cls: type[Any], type_hints: dict[str, Any]) -> type[BaseModel] | None:
     """Create a Pydantic model from an ordinary class.
 
     The created model will:
@@ -589,6 +628,9 @@ def _create_model_from_class(cls: type[Any], type_hints: dict[str, Any]) -> type
             model_fields[field_name] = field_type
         else:
             model_fields[field_name] = (field_type, default)
+
+    if not model_fields:
+        return None
 
     return create_model(cls.__name__, __config__=ConfigDict(from_attributes=True), **model_fields)
 

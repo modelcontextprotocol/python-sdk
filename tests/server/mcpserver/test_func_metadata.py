@@ -8,6 +8,7 @@
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC
 from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, NotRequired, Required, TypedDict
 
 import annotated_types
@@ -1644,6 +1645,120 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
         pass
 
     def fn() -> StepA | StepB: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    assert meta.output_schema is None
+
+
+def test_pydantic_url_scalars_receive_wrapped_structured_output():
+    from pydantic import AnyHttpUrl, AnyUrl
+
+    def fn_http_url() -> AnyHttpUrl:
+        return AnyHttpUrl("https://example.com/path")
+
+    meta = func_metadata(fn_http_url)
+    assert meta.output_schema is not None
+    assert meta.output_schema["type"] == "object"
+    assert "result" in meta.output_schema["properties"]
+    assert meta.output_schema["properties"]["result"]["type"] == "string"
+    assert meta.output_schema["properties"]["result"]["format"] == "uri"
+
+    res = meta.convert_result(fn_http_url())
+    assert isinstance(res, CallToolResult)
+    assert res.structured_content == {"result": "https://example.com/path"}
+
+    def fn_any_url() -> AnyUrl:
+        return AnyUrl("ftp://example.com/file")
+
+    meta_any = func_metadata(fn_any_url)
+    assert meta_any.output_schema is not None
+    assert meta_any.convert_result(fn_any_url()).structured_content == {"result": "ftp://example.com/file"}
+
+
+def test_standard_enum_return_type_is_wrapped_and_supports_structured_output_flag():
+    from enum import Enum, IntEnum
+
+    class Status(Enum):
+        ACTIVE = "active"
+        INACTIVE = "inactive"
+
+    class Code(IntEnum):
+        OK = 200
+        NOT_FOUND = 404
+
+    def fn_status() -> Status:
+        return Status.ACTIVE
+
+    meta = func_metadata(fn_status)
+    assert meta.output_schema is not None
+    assert meta.output_schema["type"] == "object"
+    assert "result" in meta.output_schema["properties"]
+    assert meta.convert_result(fn_status()).structured_content == {"result": "active"}
+
+    # structured_output=True must not raise InvalidSignature
+    meta_explicit = func_metadata(fn_status, structured_output=True)
+    assert meta_explicit.output_schema is not None
+
+    def fn_code() -> Code:
+        return Code.OK
+
+    meta_code = func_metadata(fn_code)
+    assert meta_code.convert_result(fn_code()).structured_content == {"result": 200}
+
+
+def test_standard_scalars_uuid_datetime_decimal_path_ip():
+    import ipaddress
+    from datetime import date, datetime, time, timedelta
+    from decimal import Decimal
+    from pathlib import Path
+    from uuid import UUID
+
+    fixed_uuid = UUID("12345678-1234-5678-1234-567812345678")
+    fixed_dt = datetime(2026, 11, 23, 12, 0, 0, tzinfo=UTC)
+    fixed_date = date(2026, 11, 23)
+    fixed_time = time(12, 0, 0)
+    fixed_delta = timedelta(seconds=3600)
+    fixed_dec = Decimal("123.45")
+    fixed_path = Path("/tmp/file.txt")
+    fixed_ip = ipaddress.IPv4Address("192.168.1.1")
+
+    types_and_vals = [
+        (UUID, fixed_uuid),
+        (datetime, fixed_dt),
+        (date, fixed_date),
+        (time, fixed_time),
+        (timedelta, fixed_delta),
+        (Decimal, fixed_dec),
+        (Path, fixed_path),
+        (ipaddress.IPv4Address, fixed_ip),
+    ]
+
+    for typ, val in types_and_vals:
+
+        def make_fn(ret_type: Any, ret_val: Any):
+            def fn() -> Any:
+                return ret_val
+
+            fn.__annotations__["return"] = ret_type
+            return fn
+
+        tool_fn = make_fn(typ, val)
+        meta = func_metadata(tool_fn)
+        assert meta.output_schema is not None
+        assert "result" in meta.output_schema["properties"]
+        res = meta.convert_result(val)
+        assert "result" in res.structured_content
+
+        meta_explicit = func_metadata(tool_fn, structured_output=True)
+        assert meta_explicit.output_schema is not None
+
+
+def test_class_with_only_private_attributes_yields_no_output_schema():
+    class PrivateOnly:
+        _private_field: int = 1
+
+    def fn() -> PrivateOnly:
+        return PrivateOnly()
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
