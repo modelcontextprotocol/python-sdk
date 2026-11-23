@@ -11,6 +11,7 @@ Example:
     ```
 """
 
+import json
 import os
 import sys
 import threading
@@ -158,6 +159,18 @@ def _claim_fd(
     return os.fdopen(private_fd, mode, closefd=False), release
 
 
+def _extract_request_id(line: str) -> str | int | None:
+    try:
+        parsed = json.loads(line)
+    except Exception:
+        return None
+    if isinstance(parsed, dict):
+        req_id = parsed.get("id")  # type: ignore[reportUnknownMemberType]
+        if isinstance(req_id, str | int) and not isinstance(req_id, bool):
+            return req_id
+    return None
+
+
 @asynccontextmanager
 async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
     """Serve MCP over the process's stdin and stdout.
@@ -188,6 +201,18 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                         try:
                             message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
                         except Exception as exc:
+                            req_id = _extract_request_id(line)
+                            if req_id is not None:
+                                err_resp = types.JSONRPCError(
+                                    jsonrpc="2.0",
+                                    id=req_id,
+                                    error=types.ErrorData(
+                                        code=types.INVALID_REQUEST,
+                                        message=f"Invalid JSON-RPC message: {exc}",
+                                    ),
+                                )
+                                with suppress(anyio.ClosedResourceError, anyio.BrokenResourceError):
+                                    await write_stream.send(SessionMessage(err_resp))
                             await read_stream_writer.send(exc)
                             continue
 

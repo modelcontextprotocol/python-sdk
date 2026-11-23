@@ -692,3 +692,30 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     # resultType is modern-only: proves the request was served at the discovered version.
     assert responses[1].result["tools"] == []
     assert responses[1].result["resultType"] == "complete"
+
+
+@pytest.mark.anyio
+async def test_stdio_server_replies_with_error_for_invalid_json_with_id() -> None:
+    """Requests that fail JSON validation (e.g. lone surrogates) still receive a JSONRPCError."""
+    from mcp_types import INVALID_REQUEST, JSONRPCError
+
+    stdin = io.StringIO('{"jsonrpc": "2.0", "id": 7, "method": "ping", "params": {"s": "\\ud83d"}}\n')
+    stdout = io.StringIO()
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+            read_stream,
+            write_stream,
+        ):
+            async with read_stream:
+                item = await read_stream.receive()
+                assert isinstance(item, Exception)
+            await write_stream.aclose()
+
+    stdout.seek(0)
+    output_lines = stdout.readlines()
+    assert len(output_lines) == 1
+    reply = jsonrpc_message_adapter.validate_json(output_lines[0].strip())
+    assert isinstance(reply, JSONRPCError)
+    assert reply.id == 7
+    assert reply.error.code == INVALID_REQUEST
