@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from typing import Annotated, Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from mcp_types import CacheableResult, PaginatedRequestParams, PaginatedResult, Request, RequestParams, Resource
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
@@ -218,6 +218,10 @@ class ReadDirectoryRequest(Request[ReadDirectoryParams, Literal["resources/direc
     params: ReadDirectoryParams
 
 
+def _has_traversal_segment(path: str) -> bool:
+    return any(unquote(segment) in (".", "..") for segment in path.split("/"))
+
+
 def skill_name_from_uri(uri: str) -> str:
     """Return the skill `name` encoded in a `SKILL.md` resource URI.
 
@@ -229,8 +233,10 @@ def skill_name_from_uri(uri: str) -> str:
         ValueError: If `uri` is not an absolute URI ending in `/SKILL.md`.
     """
     parts = urlsplit(uri)
-    if not parts.scheme or parts.query or parts.fragment:
+    if "?" in uri or "#" in uri or not parts.scheme or parts.query or parts.fragment:
         raise ValueError(f"skill URI {uri!r} is not a valid absolute resource URI")
+    if _has_traversal_segment(parts.path):
+        raise ValueError(f"skill URI {uri!r} contains a traversal segment")
     if not parts.path.endswith("/SKILL.md"):
         raise ValueError(f"skill URI {uri!r} must end in /SKILL.md")
     directory = parts.path[: -len("/SKILL.md")].strip("/")
@@ -247,7 +253,13 @@ def _validate_resource_uri_in_skill(skill_uri: str, resource_uri: str) -> None:
     """Raise `ValueError` unless `resource_uri` names a file within `skill_uri`'s directory."""
     skill_parts = urlsplit(skill_uri)
     resource_parts = urlsplit(resource_uri)
-    if not resource_parts.scheme or resource_parts.query or resource_parts.fragment:
+    if (
+        "?" in resource_uri
+        or "#" in resource_uri
+        or not resource_parts.scheme
+        or resource_parts.query
+        or resource_parts.fragment
+    ):
         raise ValueError(f"resource URI {resource_uri!r} is invalid")
     if resource_uri.endswith("/"):
         raise ValueError(f"resource URI {resource_uri!r} names a directory, not a file")
@@ -256,7 +268,7 @@ def _validate_resource_uri_in_skill(skill_uri: str, resource_uri: str) -> None:
     root = skill_parts.path[: -len("/SKILL.md")]
     if resource_parts.path != skill_parts.path and not resource_parts.path.startswith(root + "/"):
         raise ValueError(f"resource URI {resource_uri!r} is outside the skill root {skill_uri!r}")
-    if any(segment in (".", "..") for segment in resource_parts.path.split("/")):
+    if _has_traversal_segment(resource_parts.path):
         raise ValueError(f"resource URI {resource_uri!r} contains a traversal segment")
 
 
@@ -270,8 +282,10 @@ def parse_directory_uri(uri: str) -> tuple[str, str, str]:
     if uri.endswith("/"):
         raise ValueError(f"directory URI {uri!r} must not have a trailing slash")
     parts = urlsplit(uri)
-    if not parts.scheme or parts.query or parts.fragment:
+    if "?" in uri or "#" in uri or not parts.scheme or parts.query or parts.fragment:
         raise ValueError(f"directory URI {uri!r} is not a valid absolute resource URI")
+    if _has_traversal_segment(parts.path):
+        raise ValueError(f"directory URI {uri!r} contains a traversal segment")
     return parts.scheme, parts.netloc, parts.path
 
 
@@ -291,12 +305,12 @@ def validate_directory_result(uri: str, result: ReadDirectoryResult) -> None:
     prefix = parent_path.rstrip("/") + "/" if parent_path.rstrip("/") else "/"
     for resource in result.resources:
         child = urlsplit(resource.uri)
-        if not child.scheme or child.query or child.fragment:
+        if "?" in resource.uri or "#" in resource.uri or not child.scheme or child.query or child.fragment:
             raise ValueError(f"directory {uri!r} child has invalid URI {resource.uri!r}")
         if child.scheme != scheme or child.netloc != netloc:
             raise ValueError(f"resource {resource.uri!r} is not a child of directory {uri!r}")
         relative = child.path.removeprefix(prefix)
-        if relative == child.path or not relative or "/" in relative or relative in (".", ".."):
+        if relative == child.path or not relative or "/" in relative or unquote(relative) in (".", ".."):
             raise ValueError(f"resource {resource.uri!r} is not a direct child of directory {uri!r}")
         if resource.uri in seen_uris:
             raise ValueError(f"directory {uri!r} contains a duplicate child {resource.uri!r}")

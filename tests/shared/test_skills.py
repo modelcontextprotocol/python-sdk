@@ -354,3 +354,43 @@ def test_validate_directory_result_rejects_a_uri_outside_the_directory() -> None
     result = ReadDirectoryResult(resources=[Resource(uri="skill://other/file.md", name="file.md")])
     with pytest.raises(ValueError, match="not a child"):
         validate_directory_result("skill://pdf/templates", result)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "skill://org/../my-skill/SKILL.md",
+        "skill://org/%2e%2e/my-skill/SKILL.md",
+        "skill://org/./my-skill/SKILL.md",
+        "skill://my-skill/SKILL.md?",
+        "skill://my-skill/SKILL.md#",
+    ],
+)
+def test_skill_rejects_traversal_and_empty_delimiters(uri: str) -> None:
+    with pytest.raises(ValidationError):
+        Skill(
+            uri=uri,
+            frontmatter={"name": "my-skill", "description": "example"},
+            resources="dynamic",
+        )
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "skill://org/../../etc",
+        "skill://org/%2e%2e/etc",
+        "skill://my-skill?",
+        "skill://my-skill#",
+    ],
+)
+def test_parse_directory_uri_rejects_traversal_and_empty_delimiters(uri: str) -> None:
+    with pytest.raises(ValueError):
+        parse_directory_uri(uri)
+
+
+@pytest.mark.parametrize("child_uri", ["skill://pdf/templates/x.md?", "skill://pdf/templates/x.md#"])
+def test_validate_directory_result_rejects_empty_delimiters_on_child(child_uri: str) -> None:
+    result = ReadDirectoryResult(resources=[Resource(uri=child_uri, name="x.md")])
+    with pytest.raises(ValueError, match="invalid URI"):
+        validate_directory_result("skill://pdf/templates", result)
