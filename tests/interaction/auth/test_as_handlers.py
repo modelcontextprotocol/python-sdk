@@ -229,6 +229,10 @@ async def test_registration_with_invalid_metadata_is_rejected_with_400(
     assert malformed.status_code == 400
     assert malformed.json()["error"] == "invalid_client_metadata"
 
+    null_redirect_uris = await http.post("/register", json={"redirect_uris": None})
+    assert null_redirect_uris.status_code == 400
+    assert null_redirect_uris.json()["error"] == "invalid_client_metadata"
+
     body = oauth_client_metadata().model_dump(mode="json", exclude_none=True)
 
     no_auth_code = await http.post("/register", json=body | {"grant_types": ["refresh_token"]})
