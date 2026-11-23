@@ -354,3 +354,89 @@ def test_validate_directory_result_rejects_a_uri_outside_the_directory() -> None
     result = ReadDirectoryResult(resources=[Resource(uri="skill://other/file.md", name="file.md")])
     with pytest.raises(ValueError, match="not a child"):
         validate_directory_result("skill://pdf/templates", result)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "skill://org/../my-skill/SKILL.md",
+        "skill://org/./my-skill/SKILL.md",
+        "skill://org/%2e%2e/my-skill/SKILL.md",
+        "skill://org/%2E/my-skill/SKILL.md",
+    ],
+)
+def test_skill_name_from_uri_and_dynamic_skill_reject_traversal_segments(uri: str) -> None:
+    with pytest.raises(ValueError, match="traversal segment"):
+        skill_name_from_uri(uri)
+    with pytest.raises(ValidationError, match="traversal segment"):
+        Skill(uri=uri, frontmatter={"name": "my-skill", "description": "d"}, resources="dynamic")
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "skill://org/../../etc",
+        "skill://org/./templates",
+        "skill://org/%2e%2e/etc",
+        "skill://org/%2E%2E/etc",
+    ],
+)
+def test_parse_directory_uri_rejects_traversal_segments(uri: str) -> None:
+    with pytest.raises(ValueError, match="traversal segment"):
+        parse_directory_uri(uri)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "skill://my-skill/SKILL.md?",
+        "skill://my-skill/SKILL.md#",
+    ],
+)
+def test_skill_name_from_uri_rejects_bare_query_and_fragment_delimiters(uri: str) -> None:
+    with pytest.raises(ValueError, match="absolute resource URI"):
+        skill_name_from_uri(uri)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "skill://my-skill?",
+        "skill://my-skill#",
+        "skill://my-skill/templates?",
+        "skill://my-skill/templates#",
+    ],
+)
+def test_parse_directory_uri_rejects_bare_query_and_fragment_delimiters(uri: str) -> None:
+    with pytest.raises(ValueError, match="absolute resource URI"):
+        parse_directory_uri(uri)
+
+
+@pytest.mark.parametrize(
+    "resource_uri",
+    [
+        "skill://git-workflow/x.md?",
+        "skill://git-workflow/x.md#",
+        "skill://git-workflow/%2e%2e/evil.md",
+        "skill://git-workflow/%2E/evil.md",
+    ],
+)
+def test_skill_rejects_bare_delimiters_and_encoded_traversal_in_resource_uri(resource_uri: str) -> None:
+    with pytest.raises(ValidationError, match="is invalid|traversal segment"):
+        _skill(extra_resources=[_resource(resource_uri)])
+
+
+@pytest.mark.parametrize(
+    "child_uri",
+    [
+        "skill://pdf/templates/x.md?",
+        "skill://pdf/templates/x.md#",
+        "skill://pdf/templates/%2e",
+        "skill://pdf/templates/%2e%2e",
+        "skill://pdf/templates/a%2Fb.md",
+    ],
+)
+def test_validate_directory_result_rejects_bare_delimiters_and_encoded_traversal(child_uri: str) -> None:
+    result = ReadDirectoryResult(resources=[Resource(uri=child_uri, name="x")])
+    with pytest.raises(ValueError, match="invalid URI|direct child"):
+        validate_directory_result("skill://pdf/templates", result)
