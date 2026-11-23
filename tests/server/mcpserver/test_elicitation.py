@@ -403,3 +403,44 @@ async def test_elicitation_literal_field_renders_as_a_spec_enum_schema():
         return ElicitResult(action="accept", content={"size": "m", "extras": ["a"]})
 
     await call_tool_and_assert(mcp, callback, "pick", {}, "m:a")
+
+
+def test_render_elicitation_schema_inlines_string_enums() -> None:
+    """`StrEnum` and `(str, Enum)` fields inline as spec-valid enum schemas without `$defs`."""
+    from enum import Enum, StrEnum
+
+    from mcp.server.elicitation import render_elicitation_schema
+
+    class Color(StrEnum):
+        RED = "red"
+        BLUE = "blue"
+
+    class LegacyTag(str, Enum):
+        ALPHA = "alpha"
+        BETA = "beta"
+
+    class EnumForm(BaseModel):
+        color: Color
+        optional_color: Color | None = None
+        colors: list[Color]
+        tag: LegacyTag
+
+    rendered = render_elicitation_schema(EnumForm)
+    assert "$defs" not in rendered
+    assert rendered["properties"]["color"] == {"enum": ["red", "blue"], "title": "Color", "type": "string"}
+    assert rendered["properties"]["optional_color"] == {"enum": ["red", "blue"], "title": "Color", "type": "string"}
+    assert rendered["properties"]["colors"] == {
+        "items": {"enum": ["red", "blue"], "title": "Color", "type": "string"},
+        "title": "Colors",
+        "type": "array",
+    }
+    assert rendered["properties"]["tag"] == {"enum": ["alpha", "beta"], "title": "LegacyTag", "type": "string"}
+
+    class Nested(BaseModel):
+        x: int
+
+    class BadForm(BaseModel):
+        nested: Nested
+
+    with pytest.raises(TypeError, match="PrimitiveSchemaDefinition"):
+        render_elicitation_schema(BadForm)

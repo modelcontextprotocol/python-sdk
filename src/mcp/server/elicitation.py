@@ -88,6 +88,44 @@ def _validate_rendered_properties(json_schema: dict[str, Any]) -> None:
             ) from None
 
 
+def _inline_string_enum_refs(json_schema: dict[str, Any]) -> None:
+    """Inline `$defs/$ref` entries for string `Enum` fields so they satisfy `PrimitiveSchemaDefinition`."""
+    defs = json_schema.get("$defs")
+    if not isinstance(defs, dict):
+        return
+
+    defs_dict: dict[str, Any] = defs  # type: ignore[assignment]
+    inlined_keys: set[str] = set()
+
+    def resolve_ref(obj: dict[str, Any]) -> dict[str, Any]:
+        ref = obj.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            def_name = ref.removeprefix("#/$defs/")
+            target = defs_dict.get(def_name)
+            if isinstance(target, dict) and target.get("type") == "string" and "enum" in target:  # type: ignore[reportUnknownMemberType]
+                inlined_keys.add(def_name)
+                merged: dict[str, Any] = {**target, **{k: v for k, v in obj.items() if k != "$ref"}}  # type: ignore[misc]
+                return merged
+        return obj
+
+    props = json_schema.get("properties")
+    if isinstance(props, dict):
+        props_dict: dict[str, Any] = props  # type: ignore[assignment]
+        for field_name, prop in list(props_dict.items()):
+            if not isinstance(prop, dict):
+                continue
+            prop_dict: dict[str, Any] = prop  # type: ignore[assignment]
+            resolved = resolve_ref(prop_dict)
+            if isinstance(resolved.get("items"), dict):
+                resolved["items"] = resolve_ref(resolved["items"])  # type: ignore[arg-type]
+            props_dict[field_name] = resolved
+
+    for key in inlined_keys:
+        defs_dict.pop(key, None)
+    if not defs_dict:
+        json_schema.pop("$defs", None)
+
+
 def render_elicitation_schema(schema: type[BaseModel]) -> dict[str, Any]:
     """Render a model as the spec-valid `requested_schema` for an elicitation.
 
@@ -96,6 +134,7 @@ def render_elicitation_schema(schema: type[BaseModel]) -> dict[str, Any]:
             `PrimitiveSchemaDefinition` does not accept.
     """
     json_schema = schema.model_json_schema(schema_generator=_ElicitationJsonSchema)
+    _inline_string_enum_refs(json_schema)
     _validate_rendered_properties(json_schema)
     return json_schema
 
