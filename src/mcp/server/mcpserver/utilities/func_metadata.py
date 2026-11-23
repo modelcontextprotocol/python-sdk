@@ -1,6 +1,7 @@
 import functools
 import inspect
 import json
+import math
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
@@ -31,7 +32,7 @@ from typing_inspection.introspection import (
     is_union_origin,
 )
 
-from mcp.server.mcpserver.exceptions import InvalidSignature
+from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.shared.exceptions import MCPDeprecationWarning
@@ -119,6 +120,24 @@ class ArgModelBase(BaseModel):
         return kwargs
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+def _find_non_finite_float(value: Any, path: str = "") -> tuple[str, float] | None:
+    if isinstance(value, float) and not math.isfinite(value):
+        return path or "<root>", value
+    if isinstance(value, dict):
+        for k, v in cast(dict[Any, Any], value).items():
+            sub_path = f"{path}.{k}" if path else str(k)
+            found = _find_non_finite_float(v, sub_path)
+            if found is not None:
+                return found
+    elif isinstance(value, list | tuple):
+        for idx, v in enumerate(cast(Sequence[Any], value)):
+            sub_path = f"{path}[{idx}]"
+            found = _find_non_finite_float(v, sub_path)
+            if found is not None:
+                return found
+    return None
 
 
 class FuncMetadata(BaseModel):
@@ -215,6 +234,12 @@ class FuncMetadata(BaseModel):
         output_model = self.output_model if self.output_schema is not None else None
         if isinstance(result, CallToolResult):
             if output_model is not None and not result.is_error:
+                if (non_finite := _find_non_finite_float(result.structured_content)) is not None:
+                    path, bad_val = non_finite
+                    raise ToolError(
+                        f"Tool output contains non-finite float ({bad_val!r}) at '{path}', "
+                        "which cannot be represented in JSON structured content"
+                    )
                 self._output_adapter(output_model).validate_python(result.structured_content)
             return result
 
@@ -231,8 +256,22 @@ class FuncMetadata(BaseModel):
         validated = adapter.validate_python(result, by_alias=True, by_name=True)
         if isinstance(validated, BaseModel):
             # Dump via the instance so a returned subclass keeps its own fields.
+            python_content = validated.model_dump(mode="python", by_alias=True)
+            if (non_finite := _find_non_finite_float(python_content)) is not None:
+                path, bad_val = non_finite
+                raise ToolError(
+                    f"Tool output contains non-finite float ({bad_val!r}) at '{path}', "
+                    "which cannot be represented in JSON structured content"
+                )
             structured_content = validated.model_dump(mode="json", by_alias=True)
         else:
+            python_content = adapter.dump_python(validated, mode="python", by_alias=True)
+            if (non_finite := _find_non_finite_float(python_content)) is not None:
+                path, bad_val = non_finite
+                raise ToolError(
+                    f"Tool output contains non-finite float ({bad_val!r}) at '{path}', "
+                    "which cannot be represented in JSON structured content"
+                )
             structured_content = adapter.dump_python(validated, mode="json", by_alias=True)
 
         return CallToolResult(content=unstructured_content, structured_content=structured_content)

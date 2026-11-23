@@ -565,6 +565,27 @@ class TestServerTools:
             assert result.structured_content is not None
             assert result.structured_content == {"result": 12}
 
+    @pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+    async def test_tool_structured_output_rejects_non_finite_float(self, bad_value: float):
+        """Non-finite floats in structured tool output return an isError=True result."""
+
+        class Metrics(BaseModel):
+            accuracy: float
+            auc: float
+
+        def evaluate() -> Metrics:
+            return Metrics(accuracy=0.9, auc=bad_value)
+
+        mcp = MCPServer()
+        mcp.add_tool(evaluate)
+
+        async with Client(mcp) as client:
+            result = await client.call_tool("evaluate", {})
+            assert result.is_error is True
+            assert isinstance(result.content[0], TextContent)
+            assert "non-finite float" in result.content[0].text
+            assert "auc" in result.content[0].text
+
     async def test_tool_structured_output_list(self):
         """Test tool with structured output returning list"""
 
