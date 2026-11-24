@@ -2359,3 +2359,54 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
     assert body_chunks[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
     assert "Error in standalone SSE writer" not in caplog.text
     assert "Error in standalone SSE response" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_concurrent_get_requests_reject_second_stream_with_conflict():
+    """Concurrent GET requests must not race past the single-GET-stream check."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+    transport._read_stream_writer = read_stream_writer  # pyright: ignore[reportPrivateUsage]
+    transport._read_stream = read_stream  # pyright: ignore[reportPrivateUsage]
+
+    disconnect_send, disconnect_receive = anyio.create_memory_object_stream[Message](0)
+    first_started = anyio.Event()
+    statuses: list[int] = []
+
+    async def send_first(message: Message) -> None:
+        if message["type"] == "http.response.start":
+            statuses.append(message["status"])
+            first_started.set()
+
+    async def send_second(message: Message) -> None:
+        if message["type"] == "http.response.start":
+            statuses.append(message["status"])
+
+    async def receive_first() -> Message:
+        return await disconnect_receive.receive()
+
+    async def receive_second() -> Message:
+        return {"type": "http.disconnect"}
+
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [(b"accept", b"text/event-stream")],
+    }
+
+    async with read_stream_writer, read_stream, disconnect_send, disconnect_receive:
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                tg.start_soon(transport.handle_request, scope, receive_first, send_first)
+                tg.start_soon(transport.handle_request, scope, receive_second, send_second)
+                await first_started.wait()
+                await disconnect_send.send({"type": "http.disconnect"})
+
+    assert sorted(statuses) == [200, 409]
+    assert GET_STREAM_KEY not in transport._request_streams  # pyright: ignore[reportPrivateUsage]
+

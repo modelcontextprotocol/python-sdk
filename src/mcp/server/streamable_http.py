@@ -219,6 +219,7 @@ class StreamableHTTPServerTransport:
             ],
         ] = {}
         self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[SSEEvent]] = {}
+        self._get_stream_active = False
         self._terminated = False
         self._idle_timeout = idle_timeout
         self._requests_in_flight = 0
@@ -765,7 +766,7 @@ class StreamableHTTPServerTransport:
             headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
         # Check if we already have an active GET stream
-        if GET_STREAM_KEY in self._request_streams:
+        if self._get_stream_active or GET_STREAM_KEY in self._request_streams:
             response = self._create_error_response(
                 "Conflict: Only one SSE stream is allowed per session",
                 HTTPStatus.CONFLICT,
@@ -773,13 +774,16 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
+        # Claim the GET stream slot synchronously before awaiting EventSourceResponse
+        # so concurrent GET requests see it immediately instead of racing.
+        self._get_stream_active = True
+
         # Create SSE stream
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
 
         async def standalone_sse_writer():
             try:
                 # Create a standalone message stream for server-initiated messages
-
                 self._request_streams[GET_STREAM_KEY] = anyio.create_memory_object_stream[EventMessage](
                     REQUEST_STREAM_BUFFER_SIZE
                 )
@@ -817,10 +821,11 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
         except Exception:  # pragma: lax no cover
             logger.exception("Error in standalone SSE response")
-            await self._clean_up_memory_streams(GET_STREAM_KEY)
         finally:
+            self._get_stream_active = False
             await sse_stream_writer.aclose()
             await sse_stream_reader.aclose()
+            await self._clean_up_memory_streams(GET_STREAM_KEY)
 
     async def _handle_delete_request(self, request: Request, send: Send) -> None:
         """Handle DELETE requests for explicit session termination."""
