@@ -11,7 +11,9 @@ Example:
     ```
 """
 
+import json
 import os
+import re
 import sys
 import threading
 from collections.abc import Callable
@@ -41,6 +43,27 @@ if sys.platform != "win32":  # pragma: no branch
 #   diverted descriptor. Every failure lands on that safe side.
 _claims: dict[int, "_StreamClaim"] = {}
 _claims_lock = threading.Lock()
+
+_JSONRPC_ID_RE = re.compile(r'"id"\s*:\s*(-?\d+|"(?:[^"\\]|\\.)*"|null)')
+
+
+def _extract_jsonrpc_id(line: str) -> types.RequestId | None:
+    """Extract the JSON-RPC request ID from an invalid or unparseable JSON line, if present."""
+    match = _JSONRPC_ID_RE.search(line)
+    if not match:
+        return None
+    val = match.group(1).strip()
+    if val == "null":
+        return None
+    if val.startswith('"') and val.endswith('"'):
+        try:
+            return json.loads(val)
+        except Exception:
+            return val[1:-1]
+    try:
+        return int(val)
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -189,6 +212,20 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                             message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
                         except Exception as exc:
                             await read_stream_writer.send(exc)
+                            # When a request line fails JSON validation, emit a standard JSON-RPC
+                            # Parse error (-32700) to stdout per JSON-RPC 2.0 §5 so the client's
+                            # call does not hang indefinitely.
+                            req_id = _extract_jsonrpc_id(line)
+                            error_response = types.JSONRPCError(
+                                jsonrpc="2.0",
+                                id=req_id,
+                                error=types.ErrorData(
+                                    code=types.PARSE_ERROR,
+                                    message=f"Parse error: {exc}",
+                                ),
+                            )
+                            with suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
+                                await write_stream.send(SessionMessage(error_response))
                             continue
 
                         session_message = SessionMessage(message)

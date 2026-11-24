@@ -97,6 +97,40 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> Non
                 assert second.message == valid
 
 
+@pytest.mark.anyio
+async def test_stdio_server_invalid_json_emits_parse_error() -> None:
+    """When a line fails JSON validation, stdio_server emits a JSON-RPC Parse error (-32700) to stdout."""
+    bad_line = '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"text": "bad \\ud83d bad"}}\n'
+    valid_line = '{"jsonrpc": "2.0", "id": 4, "method": "ping"}\n'
+
+    stdin = io.StringIO(bad_line + valid_line)
+    stdout = io.StringIO()
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+            read_stream,
+            write_stream,
+        ):
+            async with read_stream:
+                first = await read_stream.receive()
+                assert isinstance(first, Exception)
+
+                second = await read_stream.receive()
+                assert isinstance(second, SessionMessage)
+                assert second.message == JSONRPCRequest(jsonrpc="2.0", id=4, method="ping")
+
+            await write_stream.aclose()
+
+    stdout.seek(0)
+    output_lines = stdout.readlines()
+    assert len(output_lines) == 1
+
+    error_resp = jsonrpc_message_adapter.validate_json(output_lines[0].strip())
+    assert error_resp.id == 3
+    assert error_resp.error.code == -32700
+    assert "Parse error" in error_resp.error.message
+
+
 @contextmanager
 def _pipe_planted_on_fd0(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[int, int]]:
     """Plants a fresh pipe on fd 0 and rebinds sys.stdin over it; yields (read_fd, write_fd).
