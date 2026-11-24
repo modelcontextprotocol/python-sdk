@@ -584,7 +584,8 @@ class ClientSession:
             if metadata.on_resumption_token_update is not None:
                 opts["on_resumption_token"] = metadata.on_resumption_token_update
         raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
-        _clamp_inbound_ttl(raw)
+        if method in _methods.CACHEABLE_METHODS:
+            _clamp_inbound_ttl(raw)
         # Literal fallback covers pre-handshake and stateless; matches runner.py.
         version = self._negotiated_version or "2025-11-25"
         try:

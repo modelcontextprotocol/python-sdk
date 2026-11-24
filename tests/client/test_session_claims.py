@@ -3,7 +3,7 @@ adopts only, claimed-result routing, the version-aware capability ad, and the
 `allow_claimed` escape hatch."""
 
 from collections.abc import Mapping
-from typing import Any, Literal, assert_type
+from typing import Annotated, Any, Literal, assert_type
 
 import anyio
 import anyio.abc
@@ -23,7 +23,7 @@ from mcp_types import (
 )
 from mcp_types.methods import validate_server_result
 from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
 from mcp.client.extension import ClaimContext, ResultClaim, UnexpectedClaimedResult
 from mcp.client.session import ClientSession, _CallToolResultAdapter
@@ -465,3 +465,43 @@ def test_claimed_raw_passes_v2026_tools_call_surface_validation() -> None:
     """Pins the claim path's dependency: an unknown resultType passes `validate_server_result`
     at 2026-07-28; this failing is the signal that mcp-types tightened the surface."""
     validate_server_result("tools/call", LATEST_MODERN_VERSION, {"resultType": "task", "taskId": "t-1"})
+
+
+class _RetentionResult(types.Result):
+    result_type: Literal["task"] = "task"
+    ttl_ms: Annotated[int, Field(strict=True, ge=-9007199254740991, le=9007199254740991)] | None
+
+
+@pytest.mark.anyio
+async def test_non_cacheable_claimed_result_preserves_negative_and_fractional_ttl_ms() -> None:
+    """Only cacheable methods normalize ttlMs; extension results keep raw ttlMs for their own models."""
+
+    async def unresolved(result: _RetentionResult, ctx: ClaimContext) -> CallToolResult:
+        raise NotImplementedError
+
+    claim = ResultClaim(result_type="task", model=_RetentionResult, resolve=unresolved)
+    payloads: list[dict[str, Any]] = [
+        {"resultType": "task", "ttlMs": -1},
+        {"resultType": "task", "ttlMs": -1.5},
+    ]
+
+    class _ReplayDispatcher(_RecordingDispatcher):
+        async def send_raw_request(
+            self,
+            method: str,
+            params: Mapping[str, Any] | None = None,
+            opts: CallOptions | None = None,
+        ) -> dict[str, Any]:
+            await super().send_raw_request(method, params, opts)
+            return payloads.pop(0)
+
+    session = _claims_session(_ReplayDispatcher(), claim)
+    with anyio.fail_after(5):
+        async with session:
+            _adopt_modern(session)
+            preserved = await session.call_tool("issue", {}, allow_claimed=True)
+            assert isinstance(preserved, _RetentionResult)
+            assert preserved.ttl_ms == -1
+            with pytest.raises(ValidationError):
+                await session.call_tool("issue", {}, allow_claimed=True)
+
