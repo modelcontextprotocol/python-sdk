@@ -13,8 +13,10 @@ import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
+    JSONRPCError,
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -692,3 +694,63 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     # resultType is modern-only: proves the request was served at the discovered version.
     assert responses[1].result["tools"] == []
     assert responses[1].result["resultType"] == "complete"
+
+
+@pytest.mark.anyio
+async def test_stdio_server_lone_surrogate_and_parse_error_handling() -> None:
+    """Stdio server sanitizes lone surrogate escapes and replies with -32700 on invalid JSON."""
+    lone_surrogate_line = (
+        '{"jsonrpc":"2.0","id":1,"method":"tools/call",'
+        '"params":{"name":"echo","arguments":{"text":"bad \\ud83d bad"}}}\n'
+    )
+    valid_pair_line = (
+        '{"jsonrpc":"2.0","id":2,"method":"tools/call",'
+        '"params":{"name":"echo","arguments":{"text":"good \\ud83d\\ude00 smile"}}}\n'
+    )
+    invalid_json_with_id = '{"jsonrpc":"2.0","id":42,"method":"tools/call", INVALID_SYNTAX}\n'
+    invalid_json_no_id = "{not even json}\n"
+
+    in_data = (lone_surrogate_line + valid_pair_line + invalid_json_with_id + invalid_json_no_id).encode("utf-8")
+    stdin = anyio.wrap_file(TextIOWrapper(io.BytesIO(in_data), encoding="utf-8"))
+    out_buf = io.BytesIO()
+    stdout = anyio.wrap_file(TextIOWrapper(out_buf, encoding="utf-8"))
+
+    async with stdio_server(stdin, stdout) as (read_stream, write_stream):
+        async with read_stream:
+            # 1. Lone surrogate line should be sanitized and delivered as a valid JSONRPCRequest
+            msg1 = await read_stream.receive()
+            assert isinstance(msg1, SessionMessage)
+            assert isinstance(msg1.message, JSONRPCRequest)
+            assert msg1.message.id == 1
+            assert msg1.message.params["arguments"]["text"] == "bad \ufffd bad"
+
+            # 2. Valid surrogate pair should be preserved
+            msg2 = await read_stream.receive()
+            assert isinstance(msg2, SessionMessage)
+            assert isinstance(msg2.message, JSONRPCRequest)
+            assert msg2.message.id == 2
+            assert msg2.message.params["arguments"]["text"] == "good \U0001f600 smile"
+
+            # 3. Invalid JSON with id should deliver an Exception to read_stream
+            exc3 = await read_stream.receive()
+            assert isinstance(exc3, Exception)
+
+            # 4. Invalid JSON without id should deliver an Exception to read_stream
+            exc4 = await read_stream.receive()
+            assert isinstance(exc4, Exception)
+
+        await write_stream.aclose()
+
+    out_buf.seek(0)
+    lines = [line_str.strip() for line_str in out_buf.getvalue().decode("utf-8").splitlines() if line_str.strip()]
+    assert len(lines) == 2
+
+    res1 = jsonrpc_message_adapter.validate_json(lines[0])
+    assert isinstance(res1, JSONRPCError)
+    assert res1.id == 42
+    assert res1.error.code == PARSE_ERROR
+
+    res2 = jsonrpc_message_adapter.validate_json(lines[1])
+    assert isinstance(res2, JSONRPCError)
+    assert res2.id is None
+    assert res2.error.code == PARSE_ERROR

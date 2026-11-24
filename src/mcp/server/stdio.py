@@ -11,7 +11,9 @@ Example:
     ```
 """
 
+import json
 import os
+import re
 import sys
 import threading
 from collections.abc import Callable
@@ -30,6 +32,32 @@ from mcp.shared.message import SessionMessage
 
 if sys.platform != "win32":  # pragma: no branch
     import fcntl  # pragma: lax no cover - POSIX-only line, uncovered on Windows runners
+
+_SURROGATE_ESCAPE_PATTERN = re.compile(
+    r"(\\u[dD][89abAB][0-9a-fA-F]{2})((?:\\u[dD][c-fC-F][0-9a-fA-F]{2})?)"
+    r"|(\\u[dD][c-fC-F][0-9a-fA-F]{2})"
+)
+_RECOVER_ID_PATTERN = re.compile(r'"id"\s*:\s*([0-9]+|"(?:[^"\\]|\\.)*")')
+
+
+def _sanitize_lone_surrogates(text: str) -> str:
+    """Replace unescaped and escaped lone UTF-16 surrogates with U+FFFD.
+
+    Pairs of surrogate escapes like \ud83d\ude00 form valid characters and are preserved.
+    Unpaired surrogates (e.g. lone \ud83d) are rejected by Pydantic's JSON parser.
+    """
+    text = text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+
+    def repl(m: re.Match[str]) -> str:
+        high, low, lone_low = m.group(1), m.group(2), m.group(3)
+        if lone_low:
+            return "\ufffd"
+        if high and not low:
+            return "\ufffd"
+        return m.group(0)
+
+    return _SURROGATE_ESCAPE_PATTERN.sub(repl, text)
+
 
 # Stream-claim contract (design and attack log in PR #3117):
 # - _claims is the single authority for who owns fd 0/1; mutated only under the
@@ -186,8 +214,27 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                 async with read_stream_writer:
                     async for line in stdin:
                         try:
-                            message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
+                            clean_line = _sanitize_lone_surrogates(line)
+                            message = types.jsonrpc_message_adapter.validate_json(clean_line, by_name=False)
                         except Exception as exc:
+                            req_id: str | int | None = None
+                            try:
+                                m = _RECOVER_ID_PATTERN.search(line)
+                                if m:
+                                    raw_val = m.group(1)
+                                    req_id = json.loads(raw_val) if raw_val.startswith('"') else int(raw_val)
+                            except Exception:
+                                pass
+
+                            err_msg = types.JSONRPCError(
+                                jsonrpc="2.0",
+                                id=req_id,
+                                error=types.ErrorData(code=types.PARSE_ERROR, message=f"Parse error: {exc}"),
+                            )
+                            try:
+                                await write_stream.send(SessionMessage(err_msg))
+                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                                pass
                             await read_stream_writer.send(exc)
                             continue
 
