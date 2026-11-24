@@ -182,6 +182,32 @@ class FileResource(Resource):
         return await anyio.to_thread.run_sync(partial(self.path.read_text, encoding=self.encoding))
 
 
+_TEXT_APPLICATION_MIME_TYPES = frozenset(
+    {
+        "application/json",
+        "application/xml",
+        "application/javascript",
+        "application/ecmascript",
+        "application/x-javascript",
+        "application/yaml",
+        "application/x-yaml",
+        "application/toml",
+        "application/xhtml+xml",
+    }
+)
+
+
+def _is_text_mime_type(mime_type: str) -> bool:
+    media_type = mime_type.split(";", 1)[0].strip().lower()
+    if not media_type:
+        return True
+    if media_type.startswith("text/"):
+        return True
+    if media_type in _TEXT_APPLICATION_MIME_TYPES:
+        return True
+    return media_type.endswith(("+json", "+xml"))
+
+
 class HttpResource(Resource):
     """A resource that reads from an HTTP endpoint."""
 
@@ -193,7 +219,10 @@ class HttpResource(Resource):
         async with httpx2.AsyncClient() as client:  # pragma: no cover
             response = await client.get(self.url)
             response.raise_for_status()
-            return response.text
+            content_type = response.headers.get("content-type") or self.mime_type
+            if _is_text_mime_type(content_type):
+                return response.text
+            return response.content
 
 
 class DirectoryResource(Resource):

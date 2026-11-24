@@ -238,3 +238,59 @@ class TestResourceMetadata:
         )
 
         assert resource.meta is None
+
+
+class TestHttpResource:
+    """Test HttpResource text vs binary content handling."""
+
+    @pytest.mark.anyio
+    async def test_http_resource_preserves_binary_png_bytes(self, monkeypatch: pytest.MonkeyPatch):
+        """Binary responses like image/png must return bytes, not lossy UTF-8 text (#3843)."""
+        import httpx2
+
+        from mcp.server.mcpserver.resources.types import HttpResource
+
+        png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe\xfd"
+        transport = httpx2.MockTransport(
+            lambda request: httpx2.Response(200, content=png_bytes, headers={"content-type": "image/png"})
+        )
+
+        mock_client = httpx2.AsyncClient(transport=transport)
+
+        def _client() -> httpx2.AsyncClient:
+            return mock_client
+
+        monkeypatch.setattr("mcp.server.mcpserver.resources.types.httpx2.AsyncClient", _client)
+
+        resource = HttpResource(uri="image://remote", url="http://example.test/img.png", mime_type="image/png")
+        content = await resource.read()
+        assert isinstance(content, bytes)
+        assert content == png_bytes
+
+    @pytest.mark.anyio
+    async def test_http_resource_returns_text_for_json(self, monkeypatch: pytest.MonkeyPatch):
+        """Text/JSON responses must still return decoded str."""
+        import httpx2
+
+        from mcp.server.mcpserver.resources.types import HttpResource
+
+        payload = '{"greeting": "こんにちは"}'
+        transport = httpx2.MockTransport(
+            lambda request: httpx2.Response(
+                200,
+                content=payload.encode("utf-8"),
+                headers={"content-type": "application/json; charset=utf-8"},
+            )
+        )
+
+        mock_client = httpx2.AsyncClient(transport=transport)
+
+        def _client() -> httpx2.AsyncClient:
+            return mock_client
+
+        monkeypatch.setattr("mcp.server.mcpserver.resources.types.httpx2.AsyncClient", _client)
+
+        resource = HttpResource(uri="data://remote", url="http://example.test/data.json")
+        content = await resource.read()
+        assert isinstance(content, str)
+        assert content == payload
