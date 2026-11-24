@@ -3,7 +3,14 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Self, cast
 
-from mcp_types import ClientCapabilities, InputRequiredResult, InputResponseRequestParams, InputResponses, LoggingLevel
+from mcp_types import (
+    ClientCapabilities,
+    InputRequiredResult,
+    InputResponseRequestParams,
+    InputResponses,
+    LoggingLevel,
+    RequestId,
+)
 from pydantic import AnyUrl, BaseModel, ModelWrapValidatorHandler, model_validator
 from typing_extensions import deprecated
 
@@ -296,9 +303,9 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         return cast("Mapping[str, str] | None", getattr(self.request_context.request, "headers", None))
 
     @property
-    def request_id(self) -> str:
+    def request_id(self) -> RequestId | None:
         """Get the unique ID for this request."""
-        return str(self.request_context.request_id)
+        return self.request_context.request_id
 
     @property
     def protocol_version(self) -> str | None:
