@@ -57,10 +57,14 @@ def test_skill_name_from_uri_reads_the_final_path_segment(uri: str, name: str) -
         "skill://git-workflow/README.md",  # doesn't end in /SKILL.md
         "not-a-uri",  # no scheme
         "skill://git-workflow/SKILL.md?x=1",  # query component
+        "skill://git-workflow/SKILL.md?",  # trailing empty query delimiter
+        "skill://git-workflow/SKILL.md#",  # trailing empty fragment delimiter
+        "skill://org/../git-workflow/SKILL.md",  # traversal segment
+        "skill://org/%2e%2e/git-workflow/SKILL.md",  # percent-encoded traversal segment
     ],
 )
 def test_skill_name_from_uri_rejects_malformed_uris(uri: str) -> None:
-    with pytest.raises(ValueError, match="SKILL.md|absolute resource URI"):
+    with pytest.raises(ValueError, match="SKILL.md|absolute resource URI|traversal segment"):
         skill_name_from_uri(uri)
 
 
@@ -300,9 +304,19 @@ def test_request_meta_is_camelcase_on_the_wire_but_snakecase_to_a_handler(
     assert params.meta is not None and params.meta.get("progress_token") == "t"  # snake_case to a handler
 
 
-@pytest.mark.parametrize("uri", ["skill://pdf/templates/", "not-a-uri"])
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "skill://pdf/templates/",
+        "not-a-uri",
+        "skill://pdf?",
+        "skill://pdf#",
+        "skill://org/../../etc",
+        "skill://org/%2e%2e/etc",
+    ],
+)
 def test_parse_directory_uri_rejects_malformed_uris(uri: str) -> None:
-    with pytest.raises(ValueError, match="directory URI"):
+    with pytest.raises(ValueError, match="directory URI|traversal segment"):
         parse_directory_uri(uri)
 
 
