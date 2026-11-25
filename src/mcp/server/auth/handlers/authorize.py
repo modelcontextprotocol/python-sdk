@@ -2,8 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Literal
 
-# TODO(Marcelo): We should drop the `RootModel`.
-from pydantic import AnyUrl, BaseModel, Field, RootModel, ValidationError  # noqa: TID251
+from pydantic import AnyUrl, BaseModel, Field, TypeAdapter, ValidationError
 from starlette.datastructures import FormData, QueryParams
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
@@ -20,6 +19,7 @@ from mcp.server.auth.provider import (
 from mcp.shared.auth import InvalidRedirectUriError, InvalidScopeError
 
 logger = logging.getLogger(__name__)
+_ANY_URL_ADAPTER = TypeAdapter(AnyUrl)
 
 
 class AuthorizationRequest(BaseModel):
@@ -57,10 +57,6 @@ def best_effort_extract_string(key: str, params: None | FormData | QueryParams) 
     if isinstance(value, str):
         return value
     return None
-
-
-class AnyUrlModel(RootModel[AnyUrl]):
-    root: AnyUrl
 
 
 @dataclass
@@ -107,9 +103,9 @@ class AuthorizationHandler:
                     if params is not None and "redirect_uri" not in params:
                         raw_redirect_uri = None
                     else:
-                        raw_redirect_uri = AnyUrlModel.model_validate(
+                        raw_redirect_uri = _ANY_URL_ADAPTER.validate_python(
                             best_effort_extract_string("redirect_uri", params)
-                        ).root
+                        )
                     redirect_uri = client.validate_redirect_uri(raw_redirect_uri)
                 except (ValidationError, InvalidRedirectUriError):
                     # if the redirect URI is invalid, ignore it & just return the

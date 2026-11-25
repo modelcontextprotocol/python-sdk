@@ -1,10 +1,5 @@
 import pytest
-
-from mcp import Client
-from mcp.client import ClientRequestContext
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
     INVALID_REQUEST,
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -13,6 +8,11 @@ from mcp.types import (
     TextContent,
     ToolUseContent,
 )
+
+from mcp import Client
+from mcp.client import ClientRequestContext
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.exceptions import MCPError
 
 
 @pytest.mark.anyio
@@ -42,7 +42,7 @@ async def test_sampling_callback():
         return True
 
     # Test with sampling callback
-    async with Client(server, sampling_callback=sampling_callback) as client:
+    async with Client(server, sampling_callback=sampling_callback, mode="legacy") as client:
         # Make a request to trigger sampling callback
         result = await client.call_tool("test_sampling", {"message": "Test message for sampling"})
         assert result.is_error is False
@@ -52,7 +52,7 @@ async def test_sampling_callback():
     # Without a sampling callback the client responds with an MCPError, which the
     # tool body doesn't catch — the wrapper re-raises it as a top-level JSON-RPC
     # error rather than wrapping it as an isError result.
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("test_sampling", {"message": "Test message for sampling"})
     assert exc_info.value.error.code == INVALID_REQUEST
@@ -93,7 +93,7 @@ async def test_create_message_backwards_compat_single_content():
         assert not hasattr(result, "content_as_list") or not callable(getattr(result, "content_as_list", None))
         return True
 
-    async with Client(server, sampling_callback=sampling_callback) as client:
+    async with Client(server, sampling_callback=sampling_callback, mode="legacy") as client:
         result = await client.call_tool("test_backwards_compat", {"message": "Test"})
         assert result.is_error is False
         assert isinstance(result.content[0], TextContent)

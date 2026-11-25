@@ -2,7 +2,7 @@
 
 These tests configure the server with an event store, so every SSE event is stamped with an ID
 and a client that loses its connection can resume by sending `Last-Event-ID`. The wire-level
-tests (`mounted_app` + raw httpx) assert exactly what travels on the wire; the end-to-end test
+tests (`mounted_app` + raw httpx2) assert exactly what travels on the wire; the end-to-end test
 drives the SDK client through a server-initiated stream close and proves the call still
 completes. The bridge's `aclose()` delivers `http.disconnect` to the running application, so
 closing a streaming response mid-read is a deterministic in-process disconnect -- no sockets,
@@ -12,17 +12,11 @@ no real time. Every server here uses `retry_interval=0` so reconnection waits ar
 import json
 
 import anyio
-import httpx
+import httpx2
 import pytest
-from httpx_sse import EventSource, ServerSentEvent
+from httpx2 import EventSource, ServerSentEvent
 from inline_snapshot import snapshot
-
-from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamable_http_client
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared.message import ClientMessageMetadata
-from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -33,6 +27,12 @@ from mcp.types import (
     TextContent,
     jsonrpc_message_adapter,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
+
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.message import ClientMessageMetadata
 from tests.interaction._connect import (
     BASE_URL,
     base_headers,
@@ -69,9 +69,9 @@ def _tools_call(request_id: int, name: str, arguments: dict[str, object]) -> str
     ).model_dump_json(by_alias=True, exclude_none=True)
 
 
-async def _read_events(response: httpx.Response, count: int) -> list[ServerSentEvent]:
+async def _read_events(response: httpx2.Response, count: int) -> list[ServerSentEvent]:
     """Read exactly `count` SSE events from a streaming response without closing it."""
-    source = EventSource(response).aiter_sse()
+    source = aiter(EventSource(response))
     return [await anext(source) for _ in range(count)]
 
 
@@ -111,6 +111,43 @@ async def test_a_post_sse_stream_begins_with_a_priming_event_and_stamps_every_ev
             },
         )
     )
+
+
+@requirement("hosting:resume:priming")
+async def test_the_priming_row_is_stored_before_any_handler_output_for_that_stream() -> None:
+    """The priming cursor is the first row the event store records for a request's stream.
+
+    The POST handler stores the priming row before dispatching the request, so by construction
+    it precedes anything `message_router` can store for that stream id.
+    """
+    store = SequencedEventStore()
+    mcp = MCPServer("resumable")
+
+    @mcp.tool()
+    async def burst(ctx: Context) -> str:
+        await ctx.info("a")  # pyright: ignore[reportDeprecated]
+        await ctx.info("b")  # pyright: ignore[reportDeprecated]
+        await ctx.info("c")  # pyright: ignore[reportDeprecated]
+        return "done"
+
+    async with mounted_app(mcp, event_store=store) as (http, _):
+        session_id = await initialize_via_http(http)
+        with anyio.fail_after(5):
+            async with http.stream(  # pragma: no branch
+                "POST", "/mcp", content=_tools_call(2, "burst", {}), headers=base_headers(session_id=session_id)
+            ) as response:
+                await _read_events(response, 5)
+
+    # initialize wrote two rows (its own priming + response); everything after is this call.
+    call_rows = store._events[2:]
+    stream_id = call_rows[0][0]
+    assert [(s, None if m is None else type(m).__name__) for s, m in call_rows] == [
+        (stream_id, None),
+        (stream_id, "JSONRPCNotification"),
+        (stream_id, "JSONRPCNotification"),
+        (stream_id, "JSONRPCNotification"),
+        (stream_id, "JSONRPCResponse"),
+    ]
 
 
 @requirement("hosting:resume:replay")
@@ -182,6 +219,46 @@ async def test_get_with_last_event_id_replays_only_that_streams_missed_events() 
     )
 
 
+@requirement("hosting:resume:priming")
+async def test_a_pre_2025_11_25_reconnect_replays_without_minting_a_priming_event() -> None:
+    """A pre-2025-11-25 client reconnecting via Last-Event-ID gets the replay with no priming row.
+
+    The store-length assertion is the load-bearing proof that no priming cursor was minted.
+    """
+    release = anyio.Event()
+    store = SequencedEventStore()
+    mcp = MCPServer("resumable")
+
+    @mcp.tool()
+    async def count(ctx: Context) -> str:
+        await ctx.info("tick 1")  # pyright: ignore[reportDeprecated]
+        await release.wait()
+        await ctx.info("tick 2")  # pyright: ignore[reportDeprecated]
+        return "counted"
+
+    async with mounted_app(mcp, event_store=store, retry_interval=0) as (http, _):
+        session_id = await initialize_via_http(http)
+        with anyio.fail_after(5):
+            async with http.stream(
+                "POST", "/mcp", content=_tools_call(1, "count", {}), headers=base_headers(session_id=session_id)
+            ) as response:
+                _, first = await _read_events(response, 2)
+            release.set()
+            await store.wait_until_stored(6)
+            old_client_headers = base_headers(session_id=session_id) | {
+                "mcp-protocol-version": "2025-06-18",
+                "last-event-id": first.id,
+            }
+            async with http.stream("GET", "/mcp", headers=old_client_headers) as replay:  # pragma: no branch
+                assert replay.status_code == 200
+                missed = await _read_events(replay, 2)
+
+    assert [(event.id, bool(event.data)) for event in missed] == snapshot([("5", True), ("6", True)])
+    # No priming cursor was minted on reconnect: the store still holds only the six rows
+    # written before the GET (init priming+response, POST priming, tick 1, tick 2, result).
+    assert len(store._events) == 6
+
+
 @requirement("hosting:resume:bad-event-id")
 async def test_an_unknown_last_event_id_yields_an_empty_replay_stream() -> None:
     """A Last-Event-ID the event store cannot map produces an empty SSE stream rather than an error.
@@ -196,7 +273,7 @@ async def test_an_unknown_last_event_id_yields_an_empty_replay_stream() -> None:
                 async with http.stream("GET", "/mcp", headers=headers) as replay:
                     assert replay.status_code == 200
                     assert replay.headers["content-type"].startswith("text/event-stream")
-                    events = [event async for event in EventSource(replay).aiter_sse()]
+                    events = [event async for event in EventSource(replay)]
                 assert events == []
 
 
@@ -354,7 +431,7 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
                 # The session id is only observable via the manager (the client transport does not expose it).
                 (session_id,) = manager._server_instances
                 http.headers["mcp-session-id"] = session_id
-                http.headers["mcp-protocol-version"] = LATEST_PROTOCOL_VERSION
+                http.headers["mcp-protocol-version"] = LATEST_HANDSHAKE_VERSION
                 tg.cancel_scope.cancel()
 
         with anyio.fail_after(5):  # pragma: no branch

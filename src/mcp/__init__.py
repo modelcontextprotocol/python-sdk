@@ -1,11 +1,4 @@
-from .client.client import Client
-from .client.session import ClientSession
-from .client.session_group import ClientSessionGroup
-from .client.stdio import StdioServerParameters, stdio_client
-from .server.session import ServerSession
-from .server.stdio import stdio_server
-from .shared.exceptions import MCPDeprecationWarning, MCPError, UrlElicitationRequiredError
-from .types import (
+from mcp_types import (
     CallToolRequest,
     ClientCapabilities,
     ClientNotification,
@@ -63,7 +56,20 @@ from .types import (
     ToolUseContent,
     UnsubscribeRequest,
 )
-from .types import Role as SamplingRole
+from mcp_types import Role as SamplingRole
+
+# Bind the `mcp.types` submodule on the package, as v1's `from .types import
+# ...` did, so `import mcp` followed by `mcp.types.Tool` keeps working.
+from . import types as types
+from .client._input_required import InputRequiredRoundsExceededError
+from .client.client import Client
+from .client.session import ClientSession
+from .client.session_group import ClientSessionGroup
+from .client.stdio import StdioServerParameters, stdio_client
+from .server.session import ServerSession
+from .server.stdio import stdio_server
+from .shared.exceptions import MCPDeprecationWarning, MCPError, UrlElicitationRequiredError
+from .shared.uri_template import InvalidUriTemplate, UriTemplate
 
 __all__ = [
     "CallToolRequest",
@@ -86,6 +92,7 @@ __all__ = [
     "InitializeRequest",
     "InitializeResult",
     "InitializedNotification",
+    "InputRequiredRoundsExceededError",
     "JSONRPCError",
     "JSONRPCRequest",
     "JSONRPCResponse",
@@ -130,7 +137,9 @@ __all__ = [
     "ToolsCapability",
     "ToolUseContent",
     "UnsubscribeRequest",
+    "UriTemplate",
     "UrlElicitationRequiredError",
+    "InvalidUriTemplate",
     "stdio_client",
     "stdio_server",
 ]

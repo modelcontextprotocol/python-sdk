@@ -28,7 +28,8 @@ import webbrowser
 from typing import Any
 from urllib.parse import urlparse
 
-from mcp import ClientSession, types
+import mcp.types as types
+from mcp import ClientSession
 from mcp.client.context import ClientRequestContext
 from mcp.client.sse import sse_client
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError

@@ -20,15 +20,15 @@ from dataclasses import dataclass
 from urllib.parse import parse_qsl, quote, urlsplit
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import ListToolsResult, Tool
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp import types
 from mcp.client.auth import OAuthFlowError
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
-from mcp.types import ListToolsResult, Tool
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (

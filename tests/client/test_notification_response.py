@@ -6,17 +6,18 @@ that don't follow SDK conventions.
 
 import json
 
-import httpx
+import httpx2
+import mcp_types as types
 import pytest
+from mcp_types import RootsListChangedNotification
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from mcp import ClientSession, MCPError, types
+from mcp import ClientSession, MCPError
+from mcp.client import IncomingMessage
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.session import RequestResponder
-from mcp.types import RootsListChangedNotification
 
 pytestmark = pytest.mark.anyio
 
@@ -81,14 +82,12 @@ async def test_non_compliant_notification_response() -> None:
     """
     returned_exception = None
 
-    async def message_handler(  # pragma: no cover
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:  # pragma: no cover
         nonlocal returned_exception
         if isinstance(message, Exception):
             returned_exception = message
 
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_non_sdk_server_app())) as client:
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=_create_non_sdk_server_app())) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
                 await session.initialize()
@@ -107,7 +106,7 @@ async def test_unexpected_content_type_sends_jsonrpc_error() -> None:
     the client should send a JSONRPCError so the pending request resolves immediately
     instead of hanging until timeout.
     """
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_unexpected_content_type_app())) as client:
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=_create_unexpected_content_type_app())) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
@@ -141,9 +140,9 @@ async def test_http_error_status_sends_jsonrpc_error() -> None:
 
     When a server returns a non-2xx status code (e.g. 500), the client should
     send a JSONRPCError so the pending request resolves immediately instead of
-    raising an unhandled httpx.HTTPStatusError that causes the caller to hang.
+    raising an unhandled httpx2.HTTPStatusError that causes the caller to hang.
     """
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_http_error_app(500))) as client:
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=_create_http_error_app(500))) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
@@ -159,7 +158,7 @@ async def test_http_error_on_notification_does_not_hang() -> None:
     unblock, so the client should just return without sending a JSONRPCError.
     """
     app = _create_http_error_app(500, error_on_notifications=True)
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as client:
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app)) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
@@ -194,7 +193,7 @@ async def test_invalid_json_response_sends_jsonrpc_error() -> None:
     should send a JSONRPCError so the pending request resolves immediately
     instead of hanging until timeout.
     """
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_invalid_json_response_app())) as client:
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=_create_invalid_json_response_app())) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
@@ -204,12 +203,19 @@ async def test_invalid_json_response_sends_jsonrpc_error() -> None:
 
 
 def _create_non_2xx_json_body_app(status: int, body: bytes) -> Starlette:
-    """Server that returns a fixed non-2xx status + ``application/json`` body for non-init requests."""
+    """Server that returns a fixed non-2xx status + ``application/json`` body for non-init requests.
+
+    The initialize response carries an ``mcp-session-id`` so the client treats subsequent
+    requests as part of an established session (needed for the 404 → session-terminated mapping).
+    """
 
     async def handle_mcp_request(request: Request) -> Response:
         data = json.loads(await request.body())
         if data.get("method") == "initialize":
-            return _init_json_response(data)
+            return JSONResponse(
+                {"jsonrpc": "2.0", "id": data["id"], "result": INIT_RESPONSE},
+                headers={"mcp-session-id": "test-session"},
+            )
         if "id" not in data:
             return Response(status_code=202)
         return Response(content=body, status_code=status, media_type="application/json")
@@ -225,7 +231,7 @@ async def test_client_surfaces_jsonrpc_error_from_non_2xx_body_with_correlated_i
         {"jsonrpc": "2.0", "id": None, "error": {"code": types.METHOD_NOT_FOUND, "message": "nope"}}
     ).encode()
     app = _create_non_2xx_json_body_app(400, body)
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as client:
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app)) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
@@ -239,7 +245,7 @@ async def test_client_falls_back_to_generic_error_when_non_2xx_body_is_a_jsonrpc
     error) falls through to the generic ``INTERNAL_ERROR`` fallback rather than being
     treated as the request's reply."""
     app = _create_non_2xx_json_body_app(400, b'{"jsonrpc":"2.0","id":1,"result":{}}')
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as client:
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app)) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
@@ -253,7 +259,7 @@ async def test_client_falls_back_to_session_terminated_when_404_body_is_malforme
     and the status-derived ``INVALID_REQUEST`` (session-terminated) fallback resolves the
     pending request — the parse failure never propagates."""
     app = _create_non_2xx_json_body_app(404, b"not valid json{{{")
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as client:
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app)) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()

@@ -1,11 +1,13 @@
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Generic, Protocol
 
+from mcp_types import LoggingLevel, RequestId, RequestParamsMeta
 from pydantic import BaseModel
 from typing_extensions import TypeVar, deprecated
 
-from mcp.server.connection import Connection
+from mcp.server.connection import Connection, allowed_log_levels
 from mcp.server.session import ServerSession
 from mcp.shared.context import BaseContext
 from mcp.shared.dispatcher import DispatchContext
@@ -13,9 +15,14 @@ from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import CloseSSEStreamCallback
 from mcp.shared.peer import Meta
 from mcp.shared.transport_context import TransportContext
-from mcp.types import LoggingLevel, RequestId, RequestParamsMeta
 
-# Invariant: parameterizes a mutable dataclass field; dict default matches the default lifespan.
+logger = logging.getLogger(__name__)
+# `Context.log`'s `logger` parameter (public API, the spec's logger-name
+# field) shadows the module logger inside that method; this alias keeps it
+# reachable there.
+_logger = logger
+
+# Invariant: parametrizes a mutable dataclass field; dict default matches the default lifespan.
 LifespanContextT = TypeVar("LifespanContextT", default=dict[str, Any])
 RequestT = TypeVar("RequestT", default=Any)
 
@@ -33,6 +40,8 @@ class ServerRequestContext(Generic[LifespanContextT, RequestT]):
     session: ServerSession
     lifespan_context: LifespanContextT
     protocol_version: str
+    method: str
+    params: Mapping[str, Any] | None = None
     request_id: RequestId | None = None
     meta: RequestParamsMeta | None = None
     request: RequestT | None = None
@@ -65,6 +74,9 @@ class Context(BaseContext[TransportContext], Generic[LifespanT_co]):
         super().__init__(dctx, meta=meta)
         self._lifespan = lifespan
         self._connection = connection
+        # Same per-request log gate as `ServerSession`: fixed at construction
+        # from this request's `_meta` log-level opt-in and the connection's era.
+        self._allowed_log_levels = allowed_log_levels(connection.protocol_version, meta)
 
     @property
     def lifespan(self) -> LifespanT_co:
@@ -100,7 +112,15 @@ class Context(BaseContext[TransportContext], Generic[LifespanT_co]):
         Uses this request's back-channel (so the entry rides the request's SSE
         stream in streamable HTTP), not the standalone stream - use
         `ctx.connection.log(...)` for that.
+
+        On 2026-07-28+ delivery is a per-request opt-in: nothing is sent
+        unless this request's `_meta` carried the reserved log-level key, and
+        entries below the requested level are dropped (debug-logged).
+        Handshake versions send unconditionally, as before.
         """
+        if level not in self._allowed_log_levels:
+            _logger.debug("dropped notifications/message at %r: not opted in at that level on this request", level)
+            return
         params: dict[str, Any] = {"level": level, "data": data}
         if logger is not None:
             params["logger"] = logger
@@ -113,39 +133,47 @@ HandlerResult = BaseModel | dict[str, Any] | None
 """What a request handler (or middleware) may return. `ServerRunner` serializes
 all three to a result dict."""
 
-CallNext = Callable[[], Awaitable[HandlerResult]]
+CallNext = Callable[["ServerRequestContext[Any, Any]"], Awaitable[HandlerResult]]
+"""Invokes the rest of the chain with the given context. What a context
+rewrite (`dataclasses.replace(ctx, ...)`) can alter depends on the tier:
+`ServerMiddleware` runs before params validation, so its rewrites change what
+the handler is invoked with; an `Extension` interceptor runs after, so its
+rewrites change only what the handler observes on `ctx`."""
 
 _MwLifespanT = TypeVar("_MwLifespanT")
 
 
 class ServerMiddleware(Protocol[_MwLifespanT]):
-    """Context-tier middleware: `(ctx, method, params, call_next) -> result`.
+    """Context-tier middleware: `(ctx, call_next) -> result`.
 
     Runs at the top of `ServerRunner._on_request` / `_on_notify` after `ctx`
     is built but before any validation, lookup, or handshake. Wraps every
     inbound request and notification: `initialize`, the pre-init gate,
     `METHOD_NOT_FOUND`, params validation, the handler call, and
-    `notifications/initialized` all run inside `call_next()`.
+    `notifications/initialized` all run inside `call_next(ctx)`.
     `notifications/cancelled` is observed too; the dispatcher applies the
     cancellation itself, then forwards the notification. A request-side
     failure reaches the middleware as a raised `MCPError` (or
     `ValidationError` for malformed params) so observation/logging middleware
     can record it. Listed outermost-first on `Server.middleware`.
 
+    The method and the raw inbound params are `ctx.method` and `ctx.params` (no
+    model validation has happened yet). To rewrite either before the handler
+    runs, pass an adjusted context: `await call_next(replace(ctx, params=...))`.
     `ctx.request_id is None` distinguishes a notification from a request. For
-    notifications `call_next()` returns `None` (a dropped or unhandled
+    notifications `call_next(ctx)` returns `None` (a dropped or unhandled
     notification also returns `None`) and the middleware's own return value is
     discarded.
 
-    `params` is the raw inbound mapping (no model validation has happened
-    yet). For typed inspection, validate against the model the middleware
-    expects.
-
-    Warning: `initialize` is handled inline - the dispatcher does not read
-    further inbound messages until the middleware chain returns. Awaiting a
-    server-to-client request (`ctx.session.send_request`, `send_ping`, ...)
-    while handling `initialize` therefore deadlocks the connection: the
-    response can never be dequeued. Send-and-forget notifications are safe.
+    !!! warning
+        `initialize` is handled inline - the dispatcher does not read
+        further inbound messages until the middleware chain returns. Awaiting a
+        server-to-client request (`ctx.session.send_request`, `send_ping`, ...)
+        while handling `initialize` therefore deadlocks the connection: the
+        response can never be dequeued. Send-and-forget notifications are safe.
+        `initialize` is observed but not rewritable: the post-chain handshake
+        commit reads the wire params, so to veto the handshake raise *before*
+        `call_next()`.
 
     `Server[L].middleware` holds `ServerMiddleware[L]`, so an app-specific
     middleware sees `ctx.lifespan_context: L`. While the context is the
@@ -162,7 +190,5 @@ class ServerMiddleware(Protocol[_MwLifespanT]):
     async def __call__(
         self,
         ctx: ServerRequestContext[_MwLifespanT, Any],
-        method: str,
-        params: Mapping[str, Any] | None,
         call_next: CallNext,
     ) -> HandlerResult: ...

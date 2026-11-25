@@ -2,9 +2,8 @@
 and tools.
 """
 
+from mcp_types import Icon, ServerCapabilities
 from pydantic import BaseModel
-
-from mcp.types import Icon, ServerCapabilities
 
 
 class InitializationOptions(BaseModel):

@@ -64,7 +64,7 @@ def test_mcp_requirement_falls_back_when_mcp_is_not_installed(monkeypatch: pytes
 
 
 def _read_server(config_dir: Path, name: str) -> dict[str, Any]:
-    config = json.loads((config_dir / "claude_desktop_config.json").read_text())
+    config = json.loads((config_dir / "claude_desktop_config.json").read_text(encoding="utf-8"))
     return config["mcpServers"][name]
 
 
@@ -121,7 +121,7 @@ def test_env_vars_written(config_dir: Path):
 def test_existing_env_vars_merged_new_wins(config_dir: Path):
     """Re-installing should merge env vars, with new values overriding existing ones."""
     (config_dir / "claude_desktop_config.json").write_text(
-        json.dumps({"mcpServers": {"s": {"env": {"OLD": "keep", "KEY": "old"}}}})
+        json.dumps({"mcpServers": {"s": {"env": {"OLD": "keep", "KEY": "old"}}}}), encoding="utf-8"
     )
 
     assert update_claude_config(file_spec="s.py:app", server_name="s", env_vars={"KEY": "new"})
@@ -131,7 +131,9 @@ def test_existing_env_vars_merged_new_wins(config_dir: Path):
 
 def test_existing_env_vars_preserved_without_new(config_dir: Path):
     """Re-installing without env_vars should keep the existing env block intact."""
-    (config_dir / "claude_desktop_config.json").write_text(json.dumps({"mcpServers": {"s": {"env": {"KEEP": "me"}}}}))
+    (config_dir / "claude_desktop_config.json").write_text(
+        json.dumps({"mcpServers": {"s": {"env": {"KEEP": "me"}}}}), encoding="utf-8"
+    )
 
     assert update_claude_config(file_spec="s.py:app", server_name="s")
 
@@ -139,14 +141,27 @@ def test_existing_env_vars_preserved_without_new(config_dir: Path):
 
 
 def test_other_servers_preserved(config_dir: Path):
-    """Installing a new server should not clobber existing mcpServers entries."""
-    (config_dir / "claude_desktop_config.json").write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}))
+    """Installing a new server must not clobber existing entries, non-ASCII text included (the file is UTF-8)."""
+    other = {"command": "C:\\Users\\张伟\\uv.exe", "env": {"CITY": "Zürich"}}
+    config_file = config_dir / "claude_desktop_config.json"
+    config_file.write_text(json.dumps({"mcpServers": {"文件": other}}, ensure_ascii=False), encoding="utf-8")
 
     assert update_claude_config(file_spec="s.py:app", server_name="s")
 
-    config = json.loads((config_dir / "claude_desktop_config.json").read_text())
-    assert set(config["mcpServers"]) == {"other", "s"}
-    assert config["mcpServers"]["other"] == {"command": "x"}
+    config = json.loads(config_file.read_text(encoding="utf-8"))
+    assert set(config["mcpServers"]) == {"文件", "s"}
+    assert config["mcpServers"]["文件"] == other
+
+
+@pytest.mark.parametrize("codec", ["utf-8-sig", "utf-16"])
+def test_existing_config_with_a_bom_is_accepted(config_dir: Path, codec: str):
+    """A config saved by Windows tooling (UTF-8 with BOM, or PowerShell 5's UTF-16 `>`) can still be installed into."""
+    config_file = config_dir / "claude_desktop_config.json"
+    config_file.write_bytes(json.dumps({"mcpServers": {"other": {"command": "x"}}}).encode(codec))
+
+    assert update_claude_config(file_spec="s.py:app", server_name="s")
+
+    assert set(json.loads(config_file.read_bytes())["mcpServers"]) == {"other", "s"}
 
 
 def test_raises_when_config_dir_missing(monkeypatch: pytest.MonkeyPatch):

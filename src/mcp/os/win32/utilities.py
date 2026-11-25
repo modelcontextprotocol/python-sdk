@@ -1,4 +1,4 @@
-"""Windows-specific functionality for stdio client operations."""
+"""Windows-specific functionality for stdio transport operations."""
 
 import logging
 import shutil
@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 # Windows-specific imports for Job Objects
 if sys.platform == "win32":
+    import msvcrt
+
     import pywintypes
     import win32api
     import win32con
@@ -25,8 +27,29 @@ else:
     # Type stubs for non-Windows platforms
     win32api = None
     win32con = None
+    msvcrt = None
     win32job = None
     pywintypes = None
+
+
+def rebind_std_handle_to_fd(fd: int) -> None:
+    """Points the Win32 standard-handle slot for fd 0, 1, or 2 at fd's current OS handle.
+
+    os.dup2 updates only the CRT descriptor table; subprocess handle inheritance
+    reads the Win32 slot, so it must be repointed too.
+
+    Raises:
+        OSError: The slot could not be set.
+    """
+    if sys.platform != "win32" or not win32api or not msvcrt or not pywintypes:
+        return
+    std_ids = {0: win32api.STD_INPUT_HANDLE, 1: win32api.STD_OUTPUT_HANDLE, 2: win32api.STD_ERROR_HANDLE}
+    try:
+        win32api.SetStdHandle(std_ids[fd], msvcrt.get_osfhandle(fd))
+    except pywintypes.error as exc:
+        # Normalized so callers' OSError-based best-effort handling covers it.
+        raise OSError(f"SetStdHandle failed for fd {fd}") from exc
+
 
 # How often FallbackProcess polls the underlying Popen for exit.
 _EXIT_POLL_INTERVAL = 0.01

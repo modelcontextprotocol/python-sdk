@@ -3,7 +3,7 @@
 import base64
 from pathlib import Path
 
-from mcp.types import AudioContent, ImageContent
+from mcp_types import AudioContent, ImageContent
 
 
 class Image:
@@ -27,7 +27,7 @@ class Image:
 
     def _get_mime_type(self) -> str:
         """Get MIME type from format or guess from file extension."""
-        if self._format:  # pragma: no cover
+        if self._format:
             return f"image/{self._format.lower()}"
 
         if self.path:
@@ -39,14 +39,14 @@ class Image:
                 ".gif": "image/gif",
                 ".webp": "image/webp",
             }.get(suffix, "application/octet-stream")
-        return "image/png"  # pragma: no cover  # default for raw binary data
+        return "image/png"  # default for raw binary data
 
     def to_image_content(self) -> ImageContent:
         """Convert to MCP ImageContent."""
         if self.path:
             with open(self.path, "rb") as f:
                 data = base64.b64encode(f.read()).decode()
-        elif self.data is not None:  # pragma: no cover
+        elif self.data is not None:
             data = base64.b64encode(self.data).decode()
         else:  # pragma: no cover
             raise ValueError("No image data available")
@@ -73,7 +73,7 @@ class Audio:
 
     def _get_mime_type(self) -> str:
         """Get MIME type from format or guess from file extension."""
-        if self._format:  # pragma: no cover
+        if self._format:
             return f"audio/{self._format.lower()}"
 
         if self.path:
@@ -86,14 +86,14 @@ class Audio:
                 ".aac": "audio/aac",
                 ".m4a": "audio/mp4",
             }.get(suffix, "application/octet-stream")
-        return "audio/wav"  # pragma: no cover  # default for raw binary data
+        return "audio/wav"  # default for raw binary data
 
     def to_audio_content(self) -> AudioContent:
         """Convert to MCP AudioContent."""
         if self.path:
             with open(self.path, "rb") as f:
                 data = base64.b64encode(f.read()).decode()
-        elif self.data is not None:  # pragma: no cover
+        elif self.data is not None:
             data = base64.b64encode(self.data).decode()
         else:  # pragma: no cover
             raise ValueError("No audio data available")

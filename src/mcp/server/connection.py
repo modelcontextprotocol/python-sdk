@@ -22,17 +22,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
-from typing import Any, TypeVar, overload
+from typing import Any, Final, TypeVar, get_args, overload
 
 import anyio
-from pydantic import BaseModel
-from typing_extensions import deprecated
-
-from mcp.shared.dispatcher import CallOptions, Outbound
-from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError
-from mcp.shared.peer import Meta, dump_params
-from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
+from mcp_types import (
+    LOG_LEVEL_META_KEY,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageResult,
@@ -47,11 +41,53 @@ from mcp.types import (
     PingRequest,
     Request,
 )
-from mcp.types import methods as _methods
+from mcp_types import methods as _methods
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, MODERN_PROTOCOL_VERSIONS
+from pydantic import BaseModel, ValidationError
+from typing_extensions import deprecated
+
+from mcp.shared.dispatcher import CallOptions, Outbound
+from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError
+from mcp.shared.peer import Meta, dump_params
+from mcp.shared.subscriptions import LISTEN_STREAM_METHODS
 
 __all__ = ["Connection"]
 
 logger = logging.getLogger(__name__)
+# `Connection.log`'s `logger` parameter (public API, the spec's logger-name
+# field) shadows the module logger inside that method; this alias keeps the
+# module logger reachable there.
+_logger = logger
+
+_LOG_LEVELS: Final[tuple[LoggingLevel, ...]] = get_args(LoggingLevel)
+"""Severity-ascending, from the `LoggingLevel` literal's declaration order (the
+RFC 5424 scale) - the literal is the single source of the ordering."""
+
+_ALL_LOG_LEVELS: Final[frozenset[LoggingLevel]] = frozenset(_LOG_LEVELS)
+
+
+def allowed_log_levels(protocol_version: str, meta: Mapping[str, Any] | None) -> frozenset[LoggingLevel]:
+    """The `notifications/message` levels deliverable for one inbound request.
+
+    2026-07-28+ makes log delivery a per-request opt-in (server/utilities/
+    logging): the client sets the reserved `io.modelcontextprotocol/logLevel`
+    `_meta` key, absent means no levels - the server MUST NOT send - and
+    present means that level and above. An unrecognized value reads as absent;
+    spec methods already reject a malformed value at surface validation
+    before any handler runs, so that arm only serves custom methods, where
+    dropping is the safe direction. Connection-scoped emitters pass
+    `meta=None`: `logging/setLevel` is gone at 2026 and log delivery is
+    request-scoped only, so they deliver nothing. Handshake versions keep
+    their `logging/setLevel`-era semantics: every level may be sent, filtering
+    is the application's `logging/setLevel` handler's job as before.
+    """
+    if protocol_version not in MODERN_PROTOCOL_VERSIONS:
+        return _ALL_LOG_LEVELS
+    requested = (meta or {}).get(LOG_LEVEL_META_KEY)
+    if requested not in _LOG_LEVELS:
+        return frozenset()
+    return frozenset(_LOG_LEVELS[_LOG_LEVELS.index(requested) :])
+
 
 ResultT = TypeVar("ResultT", bound=BaseModel)
 
@@ -66,6 +102,23 @@ _RESULT_FOR: dict[type[Request[Any, Any]], type[BaseModel]] = {
     ListRootsRequest: ListRootsResult,
     PingRequest: EmptyResult,
 }
+
+
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
+def _typed(model: type[_ModelT], raw: Any) -> _ModelT | None:
+    """Validate a raw envelope value into a typed model.
+
+    A missing, null or mis-shaped value falls through to `ValidationError`
+    and is treated as not supplied so the request still routes. Spec methods
+    are separately re-validated by the kernel's per-version params surface,
+    which types the reserved `_meta` keys strictly.
+    """
+    try:
+        return model.model_validate(raw, by_name=False)
+    except ValidationError:
+        return None
 
 
 def _notification_params(payload: dict[str, Any] | None, meta: Meta | None) -> dict[str, Any] | None:
@@ -93,11 +146,40 @@ class _NoChannelOutbound:
     ) -> dict[str, Any]:
         raise NoBackChannelError(method)
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         logger.debug("dropped %s: no standalone channel", method)
 
 
 _NO_CHANNEL = _NoChannelOutbound()
+
+
+class NotifyOnlyOutbound(_NoChannelOutbound):
+    """Connection-scoped `Outbound` that forwards notifications and refuses requests.
+
+    Installed by `serve_dual_era_loop` for modern (2026-07-28+) connections
+    over duplex stream transports: the pipe is real, so server notifications
+    ride it, but the modern protocol forbids server-initiated JSON-RPC
+    requests, so `send_raw_request` (inherited) refuses by construction.
+
+    Change notifications (`notifications/*/list_changed`,
+    `notifications/resources/updated`) are dropped with a debug log: at this
+    era they reach a client only through a `subscriptions/listen` stream it
+    opened, so a bare copy on the shared channel would be an unrequested
+    notification. Publish them on the server's `SubscriptionBus` instead.
+    """
+
+    def __init__(self, outbound: Outbound) -> None:
+        self._outbound = outbound
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        # At the 2026-07-28 era these are `subscriptions/listen` stream goods
+        # only: the spec forbids sending a change notification a subscription
+        # did not request, and listen streams deliver them (stamped, filtered)
+        # via the request-scoped outbound, never this connection-scoped channel.
+        if method in LISTEN_STREAM_METHODS:
+            logger.debug("dropped %s: delivered via subscriptions/listen at this era", method)
+            return
+        await self._outbound.notify(method, params, opts)
 
 
 class Connection:
@@ -114,9 +196,13 @@ class Connection:
 
     session_id: str | None
 
-    client_params: InitializeRequestParams | None
-    """The full `initialize` request params, or the equivalent built from the
-    2026-era envelope. `None` when no client info was supplied."""
+    client_capabilities: ClientCapabilities | None
+    """The capabilities the peer declared: the handshake's on the loop path,
+    the request envelope's on the modern path. `None` when none were declared.
+    Kept in lockstep with `client_params` by its setter, and settable on its
+    own for the modern envelope, where capabilities are required but client
+    info is optional (spec PR #3002) - capability checks must not depend on the
+    peer having identified itself."""
 
     protocol_version: str
     """The protocol version this connection speaks. Populated at construction
@@ -147,36 +233,66 @@ class Connection:
         self.outbound = outbound
         self.protocol_version = protocol_version
         self.session_id = session_id
+        self.client_capabilities = None
         self.client_params = client_params
         self.initialized = anyio.Event()
         self.state = {}
         self.exit_stack = AsyncExitStack()
 
+    @property
+    def client_params(self) -> InitializeRequestParams | None:
+        """The full `initialize` request params, or the equivalent built from the
+        2026-era envelope. `None` when no client info was supplied."""
+        return self._client_params
+
+    @client_params.setter
+    def client_params(self, value: InitializeRequestParams | None) -> None:
+        # Assignment is the sync point: recording full client params (the
+        # handshake commit, or a modern envelope carrying client info) also
+        # records the capabilities fact, so the two can never drift. Clearing
+        # to `None` leaves `client_capabilities` alone - the modern envelope
+        # declares capabilities without client info.
+        self._client_params = value
+        if value is not None:
+            self.client_capabilities = value.capabilities
+
     @classmethod
     def from_envelope(
         cls,
         protocol_version: str,
-        client_info: Implementation | None,
-        client_capabilities: ClientCapabilities | None,
+        client_info: Any,
+        client_capabilities: Any,
         *,
         outbound: Outbound = _NO_CHANNEL,
     ) -> Connection:
         """A born-ready connection populated from a request's `_meta` envelope.
 
-        `initialized` is set and the envelope's client info/capabilities (when
-        both supplied) are recorded as `client_params` so capability checks
-        work. `outbound` defaults to the no-channel sentinel for the
-        single-exchange HTTP path; duplex modern transports (e.g. stdio) pass
-        the dispatcher so server-initiated messages have a back-channel.
+        `protocol_version` must be an already-validated version string - the
+        inbound classification ladder owns rejecting non-string or unsupported
+        values. `client_info` and `client_capabilities` are the raw envelope
+        values: this constructor owns turning them into connection identity,
+        identically on every modern entry, so a mis-shaped value degrades to
+        not-supplied rather than failing the request. `initialized` is set,
+        well-formed capabilities are recorded as `client_capabilities` (client
+        info is optional per spec PR #3002, so capability checks never depend on
+        it), and the full `client_params` is additionally synthesized when
+        client info was supplied too. `outbound` defaults to the no-channel
+        sentinel for the single-exchange HTTP path; duplex modern transports
+        (e.g. stdio) pass a notify-only wrapper around the dispatcher so
+        server notifications ride the pipe while server-initiated requests
+        stay refused.
         """
+        info = _typed(Implementation, client_info)
+        capabilities = _typed(ClientCapabilities, client_capabilities)
         client_params = None
-        if client_info is not None and client_capabilities is not None:
+        if info is not None and capabilities is not None:
             client_params = InitializeRequestParams(
                 protocol_version=protocol_version,
-                capabilities=client_capabilities,
-                client_info=client_info,
+                capabilities=capabilities,
+                client_info=info,
             )
         connection = cls(outbound, protocol_version=protocol_version, client_params=client_params)
+        connection.client_capabilities = capabilities
         connection.initialized.set()
         return connection
 
@@ -192,12 +308,12 @@ class Connection:
 
         Not born-ready: `initialized` is set later by the kernel when
         `notifications/initialized` arrives. `protocol_version` is seeded from
-        the transport hint (or `LATEST_PROTOCOL_VERSION`) so it's never `None`;
+        the transport hint (or `LATEST_HANDSHAKE_VERSION`) so it's never `None`;
         the handshake overwrites it once negotiated.
         """
         return cls(
             outbound,
-            protocol_version=protocol_version_hint if protocol_version_hint is not None else LATEST_PROTOCOL_VERSION,
+            protocol_version=protocol_version_hint if protocol_version_hint is not None else LATEST_HANDSHAKE_VERSION,
             session_id=session_id,
         )
 
@@ -205,7 +321,12 @@ class Connection:
     def has_standalone_channel(self) -> bool:
         """Whether this connection has a real back-channel for server-initiated
         messages. Derived from `outbound` - the no-channel sentinel is the only
-        case that doesn't."""
+        case that doesn't.
+
+        Channel presence, not request permission: a modern (2026-07-28+)
+        duplex connection has a channel that carries notifications while
+        `send_raw_request` still refuses, because the protocol forbids
+        server-initiated requests."""
         return self.outbound is not _NO_CHANNEL
 
     @property
@@ -230,7 +351,9 @@ class Connection:
 
         Raises:
             MCPError: The peer responded with an error.
-            NoBackChannelError: `has_standalone_channel` is `False`.
+            NoBackChannelError: no back-channel for server-initiated requests -
+                `has_standalone_channel` is `False`, or a modern (2026-07-28+)
+                connection, where the protocol forbids them.
         """
         return await self.outbound.send_raw_request(method, params, opts)
 
@@ -275,14 +398,14 @@ class Connection:
         cls = result_type if result_type is not None else _RESULT_FOR[type(req)]
         return cls.model_validate(raw, by_name=False)
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         """Send a best-effort notification on the standalone stream.
 
         Never raises. If there's no standalone channel or the stream is broken,
         the notification is dropped and debug-logged.
         """
         try:
-            await self.outbound.notify(method, params)
+            await self.outbound.notify(method, params, opts)
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("dropped %s: standalone stream closed", method)
 
@@ -291,13 +414,25 @@ class Connection:
 
         Raises:
             MCPError: The peer responded with an error.
-            NoBackChannelError: `has_standalone_channel` is `False`.
+            NoBackChannelError: no back-channel for server-initiated requests -
+                `has_standalone_channel` is `False`, or a modern (2026-07-28+)
+                connection, where the protocol forbids them.
         """
         await self.send_raw_request("ping", dump_params(None, meta), opts)
 
     @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def log(self, level: LoggingLevel, data: Any, logger: str | None = None, *, meta: Meta | None = None) -> None:
-        """Send a `notifications/message` log entry on the standalone stream. Best-effort."""
+        """Send a `notifications/message` log entry on the standalone stream. Best-effort.
+
+        On 2026-07-28+ connections this never sends: log delivery is a
+        per-request opt-in that rides the requesting stream (`ctx.log`,
+        `ctx.session.send_log_message`), and the standalone stream is
+        forbidden from carrying `notifications/message`, so the entry is
+        debug-logged and dropped.
+        """
+        if level not in allowed_log_levels(self.protocol_version, None):
+            _logger.debug("dropped notifications/message: no connection-wide log delivery at %s", self.protocol_version)
+            return
         params: dict[str, Any] = {"level": level, "data": data}
         if logger is not None:
             params["logger"] = logger
@@ -318,13 +453,13 @@ class Connection:
     def check_capability(self, capability: ClientCapabilities) -> bool:
         """Return whether the connected client declared the given capability.
 
-        Returns `False` when no client info has been recorded.
+        Returns `False` when no capabilities have been recorded.
         """
         # TODO(L53): redesign - mirrors v1 ServerSession.check_client_capability
         # verbatim for parity.
-        if self.client_params is None:
+        if self.client_capabilities is None:
             return False
-        have = self.client_params.capabilities
+        have = self.client_capabilities
         if capability.roots is not None:
             if have.roots is None:
                 return False
@@ -345,4 +480,14 @@ class Connection:
             for k, v in capability.experimental.items():
                 if k not in have.experimental or have.experimental[k] != v:
                     return False
-        return True
+        if capability.extensions is not None:
+            # SEP-2133: an extension is supported when the client declares its
+            # identifier. Settings are negotiated per-extension (the client may
+            # advertise more than the server asks for), so presence - not value
+            # equality - is the meaningful check.
+            if have.extensions is None:
+                return False
+            for identifier in capability.extensions:
+                if identifier not in have.extensions:
+                    return False
+        return set(capability.model_extra or {}) <= set(have.model_extra or {})

@@ -1,0 +1,143 @@
+---
+translation:
+  sections: [9cac816674181eb0, 5619e950d206e6c8, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 991c10e47fda2636]
+  tool: 1
+---
+# 客户端传输 {#client-transports}
+
+每个 `Client` 都通过一种**传输**与它的服务器通信：真正承载消息的那一层。
+
+你从来不需要单独配置它。`Client` 只接受一个位置参数，并根据它的类型推断出传输方式。
+
+每种传输的**服务器**一侧（`mcp.run()` 做什么、你部署什么）见 **[运行你的服务器](../run/index.md)**。
+
+## Streamable HTTP {#streamable-http}
+
+传入一个 URL 字符串，得到的就是 **Streamable HTTP**：部署时用的传输方式，也是应该首选的那一种：
+
+```python title="client.py" hl_lines="5"
+--8<-- "docs_src/client_transports/tutorial002.py"
+```
+
+这就是完整的生产环境客户端。`Client` 替你把 URL 包进 `streamable_http_client(...)`，底层是一个按 MCP 的需要配置好的 `httpx2.AsyncClient`：connect/write/pool 超时 30 秒，读超时 300 秒，因为服务器可能会一直保持响应流打开。
+
+!!! check
+    构造出来的 `Client` **并未**连接。构造只是选定传输方式；打开它的是 `async with`。在进入之前就去取连接，SDK 会明确告诉你：
+
+    ```text
+    RuntimeError: Client must be used within an async context manager
+    ```
+
+    写下 `Client("http://...")` 时，没有解析任何东西，没有获取任何东西，也没有启动任何进程。这一行没有任何开销。
+
+### 自带 `httpx2.AsyncClient` {#bring-your-own-httpx2asyncclient}
+
+一旦需要 `Authorization` 头、cookie、代理、mTLS 或不同的超时，就自己构建 `httpx2.AsyncClient`，再把它交给 `streamable_http_client`：
+
+```python title="client.py" hl_lines="8-13"
+--8<-- "docs_src/client_transports/tutorial003.py"
+```
+
+注意两点：
+
+* `httpx2.AsyncClient` 归你所有，所以由**你**进入和退出它。SDK 从不关闭不是它自己创建的客户端。
+* `streamable_http_client(url, http_client=...)` 返回一个传输，`Client(transport)` 像接受其他任何东西一样接受它。
+
+保留 `timeout=`。它就是 SDK 自己的客户端所用的那个超时（30 秒，读超时 300 秒）；不带超时构建的 `httpx2.AsyncClient` 用的是 `httpx2` 的 5 秒默认值，运行时间超过它的工具调用会因读超时而失败。
+
+关于 TLS 的一点说明：`httpx2` 依据操作系统的信任库（通过 [`truststore`](https://pypi.org/project/truststore/)）校验证书，而不是自带的 CA 列表。在没有可用系统 CA 库的环境（某些精简容器）中，设置标准的 `SSL_CERT_FILE`/`SSL_CERT_DIR` 环境变量，或者给你的 `httpx2.AsyncClient` 显式传入 `verify=ssl_context`（背景见 [`httpx` 和 `httpx-sse` 被 `httpx2` 取代](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)）。
+
+### 更大的 SSE 事件 {#larger-sse-events}
+
+服务器在一个 SSE 事件里发送很大的工具结果或通知时，传入 `max_sse_event_size`：
+
+```python title="client.py" hl_lines="6-9"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+默认上限是每个事件 1 MiB，按事件解析之前的字节数计算。这个限制适用于 POST 响应、GET 流和恢复的流。POST 响应或恢复的流中出现超限事件时，该请求会以 SSE 错误失败。在后台 GET 流上，客户端会记录错误并重试这个流。如果信任服务器又需要更大的事件，设置 `max_sse_event_size=None` 来取消上限。JSON 响应不受影响。如果使用 `ClientSessionGroup`，在 `StreamableHttpParameters` 上设置同样的选项。
+
+!!! warning
+    `streamable_http_client` 过去可以直接接受 `headers=` 和 `timeout=`。现在不行了：它的参数是 `url`、`http_client`、`terminate_on_close` 和 `max_sse_event_size`。习惯性地去用 `headers=`，会得到：
+
+    ```text
+    TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
+    ```
+
+    请求头、认证、代理和超时都放在你传入的那一个 `httpx2.AsyncClient` 上。`max_sse_event_size` 则作用于 MCP 传输的 SSE 读取器。
+
+!!! info
+    `httpx2` 保留了熟悉的 `httpx` API，所以只要会 `httpx`，就已经知道在这里怎么做认证、代理、事件钩子、重试和连接限制。SDK 既不在上面加东西，也不拿走什么，[重定向处理](#redirects)除外。OAuth 也是在这里接入的：`httpx2.AsyncClient(auth=OAuthClientProvider(...))`。整个流程见 **[OAuth 客户端](oauth-clients.md)**。
+
+### 重定向 {#redirects}
+
+传输只连接你给它的那个 URL，而且只连接那个源（origin）。
+
+* 停留在同一 scheme、主机和端口上的 `307`/`308` 重定向会被跟随，同一主机上的 `http://` → `https://` 也会。这覆盖了常见的 `/mcp` → `/mcp/` 尾部斜杠重定向。
+* 指向其他任何地方的重定向都**不会**被跟随。调用会失败并报错：
+
+    ```text
+    MCPError: Redirect to https://other.example.com/mcp not followed; use that URL as the endpoint if it is the intended server
+    ```
+
+    如果那个 URL 就是你要连的服务器，把它写进配置。如果不是，说明服务器或它前面的代理配置有误。
+
+这对你传入的任何 `httpx2.AsyncClient` 都成立：MCP 请求不会参考它的 `follow_redirects` 设置，无论设成哪一种。SDK 的 OAuth provider 对它们自己的请求也应用同样的规则。
+
+!!! tip
+    `Redirect to http://… not followed: it would downgrade this HTTPS endpoint to plain HTTP` 的意思是：服务器前面有一个它不知道的 TLS 终止代理，于是它发出的是 `http://` 重定向。这要在服务器端修复（**[部署与扩展](../run/deploy.md#behind-a-tls-terminating-proxy)**），或者直接使用报错信息建议的那个精确的 `https://…/` URL。
+
+## stdio {#stdio}
+
+**stdio** 服务器是一个子进程。客户端启动它，向它的 stdin 写 JSON-RPC，从它的 stdout 读 JSON-RPC。桌面宿主就是这样在你的机器上运行服务器的：宿主**就是**这段代码加上一个 UI，而 **[连接到真实宿主](../get-started/real-host.md)** 是从宿主一侧、以配置文件的形式看到的同一种关系。
+
+用 `StdioServerParameters` 描述进程，再把它交给 `Client`：
+
+```python title="client.py" hl_lines="3-7 11"
+--8<-- "docs_src/client_transports/tutorial004.py"
+```
+
+进入块时启动进程。离开块时关停子进程：关闭 stdin，等待，如果它迟迟不退出就杀掉。你从来不需要自己清理。
+
+子进程的 stderr 会输出到你的 stderr。要把它送到别处，就用 `stdio_client`（来自 `mcp`）自己构建传输，改为传入它：`Client(stdio_client(server, errlog=log_file))`。
+
+!!! warning
+    子进程**不会**继承你的环境。它只拿到一个最小的允许列表（POSIX 上是 `HOME`、`LOGNAME`、`PATH`、`SHELL`、`TERM` 和 `USER`），这样敏感信息就不会泄漏进一个可能不是你写的进程。
+
+    需要 API key 的服务器在那里找不到它。用 `env=` 显式传入；这些变量会合并到允许列表之上。上面的 `BOOKSHOP_API_KEY` 做的就是这件事。
+
+## 内存中 {#in-memory}
+
+在测试里没有什么要部署，也没有什么要启动。传入服务器对象本身：
+
+```python hl_lines="14"
+--8<-- "docs_src/client_transports/tutorial001.py"
+```
+
+没有子进程，没有端口，线路上没有任何字节。客户端和服务器是同一个进程里的两个对象，而调用仍然走真实的协议层：`search_books` 的列出、校验和调用，和走 HTTP 时完全一样。**[测试](../get-started/testing.md)** 页面围绕它构建了整套模式。
+
+同样的形式也兼作嵌入 API：自己构造服务器的应用不需要经过网络就能调用它的工具。
+
+## SSE {#sse}
+
+`sse_client(url)` 来自 `mcp.client.sse`，是被 Streamable HTTP 取代的那个 HTTP 传输。用同样的方式包一层，`Client(sse_client("http://localhost:8000/sse"))`，就能和仍在使用它的服务器通信；不要在它之上构建任何新东西。
+
+## `Transport` 协议 {#the-transport-protocol}
+
+对 `Client` 来说，上面这些都是同一种东西。
+
+**传输**是任何能产出一对 `(read, write)` 消息流的异步上下文管理器：正式地说，就是 `mcp.client` 中的 `Transport` 协议。`Client` 按类型解析它的参数：`str` 变成 `streamable_http_client(url)`，`StdioServerParameters` 变成 `stdio_client(params)`，服务器对象在进程内连接，其他任何东西都直接作为传输进入。正是最后这条规则让 `stdio_client(...)`、`streamable_http_client(...)` 和 `sse_client(...)` 都能放进同一个位置，也让你可以自己写一个。
+
+## 回顾 {#recap}
+
+* `Client("http://.../mcp")`（URL）通过 Streamable HTTP 连接，即生产环境的传输方式。
+* 请求头、认证、代理和超时应放在 `httpx2.AsyncClient` 上，再传给 `streamable_http_client(url, http_client=...)`。没有 `headers=` 关键字参数。
+* 用 `streamable_http_client(url, max_sse_event_size=...)` 修改每个 SSE 事件的字节上限。
+* 重定向只在 URL 自己的源之内被跟随（尾部斜杠的 `307`/`308`），外加同一主机上的 `http`→`https`。其他情况都会以 `Redirect to … not followed` 失败；把最终的 URL 写进配置。
+* stdio 是 `Client(StdioServerParameters(...))`。只有在需要重定向子进程的 stderr 时，才自己用 `stdio_client(...)` 包一层。
+* 子进程拿到的是允许列表里的环境，不是你的环境；`env=` 往里添加。
+* `Client(mcp)`（服务器对象）在内存中连接。用于测试，或者把服务器嵌入构建它的那个应用。
+* 传输就是任何可以 `async with x as (read, write)` 的东西。凡不是服务器对象、URL 或 `StdioServerParameters` 的参数，`Client` 都直接交给这个协议。
+* 构造 `Client` 选定传输方式。`async with` 打开它。
+
+传输打开之后，两边必须就协议版本达成一致。通常根本不用考虑它；需要考虑的时候，去看 **[协议版本](../protocol-versions.md)**。

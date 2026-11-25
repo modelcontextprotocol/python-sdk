@@ -43,13 +43,7 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
     file_path = match.group(2)
 
     try:
-        # Read the entire file
-        file = Path(file_path)
-        if not file.exists():
-            print(f"Warning: File not found: {file_path}")
-            return full_match
-
-        code = file.read_text().rstrip()
+        code = Path(file_path).read_text(encoding="utf-8").rstrip()
         github_url = get_github_url(file_path)
 
         # Build the replacement block
@@ -69,7 +63,7 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
             if existing_content is not None:
                 existing_lines = existing_content.strip().split("\n")
                 # Find code between ```python and ```
-                code_lines = []
+                code_lines: list[str] = []
                 in_code = False
                 for line in existing_lines:
                     if line.strip() == "```python":
@@ -86,26 +80,26 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
 
         return replacement
 
-    except Exception as e:
-        print(f"Error processing {file_path}: {e}")
-        return full_match
+    except (OSError, UnicodeDecodeError) as e:
+        # Fatal, not "warn and keep the stale block": that would let --check pass with exit 0.
+        sys.exit(f"Error processing {file_path}: {e}")
 
 
-def update_readme_snippets(readme_path: Path = Path("README.md"), check_mode: bool = False) -> bool:
+def update_readme_snippets(check_mode: bool = False) -> bool:
     """Update code snippets in README.md with live code from source files.
 
     Args:
-        readme_path: Path to the README file
         check_mode: If True, only check if updates are needed without modifying
 
     Returns:
         True if file is up to date or was updated, False if check failed
     """
+    readme_path = Path("README.md")
     if not readme_path.exists():
         print(f"Error: README file not found: {readme_path}")
         return False
 
-    content = readme_path.read_text()
+    content = readme_path.read_text(encoding="utf-8")
     original_content = content
 
     # Pattern to match snippet-source blocks
@@ -127,14 +121,14 @@ def update_readme_snippets(readme_path: Path = Path("README.md"), check_mode: bo
             )
             return False
         else:
-            print(f"✓ {readme_path} code snippets are up to date")
+            print(f"{readme_path} code snippets are up to date")
             return True
     else:
         if updated_content != original_content:
-            readme_path.write_text(updated_content)
-            print(f"✓ Updated {readme_path}")
+            readme_path.write_text(updated_content, encoding="utf-8")
+            print(f"Updated {readme_path}")
         else:
-            print(f"✓ {readme_path} already up to date")
+            print(f"{readme_path} already up to date")
         return True
 
 
@@ -144,12 +138,10 @@ def main():
     parser.add_argument(
         "--check", action="store_true", help="Check mode - verify snippets are up to date without modifying"
     )
-    # TODO(v2): Drop the `--readme` argument when v2 is released, and set to `README.md`.
-    parser.add_argument("--readme", default="README.v2.md", help="Path to README file (default: README.v2.md)")
 
     args = parser.parse_args()
 
-    success = update_readme_snippets(Path(args.readme), check_mode=args.check)
+    success = update_readme_snippets(check_mode=args.check)
 
     if not success:
         sys.exit(1)

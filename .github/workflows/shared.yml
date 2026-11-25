@@ -13,49 +13,52 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
+
       - name: Install dependencies
-        run: uv sync --frozen --all-extras --python 3.10
+        run: uv sync --frozen --all-extras --python 3.11
 
       - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         with:
           extra_args: --all-files --verbose
-        env:
-          SKIP: no-commit-to-branch,readme-v1-frozen
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24 # match actions/github-script's node24 runtime
+      - name: Workflow script tests
+        run: node --test '.github/scripts/*.test.js'
+
+      - name: MCP Apps UI script tests
+        run: node --test tests/docs_src/test_apps.test.js
 
       - name: Surface types match vendored schema
         run: |
           uv sync --group codegen --frozen
           uv run --frozen --group codegen python scripts/gen_surface_types.py --check
 
-      # TODO(Max): Drop this in v2. Deliberate updates (e.g. the v2 status
-      # banner) go through the 'override-readme-freeze' label.
-      - name: Check README.md is not modified
-        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'override-readme-freeze')
+      # Resolves only mcp-types' declared dependencies into an empty environment,
+      # so an import of the SDK or anything from its stack fails here.
+      - name: mcp-types installs and imports standalone
         run: |
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          if git diff --name-only "$BASE_SHA" -- README.md | grep -q .; then
-            echo "::error::README.md is frozen at v1. Edit README.v2.md instead."
-            exit 1
-          fi
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          uv run --isolated --no-project --with ./src/mcp-types python -c \
+            "import mcp_types, mcp_types.jsonrpc, mcp_types.methods, mcp_types.version, mcp_types._v2025_11_25, mcp_types._v2026_07_28"
 
   test:
     name: test (${{ matrix.python-version }}, ${{ matrix.dep-resolution.name }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
-    continue-on-error: true
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
         dep-resolution:
           - name: lowest-direct
             install-flags: "--upgrade --resolution lowest-direct"
@@ -64,21 +67,28 @@ jobs:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
 
       - name: Install the project
         run: uv sync ${{ matrix.dep-resolution.install-flags }} --all-extras --python ${{ matrix.python-version }}
 
       - name: Run pytest with coverage
         shell: bash
+        env:
+          # tests/examples/test_stories_smoke.py is gated on this var; it spawns real
+          # stdio + uvicorn subprocesses, so run it on exactly one matrix cell.
+          MCP_EXAMPLES_SMOKE: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.dep-resolution.name == 'locked' && '1' || '' }}
+          # PEP 597: text I/O without encoding= raises EncodingWarning, which pytest's "error"
+          # filter makes fatal on every cell. An env var (not -X) so pytest-xdist workers inherit it.
+          PYTHONWARNDEFAULTENCODING: "1"
         run: |
           uv run --frozen --no-sync coverage erase
           uv run --frozen --no-sync coverage run -m pytest -n auto
@@ -92,17 +102,44 @@ jobs:
   readme-snippets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.12.24
 
       - name: Install dependencies
-        run: uv sync --frozen --all-extras --python 3.10
+        run: uv sync --frozen --all-extras --python 3.11
 
       - name: Check README snippets are up to date
-        run: uv run --frozen scripts/update_readme_snippets.py --check --readme README.v2.md
+        run: uv run --frozen scripts/update_readme_snippets.py --check
+
+  # `scripts/docs/build.sh` is the whole gauntlet: build_config.py fails on
+  # nav entries without a page and pages without a nav entry, `zensical build
+  # --strict` fails on broken .md links, `pymdownx.snippets: check_paths:
+  # true` fails on a deleted `docs_src/` include, and the post-build steps
+  # fail on order-dependent API rendering, unresolved cross-references,
+  # inventory download failures, and broken non-markdown link targets.
+  # Until this job existed the docs were only ever built post-merge by
+  # `deploy-docs.yml`, so those failures went green on the PR and broke the next
+  # deploy of main. This is the check path; `deploy-docs.yml` stays the deploy
+  # path.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          version: 0.12.24
+
+      - name: Build the docs in strict mode
+        run: bash scripts/docs/build.sh

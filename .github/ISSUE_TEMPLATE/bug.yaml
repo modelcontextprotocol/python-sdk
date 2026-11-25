@@ -11,12 +11,25 @@ body:
     id: checks
     attributes:
       label: Initial Checks
-      description: Just making sure you're using the latest version of MCP Python SDK.
+      description: >
+        Both the 2.x stable line and the 1.x maintenance line are supported, and only
+        the newest release of each line receives fixes.
       options:
-        - label: I confirm that I'm using the latest version of MCP Python SDK
+        - label: I confirm that I'm using the newest release of my line (the latest 2.x, or the latest 1.x if I'm still on v1)
           required: true
         - label: I confirm that I searched for my issue in https://github.com/modelcontextprotocol/python-sdk/issues before opening this issue
           required: true
+
+  - type: dropdown
+    id: release-line
+    attributes:
+      label: Release line
+      description: Which major version of the SDK are you using?
+      options:
+        - 2.x (current stable)
+        - 1.x (maintenance line, v1.x branch)
+    validations:
+      required: true
 
   - type: textarea
     id: description

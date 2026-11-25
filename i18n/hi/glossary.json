@@ -1,0 +1,292 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "tool",
+      "note": "MCP protocol noun (a server exposes tools). Latin script, lower-case, masculine (tool चलता है, tool की सूची); plural tools where Hindi needs one. Provisional pending native review: not the transliteration टूल and not उपकरण / औज़ार. `tools/call` and `@mcp.tool()` are code; the Inspector's **Tools** tab is a UI label and stays as shown."
+    },
+    {
+      "source": "resource",
+      "target": "resource",
+      "note": "MCP protocol noun (data a server exposes for reading) and the general noun alike. Latin script, masculine. Provisional pending native review: not रिसोर्स, and not संसाधन, which reads as natural or system resources. `resources/read` and `@mcp.resource()` are code."
+    },
+    {
+      "source": "prompt",
+      "target": "prompt",
+      "note": "The MCP feature (a reusable prompt template a server exposes) and the everyday AI sense. Latin script, masculine. Provisional pending native review: not प्रॉम्प्ट, never संकेत (a hint or signal, the wrong sense). `prompts/get` and `@mcp.prompt()` are code."
+    },
+    {
+      "source": "sampling",
+      "target": "sampling",
+      "note": "The (deprecated) client feature that lets a server borrow the client's model for a completion. Latin script, feminine like other -ing loans (sampling होती है). Provisional pending native review: not सैंपलिंग and not the statistical coinages नमूनाकरण / प्रतिचयन. The `sampling` capability key and `sampling/createMessage` are code."
+    },
+    {
+      "source": "roots",
+      "target": "roots",
+      "note": "The (deprecated) client feature listing the workspace directories a client exposes; the reader meets it as `roots/list`. Latin script, masculine plural (client अपने roots बताता है). Provisional pending native review: never जड़ें / मूल, which are tree roots and origins; \"root directory\" is root directory. A `Root` object in code font stays as code."
+    },
+    {
+      "source": "elicitation",
+      "target": "elicitation",
+      "note": "OPEN QUESTION for native review: the server asking the user a question mid-request through the client. There is no Hindi term; keep the English word in Latin script, masculine like other -tion loans (elicitation शुरू होता है), and let the surrounding sentence explain it as the English does. Not एलिसिटेशन, and no coinage such as प्राप्ति or पृच्छा. `elicitation/create` and `ctx.elicit()` are code."
+    },
+    {
+      "source": "capability",
+      "target": "capability",
+      "note": "What client and server declare during initialization (\"capability negotiation\" → capability negotiation; \"the client's capabilities\" → client की capabilities). Latin script, feminine (capability होती है). Provisional pending native review: क्षमता stays available for the ordinary sense \"ability\" but is not the protocol noun. The `capabilities` field and keys such as `sampling.tools` are code."
+    },
+    {
+      "source": "transport",
+      "target": "transport",
+      "note": "The connection mechanism (\"every standard transport\" → हर standard transport). Latin script, masculine. Never परिवहन, which is road and freight transport; not ट्रांसपोर्ट. The transport names stdio, Streamable HTTP and SSE are on the keep list.",
+      "avoid": ["परिवहन"]
+    },
+    {
+      "source": "session",
+      "target": "session",
+      "note": "An MCP session (the negotiated connection state; \"session ID\" → session ID). Latin script, masculine. Provisional pending native review: not सत्र (a parliamentary or academic session) and not सेशन. `session` objects, `ClientSession` and `ServerSession` are code."
+    },
+    {
+      "source": "handler",
+      "target": "handler",
+      "note": "The tool, resource or prompt function you register (nav section \"Inside your handler\" → आपके handler के अंदर). Latin script, masculine. Provisional pending native review: not हैंडलर, never संचालक."
+    },
+    {
+      "source": "dependency",
+      "target": "dependency",
+      "note": "The SDK's parameter-injection feature (the \"Dependencies\" page → Dependencies; \"dependency injection\" stays dependency injection) and package dependencies alike. Latin script, feminine (dependency जुड़ती है). Provisional pending native review: निर्भरता remains the ordinary word for \"dependence on something\" but is not the feature name. The `Resolve` marker class is code."
+    },
+    {
+      "source": "resolver",
+      "target": "resolver",
+      "note": "The plain function attached with `Resolve(...)` that computes or asks for a parameter's value before the tool runs. Latin script, masculine. Provisional pending native review; no coinage such as समाधानकर्ता. The `Resolve` class is code."
+    },
+    {
+      "source": "client",
+      "target": "client",
+      "note": "An MCP client and the client side of a connection. Latin script, masculine (client जुड़ता है). Provisional pending native review: not क्लाइंट; and never ग्राहक, which is a customer — ग्राहक is right only where the English itself talks about the example bookshop's customers. The `Client` class and the `mcp.client` module are code."
+    },
+    {
+      "source": "server",
+      "target": "server",
+      "note": "An MCP server (the program you build). Latin script, masculine (server चलता है, MCP server). Provisional pending native review: सर्वर is common in general Hindi, but this corpus keeps one script for all technical nouns, so server. The `MCPServer`, `Server` and `ServerSession` classes are code."
+    },
+    {
+      "source": "host",
+      "target": "host",
+      "note": "The MCP host — the application the user talks to (Claude Desktop, an IDE, an agent runtime) — and a network host alike. Latin script, masculine. Never मेज़बान / मेजबान (the host of a party or event); not होस्ट.",
+      "avoid": ["मेज़बान", "मेजबान"]
+    },
+    {
+      "source": "context",
+      "target": "context",
+      "note": "The generic lower-case word (\"provide context to LLMs\" → LLM को context देना). Latin script, masculine. Provisional pending native review: संदर्भ stays available only in the ordinary phrase इस संदर्भ में (\"in this regard\"). The capitalised `Context` is the SDK object injected as `ctx`; it is on the keep list (\"The Context\" → Context)."
+    },
+    {
+      "source": "request",
+      "target": "request",
+      "note": "A JSON-RPC or HTTP request (\"the initialize request\" → initialize request; \"send a request\" → request भेजें). Latin script, feminine as spoken usage has it (request आती है, भेजी गई request); plural requests. Provisional pending native review, gender included: not रिक्वेस्ट, and not अनुरोध, which is a polite personal request. `Request` types in code font are code."
+    },
+    {
+      "source": "response",
+      "target": "response",
+      "note": "A JSON-RPC or HTTP response (response आता है, server का response). Latin script, masculine. Provisional pending native review: not रिस्पॉन्स; not प्रतिक्रिया (a reaction) or उत्तर for the protocol noun — जवाब is fine for an ordinary \"answer\". `Response` types in code font are code."
+    },
+    {
+      "source": "callback",
+      "target": "callback",
+      "note": "Client callbacks and OAuth redirect callbacks alike. Latin script, masculine. Provisional pending native review: not कॉलबैक. Parameter names such as `sampling_callback` are code."
+    },
+    {
+      "source": "decorator",
+      "target": "decorator",
+      "note": "The Python decorators the SDK is built on (\"put the decorator on a function\" → function पर decorator लगाएँ). Latin script, masculine. Not डेकोरेटर, never सज्जाकार. `@mcp.tool()` and its siblings are code."
+    },
+    {
+      "source": "type hint",
+      "target": "type hint",
+      "note": "Python type hints (\"from your type hints\" → आपके type hints से). Latin script, masculine; plural type hints. Provisional pending native review: not टाइप हिंट and no coinage such as प्रकार संकेत."
+    },
+    {
+      "source": "notification",
+      "target": "notification",
+      "note": "A JSON-RPC notification (a message with no response) and the change notifications a server publishes. Latin script, masculine (notification आता है); plural notifications. Provisional pending native review: not नोटिफ़िकेशन; and not सूचना / अधिसूचना for the protocol noun — सूचना stays the ordinary word for \"information\". `notifications/...` method strings are code."
+    },
+    {
+      "source": "round trip",
+      "target": "round trip",
+      "note": "One request-and-response exchange (\"zero negotiation round trips\" → negotiation का एक भी round trip नहीं). Latin script, masculine. Provisional pending native review; no coinage such as आना-जाना or परिक्रमा."
+    },
+    {
+      "source": "multi-round-trip",
+      "target": "multi-round-trip",
+      "note": "The 2026-07-28 request pattern, used as an English modifier (\"Multi-round-trip requests\" → Multi-round-trip requests as a heading, multi-round-trip request in prose). Latin script. Provisional pending native review. The abbreviation MRTR stays as written."
+    },
+    {
+      "source": "lifespan",
+      "target": "lifespan",
+      "note": "The server's startup/shutdown scope and its `lifespan=` parameter (the \"Lifespan\" page → Lifespan). Latin script, masculine. Provisional pending native review: not लाइफ़स्पैन, and not जीवनकाल for the feature — जीवनकाल may still render the neighbouring word \"lifetime\" (\"for the lifetime of the app\" → app के पूरे जीवनकाल में)."
+    },
+    {
+      "source": "back-channel",
+      "target": "back-channel",
+      "note": "This documentation's term for the server calling back into the client during a request, which exists only on legacy connections; it maps to `NoBackChannelError`, which is code. Latin script with the hyphen, masculine. Provisional pending native review; no coinage such as वापसी मार्ग."
+    },
+    {
+      "source": "deprecated",
+      "target": "deprecated",
+      "note": "Advisory status: still works, scheduled for removal later (\"sampling is deprecated\" → sampling deprecated है; \"Deprecated features\" → Deprecated features; \"deprecation warning\" → deprecation warning). Latin script, invariable adjective. Provisional pending native review: never the coinage पदावनत; not अप्रचलित (obsolete, out of use) or बहिष्कृत; \"removed\" is हटा दिया गया. `MCPDeprecationWarning` is code.",
+      "avoid": ["पदावनत"]
+    },
+    {
+      "source": "legacy",
+      "target": "legacy",
+      "note": "\"A legacy connection / client\" = one negotiated at spec version 2025-11-25 or earlier → legacy connection, legacy client (\"Serving legacy clients\" → legacy clients को serve करना). Latin script, invariable adjective. Provisional pending native review: पुराना alone loses the technical sense; विरासती is not used."
+    },
+    {
+      "source": "era",
+      "target": "पीढ़ी",
+      "note": "\"Protocol era\" (\"a 2025-era client\", \"whatever era the client speaks\") → protocol की पीढ़ी, 2025 पीढ़ी का client. Feminine. Provisional pending native review; not the literal युग or काल."
+    },
+    {
+      "source": "handshake",
+      "target": "handshake",
+      "note": "The initialization handshake (\"the classic handshake\" → पुराना classic handshake). Latin script, masculine. Not हैंडशेक, never the literal हाथ मिलाना."
+    },
+    {
+      "source": "wire",
+      "target": "wire",
+      "note": "The corpus's light metaphor for the byte stream between client and server; developer Hindi keeps the English (\"stdout is the wire\" → stdout ही wire है; \"invisible on the wire\" → wire पर नहीं दिखता; \"the JSON on the wire\" → wire पर जाने वाला असली JSON). Latin script, masculine. Provisional pending native review; never the literal तार."
+    },
+    {
+      "source": "token",
+      "target": "token",
+      "note": "OAuth tokens (access token, refresh token) and LLM tokens alike. Latin script, masculine; plural tokens. Standard developer usage; not टोकन."
+    },
+    {
+      "source": "schema",
+      "target": "schema",
+      "note": "A JSON schema describing tool input or output (\"the input schema\" → input schema; \"`a: int, b: int` is the schema\" → `a: int, b: int` ही schema है). Latin script, masculine. Not स्कीमा; the proper name JSON Schema stays as written; `inputSchema` / `outputSchema` are code."
+    },
+    {
+      "source": "default",
+      "target": "default",
+      "note": "\"by default\" → default रूप से; \"the default value\" → default value; \"defaults to X\" → default X है. Latin script, invariable. Provisional pending native review: not डिफ़ॉल्ट, never पूर्वनिर्धारित / व्यतिक्रम. `default=` in code font is code."
+    },
+    {
+      "source": "file",
+      "target": "file",
+      "note": "A source or config file (\"Create a file `server.py`\" → `server.py` नाम की file बनाएँ). Latin script, feminine (file बनती है, इस file में). Provisional pending native review: फ़ाइल is everyday Hindi and a reviewer may prefer it, but this corpus keeps one script for technical nouns; never संचिका. \"folder\" / \"directory\" likewise stay folder (masculine) / directory (feminine)."
+    },
+    {
+      "source": "user",
+      "target": "user",
+      "note": "The human at the host application (\"ask the user\" → user से पूछें). Latin script, masculine generic (user तय करता है). Provisional pending native review: उपयोगकर्ता is the formal UI word and यूज़र the transliteration; developer prose says user. Never ग्राहक."
+    },
+    {
+      "source": "library",
+      "target": "library",
+      "note": "A code library (\"the standard library\" → standard library). Latin script, feminine (library देती है). Never पुस्तकालय, which is a building with books; not लाइब्रेरी.",
+      "avoid": ["पुस्तकालय"]
+    },
+    {
+      "source": "exception",
+      "target": "exception",
+      "note": "A raised Python exception (\"raises `ToolError`\" → `ToolError` raise करता है; \"an exception is raised\" → exception raise होता है). Latin script, masculine. Not अपवाद for the Python object (अपवाद stays the ordinary word for \"an exception to a rule\"). Exception class names are code."
+    },
+    {
+      "source": "return",
+      "target": "लौटाना",
+      "note": "What a function or tool gives back: \"returns `3`\" → `3` लौटाता है; \"the return value\" → return value (Latin, feminine: return value मिलती है) or लौटाई गई value. Provisional pending native review: return करता है is equally natural developer Hindi; pin लौटाता है for the verb so pages do not alternate. The `return` keyword is code."
+    },
+    {
+      "source": "async",
+      "target": "async",
+      "note": "The prose adjective (\"the async runtime\" → async runtime; \"an asynchronous callback\" → async callback). Latin script. Not असिंक्रोनस, never the coinage अतुल्यकालिक. The `async` and `await` keywords in code font are code."
+    },
+    {
+      "source": "error",
+      "target": "error",
+      "note": "An error the code reports (\"the error message\" → error message; \"an error occurred\" → error आया). Latin script, masculine. Provisional pending native review, gender included: त्रुटि and गड़बड़ी are the UI-Hindi words and गलती is fine for a human mistake, but the technical noun is error."
+    },
+    {
+      "source": "Get started",
+      "target": "शुरू करें",
+      "note": "The nav section that opens the guide, and the title of its index page. \"First steps\" is a separate page inside that section (पहले कदम), so the two need distinct renderings or the sidebar shows the same title twice. Provisional pending native review; शुरुआत is the alternative for the section."
+    },
+    {
+      "source": "First steps",
+      "target": "पहले कदम",
+      "note": "The tutorial page inside the \"Get started\" section; never reuse this rendering for the section itself (see that entry). Provisional pending native review."
+    },
+    {
+      "source": "Recap",
+      "target": "सारांश",
+      "note": "Recurring section heading that closes most pages; one rendering everywhere, not सारांश on some pages and संक्षेप में or Recap on others. Provisional pending native review; never पुनरावलोकन."
+    },
+    {
+      "source": "Try it",
+      "target": "इसे आज़माएँ",
+      "note": "Recurring section heading above a runnable example; one rendering everywhere (with the nuqta and chandrabindu: आज़माएँ), not आज़माएं on some pages and इसे try करें on others. Provisional pending native review."
+    }
+  ]
+}

@@ -1,10 +1,10 @@
 """Tests for tool annotations in low-level server."""
 
 import pytest
+from mcp_types import ListToolsResult, PaginatedRequestParams, Tool, ToolAnnotations
 
 from mcp import Client
 from mcp.server import Server, ServerRequestContext
-from mcp.types import ListToolsResult, PaginatedRequestParams, Tool, ToolAnnotations
 
 
 @pytest.mark.anyio

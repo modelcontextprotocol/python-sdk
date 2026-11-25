@@ -5,14 +5,11 @@ ctx.session.create_message(), the client's sampling callback answers it, and the
 round-trips what it received back to the test through its tool result.
 """
 
+import mcp_types as types
 import pydantic
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.client import ClientRequestContext
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     CallToolResult,
     CreateMessageRequestParams,
@@ -28,6 +25,10 @@ from mcp.types import (
     ToolResultContent,
     ToolUseContent,
 )
+
+from mcp import MCPError
+from mcp.client import ClientRequestContext
+from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -76,7 +77,6 @@ async def test_create_message_round_trip(connect: Connect) -> None:
     assert received == snapshot(
         [
             CreateMessageRequestParams(
-                _meta={},
                 messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],
                 max_tokens=100,
             )
@@ -136,7 +136,6 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
     assert received == snapshot(
         [
             CreateMessageRequestParams(
-                _meta={},
                 messages=[SamplingMessage(role="user", content=TextContent(text="Pick a model."))],
                 model_preferences=ModelPreferences(
                     hints=[ModelHint(name="claude"), ModelHint(name="gpt")],
@@ -198,7 +197,6 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
     assert received == snapshot(
         [
             CreateMessageRequestParams(
-                _meta={},
                 messages=[SamplingMessage(role="user", content=ImageContent(data="aW1n", mime_type="image/png"))],
                 max_tokens=100,
             )
@@ -480,7 +478,6 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
     assert received == snapshot(
         [
             CreateMessageRequestParams(
-                _meta={},
                 messages=[SamplingMessage(role="user", content=AudioContent(data="c25k", mime_type="audio/wav"))],
                 max_tokens=100,
             )
@@ -573,7 +570,6 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
     assert received == snapshot(
         [
             CreateMessageRequestParams(
-                _meta={},
                 messages=[
                     SamplingMessage(
                         role="user",

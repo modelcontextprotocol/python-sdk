@@ -1,0 +1,251 @@
+# Structured Output
+
+A tool that returns a plain `str` produces the result twice: as text in `content`, and as `{"result": "..."}` in `structured_content`.
+
+This page is about that second channel: where it comes from, every shape it can take, and how the SDK keeps it honest.
+
+The short version: **the return type annotation is the output schema**. You already wrote it.
+
+## The output schema
+
+```python title="server.py" hl_lines="9"
+--8<-- "docs_src/structured_output/tutorial001.py"
+```
+
+The line that matters is the signature: `-> int`.
+
+Because of it, the tool the SDK sends during `tools/list` carries an `output_schema` next to the input schema it builds from your parameters (**[Tools](tools.md)** covers that one):
+
+```json
+{
+  "properties": {
+    "result": {"type": "integer"}
+  },
+  "required": ["result"],
+  "type": "object"
+}
+```
+
+A bare `int` isn't a JSON object, so the SDK **wraps** it in `{"result": ...}`. Call the tool and both channels are filled:
+
+```python
+result.content             # [TextContent(text="17")]
+result.structured_content  # {"result": 17}
+```
+
+Every scalar gets the same wrapper: `str`, `int`, `float`, `bool`, `bytes`, `None`.
+
+## Two channels
+
+Why send the same value twice?
+
+* `content` is for the **model**. A language model reads text; this is the only part of the result it sees.
+* `structured_content` is for the **application** the model runs inside: code that wants `17`, not a sentence containing "17".
+* `output_schema` is the contract between them, published before the tool is ever called.
+
+You return one Python value. The SDK fills in all three.
+
+## Return a model
+
+Declare the shape as a Pydantic `BaseModel` and return an instance:
+
+```python title="server.py" hl_lines="8-11 15"
+--8<-- "docs_src/structured_output/tutorial002.py"
+```
+
+`WeatherData` **is** the schema now. No wrapper, no `result` key:
+
+```json
+{
+  "properties": {
+    "temperature": {"description": "Degrees Celsius.", "type": "number"},
+    "humidity": {"description": "Relative humidity, 0 to 1.", "type": "number"},
+    "conditions": {"type": "string"}
+  },
+  "required": ["temperature", "humidity", "conditions"],
+  "title": "WeatherData",
+  "type": "object"
+}
+```
+
+`structured_content` is the object, field for field:
+
+```python
+result.structured_content  # {"temperature": 16.2, "humidity": 0.83, "conditions": "Overcast"}
+```
+
+And the model is not left out. The SDK serializes the same object to JSON text for `content`:
+
+```json
+{
+  "temperature": 16.2,
+  "humidity": 0.83,
+  "conditions": "Overcast"
+}
+```
+
+Notice the `Field(description=...)` on `temperature` and `humidity` landed in the schema. The same `Field` that described your **inputs** describes your outputs.
+
+!!! info
+    If you've used FastAPI's `response_model`, you already know this: a Pydantic model as the declared
+    response, serialized and documented for you. The only difference is that here the return annotation
+    is the whole declaration.
+
+## A `TypedDict`
+
+Not every shape deserves a class. A `TypedDict` produces the same schema:
+
+```python title="server.py" hl_lines="8"
+--8<-- "docs_src/structured_output/tutorial003.py"
+```
+
+A `TypedDict` is a plain `dict` at runtime, so that is what you build and return. The schema, the validation, and `structured_content` follow the same rules as the `BaseModel` version: add a class docstring or `Annotated[..., Field(description=...)]` and they become the descriptions, and a `NotRequired` key you leave out of the dict stays out of `structured_content`.
+
+## A dataclass
+
+Dataclasses work too, and so does any ordinary class whose attributes have type hints. The SDK builds a Pydantic model out of the annotations behind the scenes.
+
+```python title="server.py" hl_lines="8-9"
+--8<-- "docs_src/structured_output/tutorial004.py"
+```
+
+Three spellings, one schema. Use whichever your codebase already has.
+
+## Lists
+
+A `list[...]` isn't a JSON object either, so it gets the `{"result": ...}` wrapper, with your item type as a `$defs` reference inside it:
+
+```python title="server.py" hl_lines="15"
+--8<-- "docs_src/structured_output/tutorial005.py"
+```
+
+```json
+{
+  "$defs": {
+    "WeatherData": {
+      "properties": {
+        "temperature": {"type": "number"},
+        "humidity": {"type": "number"},
+        "conditions": {"type": "string"}
+      },
+      "required": ["temperature", "humidity", "conditions"],
+      "title": "WeatherData",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "result": {"items": {"$ref": "#/$defs/WeatherData"}, "type": "array"}
+  },
+  "required": ["result"],
+  "type": "object"
+}
+```
+
+Ask for a two-day forecast and `structured_content` is `{"result": [{...}, {...}]}`. `content` becomes **two** `TextContent` blocks, one per item: a list is flattened for the model rather than dumped as one string.
+
+`tuple[...]`, unions, and `Optional[...]` are wrapped the same way, and so are `set` and `frozenset`, with or without an item type. A bare `list` or `tuple` is not: see **[Content blocks and media](#content-blocks-and-media)**.
+
+## Dictionaries
+
+`dict[str, ...]` (or `typing.Dict[str, ...]`, or a bare `dict`, read as `dict[str, Any]`) is the one generic that already *is* a JSON object, so it isn't wrapped:
+
+```python title="server.py" hl_lines="9"
+--8<-- "docs_src/structured_output/tutorial006.py"
+```
+
+```json
+{
+  "additionalProperties": {"type": "number"},
+  "type": "object"
+}
+```
+
+```python
+result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
+```
+
+The keys must be `str`. A `dict[int, float]` can't be a JSON object, so it falls back to the `{"result": ...}` wrapper.
+
+Dictionary results use Pydantic's `TypeAdapter` for validation and serialization. If you inspect a tool's `FuncMetadata.output_model`, it holds the dictionary type annotation itself.
+
+## Validation
+
+`output_schema` is not documentation. Whatever your function returns is **validated against it** before it leaves the server.
+
+You don't notice while you build the value by hand: Pydantic already made sure your `WeatherData` was a `WeatherData`. You notice the day the data comes from somewhere you don't control:
+
+```python title="server.py" hl_lines="9 21"
+--8<-- "docs_src/structured_output/tutorial007.py"
+```
+
+The annotation promises `WeatherData`. The upstream response stopped sending `humidity`.
+
+!!! check
+    Call `get_weather` and it does not quietly hand the client a half-empty object. The call fails:
+    the client gets `is_error=True` with `Error executing tool get_weather`, so the model knows the
+    call failed instead of confidently reading weather that isn't there. The field name is for you,
+    in the server log at `ERROR`:
+
+    ```text
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
+    humidity
+      Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
+    ```
+
+Returning a plain `dict` from a `-> WeatherData` tool is fine, by the way. That's exactly what `json.loads` produced. Validation is on the value, not on the Python type.
+
+## Opting out
+
+Sometimes the return annotation is for your type checker, not for the protocol. Pass `structured_output=False` and the tool is text-only:
+
+```python title="server.py" hl_lines="6"
+--8<-- "docs_src/structured_output/tutorial008.py"
+```
+
+No `output_schema`, no wrapping, no validation. `structured_content` is `None` and `content` is the string you returned.
+
+The opposite, `structured_output=True`, turns the automatic detection into a requirement: a tool whose return type can't produce a schema raises at import time instead of falling back to text.
+
+## Content blocks and media
+
+Content blocks and media (`TextContent`, `EmbeddedResource`, `Image`, `Audio` and friends, on their own, as the items of a `list`, `tuple` or `Sequence`, or as the arms of a union) are opted out for you: they are for the model to read, so auto-detection derives no schema from them (**[Images, audio & icons](media.md)** covers `Image` and `Audio`). `structured_output=True` still forces one for the content-block classes.
+
+A bare `list` or `tuple` is opted out too. Nothing in the annotation says its items aren't blocks, and a schema would send any image it holds twice: once as a block for the model, and again as base64 in `structured_content`. Write the item type (`list[str]`, `tuple[int, ...]`) to get a schema, or pass `structured_output=True` to wrap it as a list of anything. The forced wrapper still has to serialize every item as JSON, so an `Image` or `Audio` in it makes the call fail. Only a bare `list` or `tuple` as the whole annotation is opted out: `list | None` is wrapped like any other union.
+
+## A class without type hints
+
+There is one way to end up unstructured without asking for it: return a class that has **no annotations on its body**.
+
+```python title="server.py" hl_lines="6-9"
+--8<-- "docs_src/structured_output/tutorial009.py"
+```
+
+`Station` sets `name` and `online` inside `__init__`, but the *class* declares nothing. The SDK reads class annotations, finds none, and gives up.
+
+!!! warning
+    It gives up **silently**. `output_schema` is `None`, `structured_content` is `None`, and the text
+    the model reads is the object's `repr`:
+
+    ```text
+    "<server.Station object at 0x7f539d75b230>"
+    ```
+
+    No error, no warning, a useless tool. Move the annotations onto the class body, or pass
+    `structured_output=True`, which turns this into a hard error the moment the module imports:
+    `Function get_station: return type <class 'server.Station'> is not serializable for structured output`.
+
+!!! tip
+    Need full control (building the `CallToolResult` yourself, or attaching `_meta` that the
+    application can see but the model can't)? That's **[The low-level Server](../advanced/low-level-server.md)**.
+
+## Recap
+
+* The **return type annotation** is the output schema. It's published in `tools/list` as `output_schema`.
+* Scalars, `list[...]`, `tuple[...]`, sets and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes, `dict[str, ...]` and a bare `dict` are objects already and stay as they are.
+* Every result carries `content` (text, for the model) **and** `structured_content` (data, for the application).
+* What you return is validated against the schema. A mismatch is a tool error, not a corrupt result.
+* `structured_output=False` opts a tool out. Content blocks, `Image`, `Audio` and a bare `list` or `tuple` opt out by default; a class without type hints opts out silently, so watch for it.
+
+You now own everything a tool can say back. Next, the second primitive: **[Resources](resources.md)**.

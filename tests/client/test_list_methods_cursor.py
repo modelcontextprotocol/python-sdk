@@ -1,11 +1,12 @@
 from collections.abc import Callable
 
+import mcp_types as types
 import pytest
+from mcp_types import ListToolsResult
 
-from mcp import Client, types
+from mcp import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ListToolsResult
 
 from .conftest import StreamSpyCollection
 
@@ -64,7 +65,7 @@ async def test_list_methods_params_parameter(
 
     See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
     """
-    async with Client(full_featured_server) as client:
+    async with Client(full_featured_server, mode="legacy") as client:
         spies = stream_spy()
 
         # Test without params (omitted)

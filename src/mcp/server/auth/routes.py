@@ -17,8 +17,9 @@ from mcp.server.auth.handlers.token import TokenHandler
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
+from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthMetadata, ProtectedResourceMetadata
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 
 def validate_issuer_url(url: AnyHttpUrl):
@@ -47,18 +48,28 @@ TOKEN_PATH = "/token"
 REGISTRATION_PATH = "/register"
 REVOCATION_PATH = "/revoke"
 
+# SEP-990: leg 2 uses the RFC 7523 jwt-bearer grant; support is advertised as the ID-JAG profile.
+ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
+
+
+def _cors(app: ASGIApp, allow_methods: list[str]) -> ASGIApp:
+    return CORSMiddleware(
+        app=app,
+        allow_origins="*",
+        allow_methods=allow_methods,
+        allow_headers=[MCP_PROTOCOL_VERSION_HEADER],
+    )
+
+
+def _body_limited(app: ASGIApp) -> ASGIApp:
+    return RequestBodyLimitMiddleware(app, DEFAULT_MAX_REQUEST_BODY_SIZE)
+
 
 def cors_middleware(
     handler: Callable[[Request], Response | Awaitable[Response]],
     allow_methods: list[str],
 ) -> ASGIApp:
-    cors_app = CORSMiddleware(
-        app=request_response(handler),
-        allow_origins="*",
-        allow_methods=allow_methods,
-        allow_headers=[MCP_PROTOCOL_VERSION_HEADER],
-    )
-    return cors_app
+    return _cors(request_response(handler), allow_methods)
 
 
 def create_auth_routes(
@@ -67,6 +78,7 @@ def create_auth_routes(
     service_documentation_url: AnyHttpUrl | None = None,
     client_registration_options: ClientRegistrationOptions | None = None,
     revocation_options: RevocationOptions | None = None,
+    identity_assertion_enabled: bool = False,
 ) -> list[Route]:
     validate_issuer_url(issuer_url)
 
@@ -77,13 +89,16 @@ def create_auth_routes(
         service_documentation_url,
         client_registration_options,
         revocation_options,
+        supports_identity_assertion=identity_assertion_enabled,
     )
     client_authenticator = ClientAuthenticator(provider)
+    token_handler = TokenHandler(provider, client_authenticator, identity_assertion_enabled=identity_assertion_enabled)
 
     # Create routes
     # Allow CORS requests for endpoints meant to be hit by the OAuth client
     # (with the client secret). This is intended to support things like MCP Inspector,
-    # where the client runs in a web browser.
+    # where the client runs in a web browser. CORS is the outermost wrapper so that
+    # responses produced by inner layers (such as a 413) still carry CORS headers.
     routes = [
         Route(
             "/.well-known/oauth-authorization-server",
@@ -97,15 +112,12 @@ def create_auth_routes(
             AUTHORIZATION_PATH,
             # do not allow CORS for authorization endpoint;
             # clients should just redirect to this
-            endpoint=AuthorizationHandler(provider).handle,
+            endpoint=_body_limited(request_response(AuthorizationHandler(provider).handle)),
             methods=["GET", "POST"],
         ),
         Route(
             TOKEN_PATH,
-            endpoint=cors_middleware(
-                TokenHandler(provider, client_authenticator).handle,
-                ["POST", "OPTIONS"],
-            ),
+            endpoint=_cors(_body_limited(request_response(token_handler.handle)), ["POST", "OPTIONS"]),
             methods=["POST", "OPTIONS"],
         ),
     ]
@@ -118,10 +130,7 @@ def create_auth_routes(
         routes.append(
             Route(
                 REGISTRATION_PATH,
-                endpoint=cors_middleware(
-                    registration_handler.handle,
-                    ["POST", "OPTIONS"],
-                ),
+                endpoint=_cors(_body_limited(request_response(registration_handler.handle)), ["POST", "OPTIONS"]),
                 methods=["POST", "OPTIONS"],
             )
         )
@@ -131,10 +140,7 @@ def create_auth_routes(
         routes.append(
             Route(
                 REVOCATION_PATH,
-                endpoint=cors_middleware(
-                    revocation_handler.handle,
-                    ["POST", "OPTIONS"],
-                ),
+                endpoint=_cors(_body_limited(request_response(revocation_handler.handle)), ["POST", "OPTIONS"]),
                 methods=["POST", "OPTIONS"],
             )
         )
@@ -147,9 +153,18 @@ def build_metadata(
     service_documentation_url: AnyHttpUrl | None,
     client_registration_options: ClientRegistrationOptions,
     revocation_options: RevocationOptions,
+    supports_identity_assertion: bool = False,
 ) -> OAuthMetadata:
     authorization_url = AnyHttpUrl(str(issuer_url).rstrip("/") + AUTHORIZATION_PATH)
     token_url = AnyHttpUrl(str(issuer_url).rstrip("/") + TOKEN_PATH)
+
+    grant_types_supported = ["authorization_code", "refresh_token"]
+    # SEP-990 / ext-auth §6: support for the ID-JAG flow is advertised as a grant PROFILE, not as
+    # the jwt-bearer grant type (which an AS might support for other purposes).
+    authorization_grant_profiles_supported: list[str] | None = None
+    if supports_identity_assertion:
+        grant_types_supported.append(JWT_BEARER_GRANT_TYPE)
+        authorization_grant_profiles_supported = [ID_JAG_GRANT_PROFILE]
 
     # Create metadata
     metadata = OAuthMetadata(
@@ -159,7 +174,7 @@ def build_metadata(
         scopes_supported=client_registration_options.valid_scopes,
         response_types_supported=["code"],
         response_modes_supported=None,
-        grant_types_supported=["authorization_code", "refresh_token"],
+        grant_types_supported=grant_types_supported,
         token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
         token_endpoint_auth_signing_alg_values_supported=None,
         service_documentation=service_documentation_url,
@@ -168,6 +183,7 @@ def build_metadata(
         op_tos_uri=None,
         introspection_endpoint=None,
         code_challenge_methods_supported=["S256"],
+        authorization_grant_profiles_supported=authorization_grant_profiles_supported,
     )
 
     # Add registration endpoint if supported

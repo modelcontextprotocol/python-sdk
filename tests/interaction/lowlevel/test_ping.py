@@ -1,11 +1,11 @@
 """Ping interactions against the low-level Server, driven through the public Client API."""
 
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, EmptyResult, TextContent
 
-from mcp import types
 from mcp.server import Server, ServerRequestContext
-from mcp.types import CallToolResult, EmptyResult, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -19,7 +19,7 @@ async def test_client_ping_returns_empty_result(connect: Connect) -> None:
     server = Server("silent")
 
     async with connect(server) as client:
-        result = await client.send_ping()
+        result = await client.send_ping()  # pyright: ignore[reportDeprecated]
 
     assert result == snapshot(EmptyResult())
 

@@ -1,14 +1,15 @@
 """Roots interactions against the low-level Server, driven through the public Client API."""
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
 from pydantic import FileUrl
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
-from mcp.types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -152,7 +153,7 @@ async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> No
         received.append(params)
         delivered.set()
 
-    server = Server("rooted", on_roots_list_changed=roots_list_changed)
+    server = Server("rooted", on_roots_list_changed=roots_list_changed)  # pyright: ignore[reportDeprecated]
 
     async def list_roots(context: ClientRequestContext) -> ListRootsResult:
         """Registered so the client declares the roots capability; the server never asks for roots."""

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from mcp_types import InputRequiredResult
 
 from mcp.server.mcpserver import MCPServer
 
@@ -12,9 +13,9 @@ def test_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     tmp = tmp_path_factory.mktemp("test_files")
 
     # Create test files
-    (tmp / "example.py").write_text("print('hello world')")
-    (tmp / "readme.md").write_text("# Test Directory\nThis is a test.")
-    (tmp / "config.json").write_text('{"test": true}')
+    (tmp / "example.py").write_text("print('hello world')", encoding="utf-8")
+    (tmp / "readme.md").write_text("# Test Directory\nThis is a test.", encoding="utf-8")
+    (tmp / "config.json").write_text('{"test": true}', encoding="utf-8")
 
     return tmp
 
@@ -37,7 +38,7 @@ def resources(mcp: MCPServer, test_dir: Path) -> MCPServer:
     def read_example_py() -> str:
         """Read the example.py file"""
         try:
-            return (test_dir / "example.py").read_text()
+            return (test_dir / "example.py").read_text(encoding="utf-8")
         except FileNotFoundError:
             return "File not found"
 
@@ -45,7 +46,7 @@ def resources(mcp: MCPServer, test_dir: Path) -> MCPServer:
     def read_readme_md() -> str:
         """Read the readme.md file"""
         try:  # pragma: no cover
-            return (test_dir / "readme.md").read_text()
+            return (test_dir / "readme.md").read_text(encoding="utf-8")
         except FileNotFoundError:  # pragma: no cover
             return "File not found"
 
@@ -53,7 +54,7 @@ def resources(mcp: MCPServer, test_dir: Path) -> MCPServer:
     def read_config_json() -> str:
         """Read the config.json file"""
         try:  # pragma: no cover
-            return (test_dir / "config.json").read_text()
+            return (test_dir / "config.json").read_text(encoding="utf-8")
         except FileNotFoundError:  # pragma: no cover
             return "File not found"
 
@@ -89,6 +90,7 @@ async def test_list_resources(mcp: MCPServer):
 @pytest.mark.anyio
 async def test_read_resource_dir(mcp: MCPServer):
     res_iter = await mcp.read_resource("dir://test_dir")
+    assert not isinstance(res_iter, InputRequiredResult)
     res_list = list(res_iter)
     assert len(res_list) == 1
     res = res_list[0]
@@ -106,6 +108,7 @@ async def test_read_resource_dir(mcp: MCPServer):
 @pytest.mark.anyio
 async def test_read_resource_file(mcp: MCPServer):
     res_iter = await mcp.read_resource("file://test_dir/example.py")
+    assert not isinstance(res_iter, InputRequiredResult)
     res_list = list(res_iter)
     assert len(res_list) == 1
     res = res_list[0]
@@ -122,6 +125,7 @@ async def test_delete_file(mcp: MCPServer, test_dir: Path):
 async def test_delete_file_and_check_resources(mcp: MCPServer, test_dir: Path):
     await mcp.call_tool("delete_file", arguments={"path": str(test_dir / "example.py")})
     res_iter = await mcp.read_resource("file://test_dir/example.py")
+    assert not isinstance(res_iter, InputRequiredResult)
     res_list = list(res_iter)
     assert len(res_list) == 1
     res = res_list[0]

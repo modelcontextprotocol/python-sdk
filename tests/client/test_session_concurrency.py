@@ -3,17 +3,17 @@
 import anyio
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import Client
-from mcp.client import ClientRequestContext
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     CreateMessageRequestParams,
     CreateMessageResult,
     SamplingMessage,
     TextContent,
 )
+
+from mcp import Client
+from mcp.client import ClientRequestContext
+from mcp.server.mcpserver import Context, MCPServer
 
 pytestmark = pytest.mark.anyio
 
@@ -68,9 +68,21 @@ async def test_concurrent_tool_calls_resolve_out_of_order_to_their_own_callers()
     assert completion_order == ["c", "b", "a"]
     assert results == snapshot(
         {
-            "c": CallToolResult(content=[TextContent(text="result:c")], structured_content={"result": "result:c"}),
-            "b": CallToolResult(content=[TextContent(text="result:b")], structured_content={"result": "result:b"}),
-            "a": CallToolResult(content=[TextContent(text="result:a")], structured_content={"result": "result:a"}),
+            "c": CallToolResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "parking", "version": ""}},
+                content=[TextContent(text="result:c")],
+                structured_content={"result": "result:c"},
+            ),
+            "b": CallToolResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "parking", "version": ""}},
+                content=[TextContent(text="result:b")],
+                structured_content={"result": "result:b"},
+            ),
+            "a": CallToolResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "parking", "version": ""}},
+                content=[TextContent(text="result:a")],
+                structured_content={"result": "result:a"},
+            ),
         }
     )
 
@@ -121,7 +133,7 @@ async def test_overlapping_sampling_requests_are_serviced_concurrently_by_the_cl
             stop_reason="endTurn",
         )
 
-    async with Client(server, sampling_callback=sampling_callback) as client:
+    async with Client(server, sampling_callback=sampling_callback, mode="legacy") as client:
         with anyio.fail_after(5):
             async with anyio.create_task_group() as task_group:  # pragma: no branch
 

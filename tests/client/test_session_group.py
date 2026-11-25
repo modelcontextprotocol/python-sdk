@@ -1,11 +1,11 @@
 import contextlib
 from unittest import mock
 
-import httpx
+import httpx2
+import mcp_types as types
 import pytest
 
 import mcp
-from mcp import types
 from mcp.client.session_group import (
     ClientSessionGroup,
     ClientSessionParameters,
@@ -82,8 +82,25 @@ async def test_client_session_group_call_tool():
         arguments={"name": "value1", "args": {}},
         read_timeout_seconds=None,
         progress_callback=None,
+        input_responses=None,
+        request_state=None,
         meta=None,
+        allow_input_required=False,
     )
+
+
+@pytest.mark.anyio
+async def test_client_session_group_call_tool_forwards_allow_input_required():
+    mock_session = mock.AsyncMock()
+    mcp_session_group = ClientSessionGroup()
+    mcp_session_group._tools = {"my_tool": types.Tool(name="my_tool", input_schema={})}
+    mcp_session_group._tool_to_session = {"my_tool": mock_session}
+    mock_session.call_tool.return_value = types.InputRequiredResult(request_state="s")
+
+    result = await mcp_session_group.call_tool(name="my_tool", arguments={}, allow_input_required=True)
+    assert isinstance(result, types.InputRequiredResult)
+    assert result.request_state == "s"
+    assert mock_session.call_tool.call_args.kwargs["allow_input_required"] is True
 
 
 @pytest.mark.anyio
@@ -294,7 +311,9 @@ async def test_client_session_group_disconnect_non_existent_server():
             "mcp.client.session_group.sse_client",
         ),  # url, headers, timeout, sse_read_timeout
         (
-            StreamableHttpParameters(url="http://test.com/stream", terminate_on_close=False),
+            StreamableHttpParameters(
+                url="http://test.com/stream", terminate_on_close=False, max_sse_event_size=32 * 1024 * 1024
+            ),
             "streamablehttp",
             "mcp.client.session_group.streamable_http_client",
         ),  # url, headers, timeout, sse_read_timeout, terminate_on_close
@@ -363,7 +382,8 @@ async def test_client_session_group_establish_session_parameterized(
                 call_args = mock_specific_client_func.call_args
                 assert call_args.kwargs["url"] == server_params_instance.url
                 assert call_args.kwargs["terminate_on_close"] == server_params_instance.terminate_on_close
-                assert isinstance(call_args.kwargs["http_client"], httpx.AsyncClient)
+                assert call_args.kwargs["max_sse_event_size"] == server_params_instance.max_sse_event_size
+                assert isinstance(call_args.kwargs["http_client"], httpx2.AsyncClient)
 
             mock_client_cm_instance.__aenter__.assert_awaited_once()
 

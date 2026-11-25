@@ -4,17 +4,19 @@ from __future__ import annotations
 
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ValidationError
-from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
-from pydantic_core import core_schema
-
-from mcp.server.session import ServerSession
-from mcp.types import RequestId
+from mcp_types import RequestId
 
 # Internal surface package; imported as the gate's source of truth for spec-valid property schemas.
-from mcp.types.v2025_11_25 import PrimitiveSchemaDefinition
+from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition
+from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
+from pydantic_core import core_schema
+from typing_extensions import TypeAliasType
+
+from mcp.server.session import ServerSession
 
 ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
+_PRIMITIVE_SCHEMA_ADAPTER = TypeAdapter[PrimitiveSchemaDefinition](PrimitiveSchemaDefinition)
 
 
 class AcceptedElicitation(BaseModel, Generic[ElicitSchemaModelT]):
@@ -36,7 +38,11 @@ class CancelledElicitation(BaseModel):
     action: Literal["cancel"] = "cancel"
 
 
-ElicitationResult = AcceptedElicitation[ElicitSchemaModelT] | DeclinedElicitation | CancelledElicitation
+ElicitationResult = TypeAliasType(
+    "ElicitationResult",
+    AcceptedElicitation[ElicitSchemaModelT] | DeclinedElicitation | CancelledElicitation,
+    type_params=(ElicitSchemaModelT,),
+)
 
 
 class AcceptedUrlElicitation(BaseModel):
@@ -74,12 +80,24 @@ def _validate_rendered_properties(json_schema: dict[str, Any]) -> None:
     """
     for field_name, prop in json_schema.get("properties", {}).items():
         try:
-            PrimitiveSchemaDefinition.model_validate(prop)
+            _PRIMITIVE_SCHEMA_ADAPTER.validate_python(prop)
         except ValidationError:
             raise TypeError(
                 f"Elicitation schema field {field_name!r} rendered as {prop!r}, "
                 f"which is not a valid PrimitiveSchemaDefinition"
             ) from None
+
+
+def render_elicitation_schema(schema: type[BaseModel]) -> dict[str, Any]:
+    """Render a model as the spec-valid `requested_schema` for an elicitation.
+
+    Raises:
+        TypeError: If a field renders as something the spec's
+            `PrimitiveSchemaDefinition` does not accept.
+    """
+    json_schema = schema.model_json_schema(schema_generator=_ElicitationJsonSchema)
+    _validate_rendered_properties(json_schema)
+    return json_schema
 
 
 async def elicit_with_validation(
@@ -97,9 +115,12 @@ async def elicit_with_validation(
     the user or automatically generating a response.
 
     For sensitive data like credentials or OAuth flows, use elicit_url() instead.
+
+    Raises:
+        ValueError: If the client accepted the elicitation without supplying
+            content, or with content that does not match the requested schema.
     """
-    json_schema = schema.model_json_schema(schema_generator=_ElicitationJsonSchema)
-    _validate_rendered_properties(json_schema)
+    json_schema = render_elicitation_schema(schema)
 
     result = await session.elicit_form(
         message=message,
@@ -107,17 +128,19 @@ async def elicit_with_validation(
         related_request_id=related_request_id,
     )
 
-    if result.action == "accept" and result.content is not None:
-        # Validate and parse the content using the schema
-        validated_data = schema.model_validate(result.content)
+    if result.action == "accept":
+        if result.content is None:
+            raise ValueError("Received an accepted elicitation with no content")
+        try:
+            validated_data = schema.model_validate(result.content)
+        except ValidationError as e:
+            raise ValueError(
+                "Received an accepted elicitation whose content does not match the requested schema"
+            ) from e
         return AcceptedElicitation(data=validated_data)
-    elif result.action == "decline":
+    if result.action == "decline":
         return DeclinedElicitation()
-    elif result.action == "cancel":  # pragma: no cover
-        return CancelledElicitation()
-    else:  # pragma: no cover
-        # This should never happen, but handle it just in case
-        raise ValueError(f"Unexpected elicitation action: {result.action}")
+    return CancelledElicitation()
 
 
 async def elicit_url(

@@ -5,7 +5,7 @@ uv run examples/snippets/servers/lowlevel/basic.py
 import asyncio
 
 import mcp.server.stdio
-from mcp import types
+import mcp.types as types
 from mcp.server import Server, ServerRequestContext
 
 

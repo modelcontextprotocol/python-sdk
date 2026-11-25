@@ -10,12 +10,7 @@ from typing import Any
 
 import anyio
 import pytest
-
-from mcp.shared.dispatcher import DispatchContext
-from mcp.shared.exceptions import MCPDeprecationWarning
-from mcp.shared.peer import ClientPeer, dump_params
-from mcp.shared.transport_context import TransportContext
-from mcp.types import (
+from mcp_types import (
     CreateMessageResult,
     CreateMessageResultWithTools,
     ElicitResult,
@@ -23,7 +18,13 @@ from mcp.types import (
     SamplingMessage,
     TextContent,
     Tool,
+    ToolChoice,
 )
+
+from mcp.shared.dispatcher import DispatchContext
+from mcp.shared.exceptions import MCPDeprecationWarning
+from mcp.shared.peer import ClientPeer, dump_params
+from mcp.shared.transport_context import TransportContext
 
 from .conftest import direct_pair
 from .test_dispatcher import running_pair
@@ -88,6 +89,21 @@ async def test_peer_sample_with_tools_returns_with_tools_result():
         method, params = rec.seen[0]
         assert method == "sampling/createMessage"
         assert params is not None and params["tools"][0]["name"] == "t"
+        assert isinstance(result, CreateMessageResultWithTools)
+
+
+@pytest.mark.anyio
+async def test_peer_sample_with_tool_choice_only_returns_with_tools_result():
+    # tool_choice alone is tools-mode: the answer may carry array content.
+    rec = _Recorder({"role": "assistant", "content": [{"type": "text", "text": "x"}], "model": "m"})
+    async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
+        peer = ClientPeer(client)
+        with anyio.fail_after(5):
+            result = await peer.sample(  # pyright: ignore[reportDeprecated]
+                [SamplingMessage(role="user", content=TextContent(type="text", text="q"))],
+                max_tokens=5,
+                tool_choice=ToolChoice(mode="none"),
+            )
         assert isinstance(result, CreateMessageResultWithTools)
 
 
@@ -185,7 +201,7 @@ async def test_peer_notify_forwards_to_wrapped_outbound():
         ) -> dict[str, Any]:
             raise NotImplementedError
 
-        async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        async def notify(self, method: str, params: Mapping[str, Any] | None, opts: Any = None) -> None:
             sent.append((method, params))
 
     await ClientPeer(_Out()).notify("n", {"x": 1})

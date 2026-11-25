@@ -1,0 +1,13 @@
+from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
+
+mcp = MCPServer("Bookshop")
+
+
+@mcp.tool(
+    title="Search the catalog",
+    annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+)
+def search_books(query: str) -> str:
+    """Search the catalog by title or author."""
+    return f"Found 3 books matching {query!r}."

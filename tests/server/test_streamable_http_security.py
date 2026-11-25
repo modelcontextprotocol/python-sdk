@@ -3,7 +3,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-import httpx
+import httpx2
 import pytest
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -23,13 +23,13 @@ BASE_URL = "http://127.0.0.1:8000"
 @asynccontextmanager
 async def streamable_http_security_client(
     security_settings: TransportSecuritySettings | None = None,
-) -> AsyncIterator[httpx.AsyncClient]:
-    """Yield an httpx client served in process by a StreamableHTTP app with the given settings."""
+) -> AsyncIterator[httpx2.AsyncClient]:
+    """Yield an httpx2 client served in process by a StreamableHTTP app with the given settings."""
     session_manager = StreamableHTTPSessionManager(app=Server(SERVER_NAME), security_settings=security_settings)
     app = Starlette(routes=[Mount("/", app=session_manager.handle_request)])
 
     async with session_manager.run():
-        async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as client:
+        async with httpx2.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as client:
             yield client
 
 

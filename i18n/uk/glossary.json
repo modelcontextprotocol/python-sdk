@@ -1,0 +1,280 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "інструмент",
+      "note": "MCP protocol noun (a server exposes tools): інструмент / інструменти. Standard rendering. Wire identifiers such as `tools/call` and the `@mcp.tool()` decorator are code and stay Latin; the Inspector's **Tools** tab is a UI label and stays English."
+    },
+    {
+      "source": "resource",
+      "target": "ресурс",
+      "note": "MCP protocol noun (data a server exposes for reading), and also the general noun (a pool acquired in a lifespan is still ресурс). Standard rendering. `resources/read` and `@mcp.resource()` are code."
+    },
+    {
+      "source": "prompt",
+      "target": "промпт",
+      "note": "The MCP feature (a reusable message template a server exposes) and the everyday LLM sense; the loanword промпт (masculine, declined: промпту, промпти) is what Ukrainian AI writing uses. Not підказка (a hint or tooltip) and not запрошення (a command-line prompt), which are other senses. `prompts/get` and `@mcp.prompt()` are code. Provisional pending native review."
+    },
+    {
+      "source": "sampling",
+      "target": "семплювання",
+      "note": "The (deprecated) client feature that lets a server borrow the client's model for a completion. Gloss the English on first use per page — семплювання (sampling) — so the reader maps it to `sampling/createMessage`, which is code. Not вибірка (a statistical sample, the wrong sense). Provisional pending native review; семплінг is the competing form."
+    },
+    {
+      "source": "roots",
+      "target": "кореневі каталоги",
+      "note": "The (deprecated) client feature listing the workspace directories a client exposes. Descriptive rendering with the English glossed on first use per page — кореневі каталоги (roots); a single root is кореневий каталог. `roots/list` and the `Root` type are code and stay Latin. Provisional pending native review; keeping roots in Latin script is the open alternative."
+    },
+    {
+      "source": "elicitation",
+      "target": "еліцитація",
+      "note": "The mechanism by which a server asks the user a question through the client mid-request. There is no settled Ukrainian term; pinned to еліцитація (feminine, declinable), glossed on first use per page — еліцитація (elicitation). Do not alternate with запит на введення or уточнення on the same page. `elicitation/create`, `ctx.elicit()` and the `Elicit` class stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "capability",
+      "target": "можливість",
+      "note": "A negotiated protocol capability (what a client or server declared it supports): можливості сервера, узгодження можливостей. Not здатність or спроможність. The `capabilities` field and keys such as `sampling.tools` stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "transport",
+      "target": "транспорт",
+      "note": "The connection mechanism (\"every standard transport\" → усі стандартні транспорти; транспортний рівень for \"transport layer\"). Standard networking usage. The transport names stdio, Streamable HTTP and SSE stay in English: транспорт stdio, stdio-транспорт."
+    },
+    {
+      "source": "session",
+      "target": "сесія",
+      "note": "An MCP session (the negotiated connection state): сесія, ідентифікатор сесії. Pinned over сеанс for consistency with prevailing developer usage; do not alternate the two. `session` objects, `ClientSession` and `ServerSession` are code. Provisional pending native review."
+    },
+    {
+      "source": "handler",
+      "target": "обробник",
+      "note": "The tool, resource or prompt function you register, and request handlers generally (nav section \"Inside your handler\" → Усередині обробника). Standard term; never the slang хендлер, and not the Russian обработчик."
+    },
+    {
+      "source": "dependency",
+      "target": "залежність",
+      "note": "Both package dependencies and the SDK's parameter-injection feature (the \"Dependencies\" page → Залежності; \"dependency injection\" → впровадження залежностей). Standard rendering. The `Resolve` marker class stays Latin."
+    },
+    {
+      "source": "resolver",
+      "target": "резолвер",
+      "note": "The plain function attached to a parameter with `Resolve(...)` that computes or asks for its value: резолвер (masculine, declinable), or функція-резолвер where the kind needs naming. Provisional pending native review; функція розв'язання is the descriptive alternative. The `Resolve` class stays Latin."
+    },
+    {
+      "source": "client",
+      "target": "клієнт",
+      "note": "An MCP client, and the client side of a connection. Standard rendering. The `Client` class and the `mcp.client` module are code and stay Latin."
+    },
+    {
+      "source": "server",
+      "target": "сервер",
+      "note": "An MCP server (the program you build): сервер, MCP-сервер. Standard rendering. The `MCPServer`, `Server` and `ServerSession` classes are code and stay Latin."
+    },
+    {
+      "source": "host",
+      "target": "хост",
+      "note": "The MCP host — the application the user talks to (Claude Desktop, an IDE, an agent runtime) — and also a network host; хост in both senses. Standard loanword; never господар or хазяїн."
+    },
+    {
+      "source": "context",
+      "target": "контекст",
+      "note": "The generic lower-case word (\"provide context to LLMs\" → надавати контекст LLM). The capitalised `Context` is the SDK object injected as `ctx`; it is on the keep list and stays Latin in prose (\"The Context\" page title → Об'єкт Context). Standard rendering."
+    },
+    {
+      "source": "application",
+      "target": "застосунок",
+      "note": "A software application, including the MCP host app and an ASGI app: застосунок (masculine: застосунку, застосунки; ASGI-застосунок). Not додаток, which is an add-on or an appendix and reads as a calque of the Russian word; not програма unless the English says program. Provisional pending native review."
+    },
+    {
+      "source": "by default",
+      "target": "за замовчуванням",
+      "note": "\"By default\" / \"defaults to\" → за замовчуванням; \"the default value\" → значення за замовчуванням or типове значення. по замовчуванню is a calque and never correct. Provisional pending native review; типово / усталено are the purist alternatives.",
+      "avoid": ["по замовчуванню"]
+    },
+    {
+      "source": "next (following)",
+      "target": "наступний",
+      "note": "\"The next step / the following example\" → наступний крок, такий приклад / приклад нижче. слідуючий is a calque and never correct in modern Ukrainian (not on the checked avoid list only because наслідуючи contains the same letters)."
+    },
+    {
+      "source": "is (linking verb)",
+      "target": "є",
+      "note": "The copula: \"A host is the LLM application\" → Хост — це LLM-застосунок, or Хостом є …. являється / являються as a linking verb is a calque of the Russian and never correct; in Ukrainian являтися means to appear in a dream. (Not on the checked avoid list only because з'являється contains the same letters.)"
+    },
+    {
+      "source": "settings",
+      "target": "налаштування",
+      "note": "Settings / configuration → налаштування (also the verb: налаштувати); параметри where the English says options or parameters. настройка / настройки is Russian and never correct in Ukrainian text.",
+      "avoid": ["настройк", "настройок"]
+    },
+    {
+      "source": "cancel",
+      "target": "скасувати",
+      "note": "Request cancellation and cancelling a task: скасувати, скасування (\"the client cancelled the request\" → клієнт скасував запит). Not відмінити / відміна, which modern usage treats as a calque for this sense. Provisional pending native review."
+    },
+    {
+      "source": "request",
+      "target": "запит",
+      "note": "A JSON-RPC or HTTP request (\"the initialize request\" → запит initialize / запит ініціалізації; HTTP-запит). Standard term, never реквест. `Request` types in code font stay Latin."
+    },
+    {
+      "source": "response",
+      "target": "відповідь",
+      "note": "A JSON-RPC or HTTP response (HTTP-відповідь, тіло відповіді). Standard term, never респонс. `Response` types in code font stay Latin."
+    },
+    {
+      "source": "notification",
+      "target": "сповіщення",
+      "note": "A JSON-RPC notification (a message that expects no response): надіслати сповіщення, сповіщення про перебіг виконання. Not нотифікація, not повідомлення (which is a message generally) and not the calque увідомлення. Method strings such as `notifications/tools/list_changed` stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "callback",
+      "target": "колбек",
+      "note": "Client callbacks and OAuth redirect callbacks alike (the \"Client callbacks\" page → Колбеки клієнта): колбек, masculine, declinable, spelled this way throughout. Provisional pending native review; функція зворотного виклику is the formal alternative and may serve as a one-time gloss. Parameter names such as `sampling_callback` stay Latin."
+    },
+    {
+      "source": "decorator",
+      "target": "декоратор",
+      "note": "The Python decorators the SDK is built on; `@mcp.tool()` and its siblings are code and stay untouched. Standard rendering."
+    },
+    {
+      "source": "type hint",
+      "target": "анотація типів",
+      "note": "Python type hints (\"from your type hints\" → з анотацій типів). Pinned over підказки типів; use one rendering throughout. Provisional pending native review."
+    },
+    {
+      "source": "exception",
+      "target": "виняток",
+      "note": "A raised Python exception: виняток / винятки; \"raises an exception\" → викидає виняток (or генерує виняток). Not виключення, which means exclusion. Exception class names stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "async",
+      "target": "асинхронний",
+      "note": "The prose adjective (\"the async runtime\" → асинхронне середовище виконання, \"an async callback\" → асинхронний колбек); the `async` and `await` keywords in code font stay Latin. Standard rendering."
+    },
+    {
+      "source": "lifespan",
+      "target": "життєвий цикл",
+      "note": "The server's startup/shutdown scope (the \"Lifespan\" page, as in the ASGI lifespan) → життєвий цикл, glossed on first use per page — життєвий цикл (lifespan) — so the reader maps it to the `lifespan=` parameter, which is code and stays Latin, as does the function passed to it when named in code font. Not тривалість життя. Provisional pending native review; keeping lifespan in Latin script throughout is the open alternative."
+    },
+    {
+      "source": "back-channel",
+      "target": "зворотний канал",
+      "note": "This documentation's term for the server calling back into the client during a request, which exists only on legacy connections. Gloss the English on first use per page — зворотний канал (back-channel) — so the reader can connect it to `NoBackChannelError`, which is code. Provisional pending native review."
+    },
+    {
+      "source": "multi-round-trip",
+      "target": "багатораундовий",
+      "note": "The 2026-07-28 request pattern: \"Multi-round-trip requests\" → Багатораундові запити, glossed on first use per page — багатораундові запити (multi-round-trip). A single \"round trip\" is раунд обміну or один цикл «запит — відповідь» by context, never a literal поїздка туди й назад. The abbreviation MRTR stays Latin. Provisional coinage pending native review; багатоходові запити is the alternative to weigh."
+    },
+    {
+      "source": "deprecated",
+      "target": "застарілий",
+      "note": "Advisory status: still works, scheduled for removal later — застарілий / оголошений застарілим (\"Deprecated features\" → Застарілі можливості; \"deprecation warning\" → попередження про застарілість). \"Removed\" is a different word (вилучений / видалений); the corpus contrasts the two. The `MCPDeprecationWarning` class stays Latin. Provisional pending native review."
+    },
+    {
+      "source": "legacy",
+      "target": "старого покоління",
+      "note": "\"A legacy connection / client\" = one negotiated at spec version 2025-11-25 or earlier → з'єднання старого покоління, клієнт старого покоління (the page \"Serving legacy clients\" → Обслуговування клієнтів старого покоління). Pairs with \"era\" → покоління and keeps застарілий free for \"deprecated\". Never the slang легасі. Provisional pending native review; попередніх версій is the alternative."
+    },
+    {
+      "source": "era",
+      "target": "покоління",
+      "note": "\"Protocol era\" (\"a 2025-era client\", \"whatever era the client speaks\") → покоління протоколу, клієнт покоління 2025. Not the literal ера or епоха. Provisional pending native review."
+    },
+    {
+      "source": "handshake",
+      "target": "рукостискання",
+      "note": "The initialization handshake (\"the classic handshake\" → класичне рукостискання). рукостискання is the standard Ukrainian networking term (as in TLS-рукостискання), so the literal word is correct here. Standard rendering."
+    },
+    {
+      "source": "middleware",
+      "target": "middleware",
+      "note": "Kept in Latin script, indeclinable, lower-case in running text (the \"Middleware\" page title stays Middleware); name the kind where a case is needed: шар middleware, функція middleware. May take the one-time gloss middleware (проміжний шар). Provisional pending native review; проміжне ПЗ is the formal alternative."
+    },
+    {
+      "source": "authorization",
+      "target": "авторизація",
+      "note": "Security sense: авторизація (сервер авторизації, код авторизації), distinct from authentication → автентифікація (not аутентифікація). The `Authorization` header and code identifiers stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "Get started",
+      "target": "Початок роботи",
+      "note": "The nav section that opens the guide, and the title of its index page. \"First steps\" is a separate page inside that section (Перші кроки), so the two need distinct renderings or the sidebar shows the same title twice. Provisional pending native review."
+    },
+    {
+      "source": "First steps",
+      "target": "Перші кроки",
+      "note": "The tutorial page inside the \"Get started\" section; never reuse this rendering for the section itself (see that entry). Provisional pending native review."
+    },
+    {
+      "source": "Recap",
+      "target": "Підсумки",
+      "note": "Recurring section heading that closes most pages; one rendering everywhere, not Підсумки on some pages and Резюме or Підіб'ємо підсумки on others. Provisional pending native review."
+    },
+    {
+      "source": "Try it",
+      "target": "Спробуйте самі",
+      "note": "Recurring section heading above a runnable example; one rendering everywhere, not Спробуйте on some pages and Перевірка on others. Provisional pending native review."
+    }
+  ]
+}

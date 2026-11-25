@@ -2,7 +2,7 @@
 name = "mcp-snippets"
 version = "0.1.0"
 description = "MCP Example Snippets"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "mcp",
 ]
@@ -21,4 +21,5 @@ completion-client = "clients.completion_client:main"
 direct-execution-server = "servers.direct_execution:main"
 display-utilities-client = "clients.display_utilities:main"
 oauth-client = "clients.oauth_client:run"
+identity-assertion-client = "clients.identity_assertion_client:run"
 elicitation-client = "clients.url_elicitation_client:run"

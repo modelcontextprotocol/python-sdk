@@ -3,6 +3,7 @@
 import abc
 from typing import Any
 
+from mcp_types import Annotations, Icon
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -11,13 +12,11 @@ from pydantic import (
     field_validator,
 )
 
-from mcp.types import Annotations, Icon
-
 
 class Resource(BaseModel, abc.ABC):
     """Base class for all resources."""
 
-    model_config = ConfigDict(validate_default=True)
+    model_config = ConfigDict(validate_default=True, extra="forbid")
 
     uri: str = Field(default=..., description="URI of the resource")
     name: str | None = Field(description="Name of the resource", default=None)

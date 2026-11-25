@@ -1,9 +1,10 @@
 """Test that UrlElicitationRequiredError is properly propagated as MCP error."""
 
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import Client, ErrorData, types
+from mcp import Client, ErrorData
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 
@@ -105,4 +106,4 @@ async def test_normal_exceptions_still_return_error_result():
         assert result.is_error is True
         assert len(result.content) == 1
         assert isinstance(result.content[0], types.TextContent)
-        assert "Something went wrong" in result.content[0].text
+        assert result.content[0].text == "Error executing tool failing_tool"

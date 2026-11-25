@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import TypedDict
 
 import mcp.server.stdio
-from mcp import types
+import mcp.types as types
 from mcp.server import Server, ServerRequestContext
 
 

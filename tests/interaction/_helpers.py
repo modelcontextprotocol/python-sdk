@@ -1,28 +1,16 @@
 """Shared helpers for the interaction suite.
 
-Keep this module small: it exists only for (a) types that every test would otherwise have to
-assemble from the SDK's internals to annotate a client callback, and (b) the recording transport
-used by the wire-level tests. Server fixtures and assertion helpers belong in the test that uses
-them.
+Keep this module small: it exists only for the recording transport used by the wire-level
+tests. Server fixtures and assertion helpers belong in the test that uses them.
 """
 
 from types import TracebackType
+from typing import Self
 
 import anyio
-from typing_extensions import Self
 
 from mcp.client._transport import ReadStream, Transport, TransportStreams, WriteStream
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
-from mcp.types import ClientResult, ServerNotification, ServerRequest
-
-# TODO: this union is the parameter type of every client message handler (MessageHandlerFnT),
-# but the SDK does not export a name for it -- writing a correctly-typed handler requires
-# importing RequestResponder from mcp.shared.session and assembling the union by hand. It
-# should be a named, exported alias next to MessageHandlerFnT (like ClientRequestContext is
-# for the request callbacks), at which point this alias can be deleted.
-IncomingMessage = RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception
-"""Everything a client message handler can receive."""
 
 
 class _RecordingReadStream:

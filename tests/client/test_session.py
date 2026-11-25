@@ -7,25 +7,19 @@ from typing import Any, cast
 import anyio
 import anyio.abc
 import anyio.streams.memory
+import mcp_types as types
 import pytest
-from pydantic import FileUrl, ValidationError
-
-from mcp import MCPError, types
-from mcp.client import ClientRequestContext
-from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
-from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
-from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnRequest
-from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
-from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
-from mcp.types import (
+from inline_snapshot import snapshot
+from mcp_types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
-    LATEST_PROTOCOL_VERSION,
+    LOG_LEVEL_META_KEY,
     METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_META_KEY,
     REQUEST_TIMEOUT,
+    SERVER_INFO_META_KEY,
+    UNSUPPORTED_PROTOCOL_VERSION,
     CallToolResult,
     Implementation,
     InitializedNotification,
@@ -41,6 +35,20 @@ from mcp.types import (
     client_notification_adapter,
     client_request_adapter,
 )
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERSION
+from pydantic import FileUrl, ValidationError
+
+from mcp import MCPError
+from mcp.client import ClientRequestContext, IncomingMessage
+from mcp.client.client import Client
+from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
+from mcp.client.subscriptions import ToolsListChanged, listen
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
+from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnNotifyIntercept, OnRequest
+from mcp.shared.message import SessionMessage
+from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY
+from mcp.shared.transport_context import TransportContext
 
 _SendToClient = anyio.streams.memory.MemoryObjectSendStream[SessionMessage | Exception]
 _RecvFromClient = anyio.streams.memory.MemoryObjectReceiveStream[SessionMessage]
@@ -86,7 +94,7 @@ async def test_client_session_initialize():
         assert isinstance(request, InitializeRequest)
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=ServerCapabilities(
                 logging=None,
                 resources=None,
@@ -116,9 +124,7 @@ async def test_client_session_initialize():
             )
 
     # Create a message handler to catch exceptions
-    async def message_handler(  # pragma: no cover
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:  # pragma: no cover
         if isinstance(message, Exception):
             raise message
 
@@ -139,7 +145,7 @@ async def test_client_session_initialize():
 
     # Assert the result
     assert isinstance(result, InitializeResult)
-    assert result.protocol_version == LATEST_PROTOCOL_VERSION
+    assert result.protocol_version == LATEST_HANDSHAKE_VERSION
     assert isinstance(result.capabilities, ServerCapabilities)
     assert result.server_info == Implementation(name="mock-server", version="0.1.0")
     assert result.instructions == "The server instructions."
@@ -170,7 +176,7 @@ async def test_client_session_custom_client_info():
         received_client_info = request.params.client_info
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -227,7 +233,7 @@ async def test_client_session_default_client_info():
         received_client_info = request.params.client_info
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -276,8 +282,8 @@ async def test_client_session_version_negotiation_success():
         )
         assert isinstance(request, InitializeRequest)
 
-        # Verify client sent the latest protocol version
-        assert request.params.protocol_version == LATEST_PROTOCOL_VERSION
+        # Verify client offers the newest handshake protocol version
+        assert request.params.protocol_version == LATEST_HANDSHAKE_VERSION
 
         # Server responds with a supported older version
         result = InitializeResult(
@@ -313,7 +319,7 @@ async def test_client_session_version_negotiation_success():
     # Assert the result with negotiated version
     assert isinstance(result, InitializeResult)
     assert result.protocol_version == "2024-11-05"
-    assert result.protocol_version in SUPPORTED_PROTOCOL_VERSIONS
+    assert result.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
 
 
 @pytest.mark.anyio
@@ -385,7 +391,7 @@ async def test_client_capabilities_default():
         received_capabilities = request.params.capabilities
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -456,7 +462,7 @@ async def test_client_capabilities_with_custom_callbacks():
         received_capabilities = request.params.capabilities
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -535,7 +541,7 @@ async def test_client_capabilities_with_sampling_tools():
         received_capabilities = request.params.capabilities
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -603,7 +609,7 @@ async def test_initialize_result():
         assert isinstance(request, InitializeRequest)
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=expected_capabilities,
             server_info=expected_server_info,
             instructions=expected_instructions,
@@ -642,7 +648,12 @@ async def test_initialize_result():
         assert result.server_info == expected_server_info
         assert result.capabilities == expected_capabilities
         assert result.instructions == expected_instructions
-        assert result.protocol_version == LATEST_PROTOCOL_VERSION
+        assert result.protocol_version == LATEST_HANDSHAKE_VERSION
+        # Era-neutral accessors are populated from the InitializeResult.
+        assert session.server_info == expected_server_info
+        assert session.server_capabilities == expected_capabilities
+        assert session.instructions == expected_instructions
+        assert session.protocol_version == LATEST_HANDSHAKE_VERSION
 
 
 @pytest.mark.anyio
@@ -665,7 +676,7 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
         assert isinstance(request, InitializeRequest)
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -784,10 +795,12 @@ async def test_receive_loop_drops_unknown_notification_method_without_response()
 
 def _set_negotiated_version(session: ClientSession, version: str) -> None:
     """Force `session.protocol_version` without running the handshake."""
-    session._initialize_result = InitializeResult(
-        protocol_version=version,
-        capabilities=ServerCapabilities(),
-        server_info=Implementation(name="mock-server", version="0.1.0"),
+    session.adopt(
+        InitializeResult(
+            protocol_version=version,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+        )
     )
 
 
@@ -1214,10 +1227,8 @@ async def test_raising_notification_callbacks_over_direct_dispatch_cost_only_tha
     async def logging_callback(params: types.LoggingMessageNotificationParams) -> None:
         raise ValueError("logging callback boom")
 
-    async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
-        assert not isinstance(message, RequestResponder | Exception)
+    async def message_handler(message: IncomingMessage) -> None:
+        assert not isinstance(message, Exception)
         teed.append(message)
         raise ValueError("message handler boom")
 
@@ -1300,43 +1311,62 @@ async def test_dispatcher_keyword_request_timeout_bounds_wait_for_never_run_peer
             assert exc.value.error.code == REQUEST_TIMEOUT
 
 
+def test_adopt_raises_when_no_mutual_modern_version_is_supported() -> None:
+    """SDK-defined: ``adopt(DiscoverResult)`` picks the newest version both sides support; an
+    empty intersection is unrecoverable and raises rather than installing a stamp."""
+    client_d, _ = create_direct_dispatcher_pair()
+    session = ClientSession(dispatcher=client_d)
+    with pytest.raises(RuntimeError, match="No mutually supported modern protocol version"):
+        session.adopt(
+            types.DiscoverResult(
+                supported_versions=["1999-01-01"],
+                capabilities=types.ServerCapabilities(),
+                result_type="complete",
+                ttl_ms=0,
+                cache_scope="public",
+            )
+        )
+    assert session.protocol_version is None
+
+
+class _OptsRecordingDispatcher:
+    """Records `send_raw_request` opts and answers from a per-method script (default `{}`)."""
+
+    def __init__(self, answers: dict[str, dict[str, Any]] | None = None) -> None:
+        self.calls: list[tuple[str, CallOptions]] = []
+        self._answers = answers or {}
+
+    async def run(
+        self,
+        on_request: OnRequest,
+        on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
+        *,
+        task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+    ) -> None:
+        task_status.started()
+        await anyio.sleep_forever()
+
+    async def send_raw_request(
+        self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None
+    ) -> dict[str, Any]:
+        self.calls.append((method, opts or {}))
+        return self._answers.get(method, {})
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        pass
+
+
 @pytest.mark.anyio
 async def test_initialize_opts_out_of_cancel_on_abandon_while_other_requests_leave_it_unset():
     """`send_request` passes `cancel_on_abandon=False` for `initialize` — the spec forbids
     cancelling it — and leaves the option unset for every other method."""
-
-    class RecordingDispatcher:
-        """Records `send_raw_request` opts and answers with canned results."""
-
-        def __init__(self) -> None:
-            self.calls: list[tuple[str, CallOptions]] = []
-
-        async def run(
-            self,
-            on_request: OnRequest,
-            on_notify: OnNotify,
-            *,
-            task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
-        ) -> None:
-            task_status.started()
-            await anyio.sleep_forever()
-
-        async def send_raw_request(
-            self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None
-        ) -> dict[str, Any]:
-            self.calls.append((method, opts or {}))
-            if method == "initialize":
-                return InitializeResult(
-                    protocol_version=LATEST_PROTOCOL_VERSION,
-                    capabilities=ServerCapabilities(),
-                    server_info=Implementation(name="mock-server", version="0.1.0"),
-                ).model_dump(by_alias=True, mode="json", exclude_none=True)
-            return {}
-
-        async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
-            pass
-
-    dispatcher = RecordingDispatcher()
+    init_answer = InitializeResult(
+        protocol_version=LATEST_HANDSHAKE_VERSION,
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="mock-server", version="0.1.0"),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    dispatcher = _OptsRecordingDispatcher({"initialize": init_answer})
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
             await session.initialize()
@@ -1344,6 +1374,27 @@ async def test_initialize_opts_out_of_cancel_on_abandon_while_other_requests_lea
     opts_by_method = dict(dispatcher.calls)
     assert opts_by_method["initialize"].get("cancel_on_abandon") is False
     assert "cancel_on_abandon" not in opts_by_method["ping"]
+
+
+@pytest.mark.anyio
+async def test_modern_stamp_leaves_cancel_on_abandon_at_the_dispatcher_default():
+    """Post-adopt modern requests leave `cancel_on_abandon` unset (the dispatcher default,
+    True): the courtesy frame is the abandon signal — the 2026 cancellation spelling on
+    stream transports, and the streamable-HTTP transport's cue to abort the request's own
+    POST. The negotiation methods still opt out on every path: `send_discover`'s explicit
+    opts, and the stamp's own carve-out for a `server/discover` sent through the generic
+    `send_request`."""
+    dispatcher = _OptsRecordingDispatcher({"server/discover": _discover_result_dict()})
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            await session.send_ping()
+            await session.send_request(types.DiscoverRequest(params=types.RequestParams()), types.DiscoverResult)
+    assert [method for method, _ in dispatcher.calls] == ["server/discover", "ping", "server/discover"]
+    negotiation_opts, ping_opts, stamped_negotiation_opts = (opts for _, opts in dispatcher.calls)
+    assert negotiation_opts.get("cancel_on_abandon") is False
+    assert "cancel_on_abandon" not in ping_opts
+    assert stamped_negotiation_opts.get("cancel_on_abandon") is False
 
 
 def test_constructor_rejects_streams_and_dispatcher_together():
@@ -1377,6 +1428,7 @@ async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
             self,
             on_request: OnRequest,
             on_notify: OnNotify,
+            on_notify_intercept: OnNotifyIntercept | None = None,
             *,
             task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
         ) -> None:
@@ -1387,7 +1439,7 @@ async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
         ) -> dict[str, Any]:
             raise NotImplementedError
 
-        async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
             raise NotImplementedError
 
     session = ClientSession(dispatcher=NeverStartsDispatcher())
@@ -1398,66 +1450,6 @@ async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
     assert scope.cancelled_caught
     # The failed enter must not leave the session half-entered.
     assert session._task_group is None
-
-
-@pytest.mark.anyio
-async def test_initialize_on_a_stateless_pinned_session_returns_the_synthesized_result_without_any_frame_sent():
-    """A session pinned to the 2026-07-28 stateless protocol is born initialized.
-
-    The 2026-07-28 lifecycle replaces the initialize handshake with a per-request ``_meta``
-    envelope, so ``initialize()`` is idempotent and returns a locally-synthesized result
-    without ever touching the wire.
-    """
-    async with raw_client_session(protocol_version="2026-07-28") as (session, _send, from_client):
-        result = await session.initialize()
-        assert result.protocol_version == "2026-07-28"
-        assert isinstance(result.capabilities, ServerCapabilities)
-        assert from_client.statistics().current_buffer_used == 0
-        assert (await session.initialize()) is result
-
-
-@pytest.mark.anyio
-async def test_initialize_on_a_stateful_pin_requests_the_pinned_version():
-    """A session pinned to a pre-2026 stateful version still runs the handshake, but the
-    outgoing ``initialize`` frame requests the pinned version rather than ``LATEST``."""
-    async with raw_client_session(protocol_version="2025-06-18") as (session, to_client, from_client):
-        first: list[InitializeResult] = []
-
-        async def do_initialize() -> None:
-            first.append(await session.initialize())
-
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(do_initialize)
-            out = await from_client.receive()
-            assert isinstance(out.message, JSONRPCRequest)
-            assert out.message.params is not None
-            assert out.message.params["protocolVersion"] == "2025-06-18"
-            assert session.protocol_version == "2025-06-18"
-            # Server negotiates a different (older) supported version than the pin requested.
-            result = InitializeResult(
-                protocol_version="2025-03-26",
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
-            await to_client.send(
-                SessionMessage(
-                    JSONRPCResponse(
-                        jsonrpc="2.0",
-                        id=out.message.id,
-                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                    )
-                )
-            )
-        # Drain the notifications/initialized frame so the buffer-used assertion below
-        # measures only what the second initialize() emits.
-        notif = await from_client.receive()
-        assert isinstance(notif.message, JSONRPCNotification)
-        # The property reports the negotiated version, not the pin, once the handshake is done.
-        assert session.protocol_version == "2025-03-26"
-        # A second call returns the cached result without a second handshake frame.
-        again = await session.initialize()
-        assert again is first[0]
-        assert from_client.statistics().current_buffer_used == 0
 
 
 @pytest.mark.anyio
@@ -1476,3 +1468,661 @@ async def test_send_notification_after_close_is_dropped_silently():
     finally:
         for s in (s2c_send, s2c_recv, c2s_send, c2s_recv):
             s.close()
+
+
+# --- discover() ladder ---
+
+
+class _ScriptedDispatcher:
+    """Records every `send_raw_request` and plays back scripted answers in order.
+
+    A script entry that is an `Exception` is raised; a dict is returned."""
+
+    def __init__(self, *script: dict[str, Any] | Exception) -> None:
+        self.calls: list[tuple[str, Mapping[str, Any] | None]] = []
+        self.notifies: list[str] = []
+        self._script: list[dict[str, Any] | Exception] = list(script)
+
+    async def run(
+        self,
+        on_request: OnRequest,
+        on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
+        *,
+        task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+    ) -> None:
+        task_status.started()
+        await anyio.sleep_forever()
+
+    async def send_raw_request(
+        self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None
+    ) -> dict[str, Any]:
+        self.calls.append((method, params))
+        item = self._script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        self.notifies.append(method)
+
+
+def _discover_result_dict() -> dict[str, Any]:
+    return types.DiscoverResult(
+        supported_versions=["2026-07-28"],
+        capabilities=ServerCapabilities(),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+
+
+@pytest.mark.anyio
+async def test_initialize_is_idempotent_and_returns_the_cached_result() -> None:
+    """A second `initialize()` returns the first call's result by identity and sends nothing
+    over the wire — the early-return guard short-circuits before the dispatcher is touched."""
+    init_result = InitializeResult(
+        protocol_version=LATEST_HANDSHAKE_VERSION,
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="mock-server", version="0.1.0"),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    dispatcher = _ScriptedDispatcher(init_result)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            first = await session.initialize()
+            second = await session.initialize()
+    assert first is second
+    assert [method for method, _ in dispatcher.calls] == ["initialize"]
+    assert dispatcher.notifies == ["notifications/initialized"]
+
+
+@pytest.mark.anyio
+async def test_discover_adopts_the_returned_result_and_installs_the_modern_stamp() -> None:
+    """SDK-defined: a successful `server/discover` is adopted and subsequent requests
+    carry the modern `_meta` envelope (protocol version + client info + capabilities)."""
+    dispatcher = _ScriptedDispatcher(_discover_result_dict(), {})
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            result = await session.discover()
+            assert isinstance(result, types.DiscoverResult)
+            assert session.protocol_version == "2026-07-28"
+            await session.send_ping()
+    ping_method, ping_params = dispatcher.calls[-1]
+    assert ping_method == "ping"
+    assert ping_params is not None
+    assert ping_params["_meta"][PROTOCOL_VERSION_META_KEY] == "2026-07-28"
+
+
+@pytest.mark.anyio
+async def test_log_level_opt_in_is_stamped_on_modern_requests_and_overridable_per_call() -> None:
+    """SDK-defined: `log_level` stamps the reserved log-level `_meta` key on every modern
+    request, and a request supplying that key in its own `_meta` overrides the default."""
+    dispatcher = _ScriptedDispatcher(_discover_result_dict(), {}, {})
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher, log_level="warning") as session:
+            await session.discover()
+            await session.send_ping()
+            await session.send_ping(meta={LOG_LEVEL_META_KEY: "debug"})
+    default_meta, override_meta = (params["_meta"] for _, params in dispatcher.calls[-2:] if params is not None)
+    assert default_meta[LOG_LEVEL_META_KEY] == "warning"
+    assert override_meta[LOG_LEVEL_META_KEY] == "debug"
+
+
+@pytest.mark.anyio
+async def test_discover_retries_once_on_unsupported_version_then_adopts() -> None:
+    """Spec SHOULD: a -32022 reply that names a mutually-supported version
+    triggers exactly one retry at that version, and the retry's result is adopted."""
+    dispatcher = _ScriptedDispatcher(
+        MCPError(
+            UNSUPPORTED_PROTOCOL_VERSION,
+            "unsupported",
+            data={"supported": ["2026-07-28"], "requested": "2026-07-28"},
+        ),
+        _discover_result_dict(),
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+    assert session.protocol_version == "2026-07-28"
+    assert [m for m, _ in dispatcher.calls] == ["server/discover", "server/discover"]
+
+
+@pytest.mark.anyio
+async def test_discover_raises_when_retry_intersection_is_empty() -> None:
+    """Spec SHOULD: a -32022 reply whose `supported` list shares nothing with the
+    client's modern versions is unrecoverable — the original error is re-raised
+    without a second probe."""
+    dispatcher = _ScriptedDispatcher(
+        MCPError(
+            UNSUPPORTED_PROTOCOL_VERSION,
+            "unsupported",
+            data={"supported": ["1999-01-01"], "requested": "2026-07-28"},
+        ),
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            with pytest.raises(MCPError) as exc:
+                await session.discover()
+            assert exc.value.error.code == UNSUPPORTED_PROTOCOL_VERSION
+    assert [m for m, _ in dispatcher.calls] == ["server/discover"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("code", [METHOD_NOT_FOUND, REQUEST_TIMEOUT, INTERNAL_ERROR])
+async def test_discover_reraises_non_retry_errors_without_falling_back(code: int) -> None:
+    """SDK-defined: any error outside the -32022 retry rung propagates verbatim
+    — `discover()` does not fall back to `initialize()` itself; that is the
+    caller's policy (`Client.__aenter__`)."""
+    dispatcher = _ScriptedDispatcher(MCPError(code, "nope"))
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            with pytest.raises(MCPError) as exc:
+                await session.discover()
+            assert exc.value.error.code == code
+            assert session.protocol_version is None
+    assert [m for m, _ in dispatcher.calls] == ["server/discover"]
+    assert dispatcher.notifies == []
+
+
+@pytest.mark.anyio
+async def test_discover_validates_the_response_shape_before_adopting() -> None:
+    """SDK-defined: the raw response is run through `DiscoverResult` validation
+    before any state is installed, so a malformed reply leaves the session
+    un-adopted rather than half-configured."""
+    dispatcher = _ScriptedDispatcher({"supportedVersions": ["2026-07-28"]})
+    session = ClientSession(dispatcher=dispatcher)
+    with anyio.fail_after(5):
+        async with session:
+            with pytest.raises(ValidationError):
+                await session.discover()
+            assert session.protocol_version is None
+
+
+@pytest.mark.anyio
+async def test_discover_is_idempotent_and_returns_the_cached_result() -> None:
+    """SDK-defined: a second `discover()` returns the already-adopted result without
+    re-probing — the script holds exactly one entry, so a second wire call would
+    `IndexError` on the empty script."""
+    dispatcher = _ScriptedDispatcher(_discover_result_dict())
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            first = await session.discover()
+            assert isinstance(first, types.DiscoverResult)
+            assert await session.discover() is first
+            assert session.discover_result is first
+    assert [m for m, _ in dispatcher.calls] == ["server/discover"]
+
+
+def test_era_neutral_properties_are_none_before_any_handshake() -> None:
+    """SDK-defined: the era-neutral accessors all read as None on a fresh session."""
+    client_d, _ = create_direct_dispatcher_pair()
+    session = ClientSession(dispatcher=client_d)
+    assert session.protocol_version is None
+    assert session.server_info is None
+    assert session.server_capabilities is None
+    assert session.instructions is None
+    assert session.discover_result is None
+    assert session.initialize_result is None
+
+
+@pytest.mark.anyio
+async def test_era_neutral_properties_after_discover() -> None:
+    """SDK-defined: after `discover()` the era-neutral accessors read from the
+    DiscoverResult; `server_info` comes from the `_meta` serverInfo stamp and
+    `initialize_result` stays None."""
+    raw = types.DiscoverResult(
+        supported_versions=["2026-07-28"],
+        capabilities=ServerCapabilities(tools=types.ToolsCapability(list_changed=True)),
+        instructions="hello",
+        _meta={SERVER_INFO_META_KEY: {"name": "discovered", "version": "2.0"}},
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    dispatcher = _ScriptedDispatcher(raw)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+    assert session.protocol_version == "2026-07-28"
+    assert session.server_info == Implementation(name="discovered", version="2.0")
+    assert session.server_capabilities == ServerCapabilities(tools=types.ToolsCapability(list_changed=True))
+    assert session.instructions == "hello"
+    assert session.initialize_result is None
+    assert isinstance(session.discover_result, types.DiscoverResult)
+
+
+@pytest.mark.anyio
+async def test_server_info_is_none_when_the_discover_result_carries_no_stamp() -> None:
+    """Spec-mandated (2026-07-28, #3002): the serverInfo result-`_meta` stamp is
+    optional, so a server that does not identify itself reads as `None` rather
+    than failing the connection."""
+    raw = types.DiscoverResult(
+        supported_versions=["2026-07-28"],
+        capabilities=ServerCapabilities(),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    dispatcher = _ScriptedDispatcher(raw)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+    assert session.protocol_version == "2026-07-28"
+    assert session.server_info is None
+
+
+@pytest.mark.anyio
+async def test_a_malformed_server_info_stamp_reads_as_absent() -> None:
+    """Spec-mandated (2026-07-28, #3002): the stamp is self-reported and
+    display-only, so a value that is not an `Implementation` must not fail the
+    call; it reads as if the server sent none."""
+    raw = types.DiscoverResult(
+        supported_versions=["2026-07-28"],
+        capabilities=ServerCapabilities(),
+        _meta={SERVER_INFO_META_KEY: {"version": "no name makes this invalid"}},
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    dispatcher = _ScriptedDispatcher(raw)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+    assert session.server_info is None
+
+
+@pytest.mark.anyio
+async def test_discover_reraises_unsupported_version_with_malformed_error_data() -> None:
+    """SDK-defined: a -32022 reply whose `data` is not a valid
+    `UnsupportedProtocolVersionErrorData` payload is unrecoverable — the original
+    error is re-raised without a retry probe."""
+    dispatcher = _ScriptedDispatcher(MCPError(UNSUPPORTED_PROTOCOL_VERSION, "unsupported", data="not-an-object"))
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            with pytest.raises(MCPError) as exc:
+                await session.discover()
+            assert exc.value.error.code == UNSUPPORTED_PROTOCOL_VERSION
+    assert [m for m, _ in dispatcher.calls] == ["server/discover"]
+
+
+# --- inbound ttlMs clamp ---
+
+
+@pytest.mark.anyio
+async def test_a_positive_inbound_ttl_reaches_the_result_unchanged() -> None:
+    listing: dict[str, Any] = {"resultType": "complete", "tools": [], "ttlMs": 60_000, "cacheScope": "private"}
+    dispatcher = _ScriptedDispatcher(_discover_result_dict(), listing)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            result = await session.list_tools()
+    assert result.ttl_ms == 60_000
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("wire_ttl", [True, False])
+async def test_a_boolean_inbound_ttl_is_not_clamped_only_coerced_by_validation(wire_ttl: bool) -> None:
+    """SDK-defined: `bool` is an `int` subclass; the clamp skips it and pydantic's lax mode coerces it instead."""
+    listing: dict[str, Any] = {"resultType": "complete", "tools": [], "ttlMs": wire_ttl, "cacheScope": "private"}
+    dispatcher = _ScriptedDispatcher(_discover_result_dict(), listing)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            result = await session.list_tools()
+    assert result.ttl_ms == int(wire_ttl)
+
+
+_LEGACY_HINTED_RESULTS: list[tuple[str, dict[str, Any]]] = [
+    ("list_tools", {"tools": []}),
+    ("list_prompts", {"prompts": []}),
+    ("list_resources", {"resources": []}),
+    ("list_resource_templates", {"resourceTemplates": []}),
+    ("read_resource", {"contents": []}),
+]
+
+_LEGACY_TAGGED_RESULTS: list[tuple[str, dict[str, Any]]] = [
+    ("call_tool", {"content": []}),
+    ("get_prompt", {"messages": []}),
+]
+
+
+def _legacy_init(version: str) -> dict[str, Any]:
+    return InitializeResult(
+        protocol_version=version,
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="mock-server", version="0.1.0"),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+
+
+async def _call_legacy(session: ClientSession, verb: str) -> Any:
+    if verb == "read_resource":
+        return await session.read_resource("mem://x")
+    if verb == "call_tool":
+        return await session.call_tool("t", {})
+    if verb == "get_prompt":
+        return await session.get_prompt("p")
+    return await getattr(session, verb)()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("version", HANDSHAKE_PROTOCOL_VERSIONS)
+@pytest.mark.parametrize(("verb", "body"), _LEGACY_HINTED_RESULTS)
+async def test_cache_hints_from_a_legacy_server_never_reach_the_result(
+    version: str, verb: str, body: dict[str, Any]
+) -> None:
+    """SDK-defined: on any pre-2026 session the caching fields are outside the negotiated
+    schema, so whatever a server puts in them - even values the 2026-07-28 enum
+    rejects - is dropped and the model shows its conservative defaults."""
+    dispatcher = _ScriptedDispatcher(_legacy_init(version), {**body, "ttlMs": -1, "cacheScope": "session"})
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.initialize()
+            result = await _call_legacy(session, verb)
+    assert (result.ttl_ms, result.cache_scope) == (0, "private")
+    assert not {"ttl_ms", "cache_scope"} & result.model_fields_set
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("verb", "body"), _LEGACY_TAGGED_RESULTS)
+async def test_a_2026_result_type_tag_from_a_legacy_server_never_reaches_the_result(
+    verb: str, body: dict[str, Any]
+) -> None:
+    """SDK-defined: `resultType` is 2026-07-28 vocabulary that also feeds result-union
+    routing, so a tag on a pre-2026 wire (even one no union arm claims) is dropped and
+    the plain result is returned rather than mis-routing or failing."""
+    # `call_tool` re-lists tools to validate structured content; that answer trails harmlessly for `get_prompt`.
+    dispatcher = _ScriptedDispatcher(
+        _legacy_init(LATEST_HANDSHAKE_VERSION), {**body, "resultType": "task"}, {"tools": []}
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.initialize()
+            result = await _call_legacy(session, verb)
+    assert result.result_type == "complete"
+
+
+# --- null structuredContent ---
+# The results are scripted: a server built on this SDK leaves a null `structuredContent` off the wire.
+
+
+def _listing_with_output_schema(output_schema: dict[str, Any]) -> dict[str, Any]:
+    tool = {"name": "t", "inputSchema": {"type": "object"}, "outputSchema": output_schema}
+    return {"resultType": "complete", "tools": [tool], "ttlMs": 0, "cacheScope": "private"}
+
+
+@pytest.mark.anyio
+async def test_call_tool_accepts_a_null_structured_content_the_output_schema_permits() -> None:
+    """Spec (2026-07-28): `structuredContent` may be any JSON value, null included, so a null
+    the output schema permits is a valid result rather than missing structured content."""
+    dispatcher = _ScriptedDispatcher(
+        _discover_result_dict(),
+        _listing_with_output_schema({"type": ["object", "null"]}),
+        {"resultType": "complete", "content": [], "structuredContent": None},
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            await session.list_tools()
+            result = await session.call_tool("t", {})
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content is None
+
+
+@pytest.mark.anyio
+async def test_call_tool_rejects_a_null_structured_content_the_output_schema_forbids() -> None:
+    """A null `structuredContent` is validated like any other value: against a schema that does
+    not permit null it fails as a schema mismatch, not as missing structured content."""
+    dispatcher = _ScriptedDispatcher(
+        _discover_result_dict(),
+        _listing_with_output_schema({"type": "object"}),
+        {"resultType": "complete", "content": [], "structuredContent": None},
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            await session.list_tools()
+            with pytest.raises(RuntimeError) as exc_info:
+                await session.call_tool("t", {})
+            # Stable SDK prefix only: the message tail is jsonschema text that shifts with the dependency.
+            assert str(exc_info.value).startswith("Invalid structured content returned by tool t")
+
+
+@pytest.mark.anyio
+async def test_call_tool_reports_an_absent_structured_content_as_missing_even_when_null_is_permitted() -> None:
+    """SDK-defined: only a result with no `structuredContent` field at all is reported as
+    missing structured content, and it is so even when the output schema would accept null."""
+    dispatcher = _ScriptedDispatcher(
+        _discover_result_dict(),
+        _listing_with_output_schema({"type": ["object", "null"]}),
+        {"resultType": "complete", "content": []},
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            await session.list_tools()
+            with pytest.raises(RuntimeError) as exc_info:
+                await session.call_tool("t", {})
+            assert str(exc_info.value) == snapshot("Tool t has an output schema but did not return structured content")
+
+
+@pytest.mark.anyio
+async def test_session_call_tool_returns_input_required_result_when_opted_in() -> None:
+    """`ClientSession.call_tool(..., allow_input_required=True)` surfaces the
+    raw `InputRequiredResult` so the caller can drive the loop manually."""
+
+    # `on_call_tool` is still typed `-> CallToolResult` on this branch (#2967 widens it later);
+    # `add_request_handler` is `HandlerResult`-typed and accepts `InputRequiredResult` cleanly.
+    async def handler(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.InputRequiredResult:
+        return types.InputRequiredResult(request_state="s")
+
+    server = Server("test")
+    server.add_request_handler("tools/call", types.CallToolRequestParams, handler)
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28") as client:
+            result = await client.session.call_tool("ask", allow_input_required=True)
+    assert isinstance(result, types.InputRequiredResult)
+    assert result.request_state == "s"
+
+
+@pytest.mark.anyio
+async def test_call_tool_threads_input_responses_and_request_state_into_params() -> None:
+    captured: list[types.CallToolRequestParams] = []
+
+    async def on_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        captured.append(params)
+        return CallToolResult(content=[])
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[])
+
+    server = Server("test", on_call_tool=on_call_tool, on_list_tools=on_list_tools)
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28") as client:
+            await client.call_tool(
+                "ask",
+                input_responses={"k": types.ElicitResult(action="decline")},
+                request_state="s",
+            )
+    assert captured[0].input_responses == {"k": types.ElicitResult(action="decline")}
+    assert captured[0].request_state == "s"
+
+
+@pytest.mark.anyio
+async def test_session_call_tool_raises_on_input_required_without_opt_in() -> None:
+    """SDK-defined: `ClientSession.call_tool` is mechanics-only; an
+    `InputRequiredResult` with the default `allow_input_required=False` raises
+    `RuntimeError` (the auto-loop policy lives on `Client`, not here)."""
+
+    async def handler(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.InputRequiredResult:
+        return types.InputRequiredResult(request_state="s")
+
+    server = Server("test")
+    server.add_request_handler("tools/call", types.CallToolRequestParams, handler)
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28") as client:
+            with pytest.raises(RuntimeError, match="allow_input_required=True"):
+                await client.session.call_tool("t")
+            result = await client.session.call_tool("t", allow_input_required=True)
+    assert isinstance(result, types.InputRequiredResult)
+
+
+@pytest.mark.anyio
+async def test_session_get_prompt_returns_input_required_result_when_opted_in() -> None:
+    """`ClientSession.get_prompt` mirrors `call_tool`: opting in returns the
+    raw `InputRequiredResult`; the default raises `RuntimeError`."""
+
+    async def handler(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> types.InputRequiredResult:
+        return types.InputRequiredResult(request_state="prompt-state")
+
+    server = Server("test")
+    server.add_request_handler("prompts/get", types.GetPromptRequestParams, handler)
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28") as client:
+            with pytest.raises(RuntimeError, match="allow_input_required=True"):
+                await client.session.get_prompt("p")
+            result = await client.session.get_prompt("p", allow_input_required=True)
+    assert isinstance(result, types.InputRequiredResult)
+    assert result.request_state == "prompt-state"
+
+
+@pytest.mark.anyio
+async def test_session_read_resource_returns_input_required_result_when_opted_in() -> None:
+    """`ClientSession.read_resource` mirrors `call_tool`: opting in returns the
+    raw `InputRequiredResult`; the default raises `RuntimeError`."""
+
+    async def handler(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> types.InputRequiredResult:
+        return types.InputRequiredResult(request_state="resource-state")
+
+    server = Server("test")
+    server.add_request_handler("resources/read", types.ReadResourceRequestParams, handler)
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28") as client:
+            with pytest.raises(RuntimeError, match="allow_input_required=True"):
+                await client.session.read_resource("memory://r")
+            result = await client.session.read_resource("memory://r", allow_input_required=True)
+    assert isinstance(result, types.InputRequiredResult)
+    assert result.request_state == "resource-state"
+
+
+@pytest.mark.anyio
+async def test_a_late_ack_for_a_closed_driver_listen_reaches_message_handler():
+    """Ack consumption is keyed on the live route registry alone: a stray ack for a
+    closed subscription's id surfaces through message_handler like any other unowned frame."""
+    seen: list[object] = []
+    follow_up = anyio.Event()
+
+    async def handler(msg: object) -> None:
+        seen.append(msg)
+        if len(seen) == 2:
+            follow_up.set()
+
+    async with raw_client_session(message_handler=handler) as (session, to_client, _):
+        _set_negotiated_version(session, "2026-07-28")
+        session._register_listen_route("listen-99")  # pyright: ignore[reportPrivateUsage]
+        session._unregister_listen_route("listen-99")  # pyright: ignore[reportPrivateUsage]
+        await to_client.send(
+            SessionMessage(
+                JSONRPCNotification(
+                    jsonrpc="2.0",
+                    method="notifications/subscriptions/acknowledged",
+                    params={
+                        "notifications": {"toolsListChanged": True},
+                        "_meta": {SUBSCRIPTION_ID_META_KEY: "listen-99"},
+                    },
+                )
+            )
+        )
+        await to_client.send(
+            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed", params={}))
+        )
+        with anyio.fail_after(5):
+            await follow_up.wait()
+    assert [type(message).__name__ for message in seen] == [
+        "SubscriptionsAcknowledgedNotification",
+        "ToolListChangedNotification",
+    ]
+
+
+@pytest.mark.anyio
+async def test_a_graceful_result_does_not_outrun_the_events_that_preceded_it():
+    """[ack, event, result] written back-to-back: the event delivers and the wire ack's filter
+    survives a parked message_handler tee, because routes settle on the dispatcher's receive path in wire order."""
+
+    async def parked_handler(message: object) -> None:
+        await anyio.sleep_forever()
+
+    events: list[object] = []
+    honored: list[types.SubscriptionFilter] = []
+    async with raw_client_session(message_handler=parked_handler) as (session, to_client, from_client):
+        _set_negotiated_version(session, "2026-07-28")
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+
+                async def consume() -> None:
+                    async with listen(session, tools_list_changed=True) as sub:  # pragma: no branch
+                        honored.append(sub.honored)
+                        events.extend([event async for event in sub])
+
+                tg.start_soon(consume)
+                request = await from_client.receive()
+                assert isinstance(request.message, JSONRPCRequest)
+                meta = {SUBSCRIPTION_ID_META_KEY: request.message.id}
+                for message in (
+                    JSONRPCNotification(
+                        jsonrpc="2.0",
+                        method="notifications/subscriptions/acknowledged",
+                        params={"notifications": {"toolsListChanged": True}, "_meta": meta},
+                    ),
+                    JSONRPCNotification(
+                        jsonrpc="2.0", method="notifications/tools/list_changed", params={"_meta": meta}
+                    ),
+                    JSONRPCResponse(jsonrpc="2.0", id=request.message.id, result={"_meta": meta}),
+                ):
+                    await to_client.send(SessionMessage(message))
+    assert honored == [types.SubscriptionFilter(tools_list_changed=True)]
+    assert events == [ToolsListChanged()]
+
+
+def _intercept_only_session() -> ClientSession:
+    """A never-entered session whose intercept can be driven directly (it is synchronous)."""
+    dispatcher, _peer = create_direct_dispatcher_pair()
+    return ClientSession(dispatcher=dispatcher)
+
+
+def test_intercept_settles_only_the_named_listen_route_on_cancelled():
+    """SDK demux contract: a server-sent cancel settles exactly the listen route it names and is never consumed."""
+    session = _intercept_only_session()
+    route = session._register_listen_route("listen-1")  # pyright: ignore[reportPrivateUsage]
+    intercept = session._intercept_notification  # pyright: ignore[reportPrivateUsage]
+    assert intercept("notifications/cancelled", {"requestId": "unrelated"}) is False
+    assert route.end is None
+    assert intercept("notifications/cancelled", {"requestId": "listen-1"}) is False
+    assert route.end == "lost"
+
+
+def test_intercept_ignores_frames_without_a_route_or_with_broken_meta():
+    """SDK demux contract: frames that correlate to no live route flow through to the normal notification path."""
+    session = _intercept_only_session()
+    intercept = session._intercept_notification  # pyright: ignore[reportPrivateUsage]
+    assert intercept("notifications/tools/list_changed", {"_meta": {SUBSCRIPTION_ID_META_KEY: "listen-1"}}) is False
+    route = session._register_listen_route("listen-1")  # pyright: ignore[reportPrivateUsage]
+    route.set_acked(types.SubscriptionFilter(tools_list_changed=True))
+    assert intercept("notifications/tools/list_changed", None) is False
+    # A non-mapping `_meta` is constructible on pre-2026 wires.
+    assert intercept("notifications/tools/list_changed", {"_meta": "oops"}) is False
+    assert intercept("notifications/tools/list_changed", {"_meta": {SUBSCRIPTION_ID_META_KEY: "other"}}) is False
+    # A non-string uri is not an event; surface validation owns it.
+    meta = {"_meta": {SUBSCRIPTION_ID_META_KEY: "listen-1"}}
+    assert intercept("notifications/resources/updated", {"uri": 7, **meta}) is False
+    assert route._pending == {}  # pyright: ignore[reportPrivateUsage]
+
+
+def test_intercept_consumes_acks_for_live_routes_and_leaves_malformed_ones():
+    """SDK demux contract: a well-formed ack for a live route is consumed as driver state; malformed acks pass on."""
+    session = _intercept_only_session()
+    route = session._register_listen_route("listen-1")  # pyright: ignore[reportPrivateUsage]
+    intercept = session._intercept_notification  # pyright: ignore[reportPrivateUsage]
+    meta = {"_meta": {SUBSCRIPTION_ID_META_KEY: "listen-1"}}
+    assert intercept("notifications/subscriptions/acknowledged", {"notifications": ["nope"], **meta}) is False
+    assert route.honored is None
+    # A missing `notifications` field must not be read as an (all-refusing) empty filter.
+    assert intercept("notifications/subscriptions/acknowledged", dict(meta)) is False
+    assert route.honored is None
+    assert (
+        intercept("notifications/subscriptions/acknowledged", {"notifications": {"toolsListChanged": True}, **meta})
+        is True
+    )
+    assert route.honored == types.SubscriptionFilter(tools_list_changed=True)
+    # Events deliver but are never consumed - they still tee to message_handler.
+    assert intercept("notifications/tools/list_changed", meta) is False
+    assert list(route._pending) == [ToolsListChanged()]  # pyright: ignore[reportPrivateUsage]

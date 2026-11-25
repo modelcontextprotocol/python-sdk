@@ -7,18 +7,27 @@ Contract:
     - MCP_CONFORMANCE_SCENARIO env var -> scenario name
     - MCP_CONFORMANCE_CONTEXT env var -> optional JSON (for client-credentials scenarios)
     - MCP_CONFORMANCE_PROTOCOL_VERSION env var -> spec version the harness mock
-      server is speaking (e.g. "2025-11-25", "2026-07-28"). Always set; defaults
-      to the harness's LATEST_SPEC_VERSION when --spec-version is omitted.
+      server is speaking (e.g. "2025-11-25", "2026-07-28"). Always set; when
+      --spec-version is omitted the harness picks per-scenario (LATEST_SPEC_VERSION
+      for active scenarios, DRAFT_PROTOCOL_VERSION for draft-only ones).
     - Server URL as last CLI argument (sys.argv[1])
-    - Must exit 0 within 30 seconds
+    - Must exit 0 within the harness --timeout (CI passes 60s; the default is 30s)
 
 Scenarios:
     initialize                              - Connect, initialize, list tools, close
     tools_call                              - Connect, call add_numbers(a=5, b=3), close
     sse-retry                               - Connect, call test_reconnection, close
+    json-schema-ref-no-deref                - Connect, list tools (no $ref deref)
+    json-schema-2020-12-preservation        - List tools, echo the focal inputSchema back verbatim
+    request-metadata                        - Connect with all callbacks; client stamps _meta
+    http-standard-headers                   - Tool, resource and prompt round-trips (Mcp-* headers checked)
+    http-invalid-tool-headers               - List tools, call every surfaced tool (x-mcp-header filter)
+    http-custom-headers                     - Replay the harness's toolCalls (x-mcp-header -> Mcp-Param-*)
     elicitation-sep1034-client-defaults     - Elicitation with default accept callback
+    sep-2322-client-request-state           - Drive the MRTR auto-loop (SEP-2322)
     auth/client-credentials-jwt             - Client credentials with private_key_jwt
     auth/client-credentials-basic           - Client credentials with client_secret_basic
+    auth/enterprise-managed-authorization   - SEP-990 ID-JAG (RFC 8693 + RFC 7523 jwt-bearer)
     auth/*                                  - Authorization code flow (default for auth scenarios)
 """
 
@@ -31,16 +40,20 @@ from collections.abc import Callable, Coroutine
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
-import httpx
+import httpx2
+import mcp_types as types
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import AnyUrl
 
-from mcp import ClientSession, types
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.auth.extensions.client_credentials import (
     ClientCredentialsOAuthProvider,
     PrivateKeyJWTOAuthProvider,
     SignedJWTParameters,
 )
+from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider
+from mcp.client.auth.utils import build_protected_resource_metadata_discovery_urls
+from mcp.client.client import Client
 from mcp.client.context import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
@@ -54,11 +67,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 #: Spec version the harness is running this scenario at (e.g. "2025-11-25",
-#: "2026-07-28"). The harness always sets this (it falls back to its own
-#: LATEST_SPEC_VERSION when --spec-version is omitted), so None means we were
-#: invoked outside the harness. Handlers that need to take the stateless 2026
-#: path will branch on this once the SDK has one; today it is logged only.
+#: "2026-07-28"). The harness always sets this (when --spec-version is omitted
+#: it picks per-scenario: LATEST_SPEC_VERSION for active scenarios,
+#: DRAFT_PROTOCOL_VERSION for draft-only ones), so None means we were invoked
+#: outside the harness.
 PROTOCOL_VERSION: str | None = os.environ.get("MCP_CONFORMANCE_PROTOCOL_VERSION")
+
+
+def client_mode() -> str:
+    """Pick the Client(mode=) for the harness leg.
+
+    On a modern leg (2026-07-28+) -> 'auto' so Client.discover() runs and the
+    _meta envelope + MCP-Protocol-Version header are stamped on every request.
+    On a handshake-era leg -> 'legacy' so the initialize handshake runs exactly
+    as before (no server/discover probe is sent against a mock that would 400 it).
+    Outside the harness -> 'auto' (probe + fallback).
+    """
+    if PROTOCOL_VERSION is None or PROTOCOL_VERSION in MODERN_PROTOCOL_VERSIONS:
+        return "auto"
+    return "legacy"
+
 
 # Type for async scenario handler functions
 ScenarioHandler = Callable[[str], Coroutine[Any, None, None]]
@@ -125,7 +153,7 @@ class ConformanceOAuthCallbackHandler:
         """Fetch the authorization URL and extract the auth code from the redirect."""
         logger.debug(f"Fetching authorization URL: {authorization_url}")
 
-        async with httpx.AsyncClient() as client:
+        async with httpx2.AsyncClient() as client:
             response = await client.get(
                 authorization_url,
                 follow_redirects=False,
@@ -163,52 +191,22 @@ class ConformanceOAuthCallbackHandler:
         return result
 
 
-# --- Scenario Handlers ---
+# --- Stub callbacks (declare capabilities in _meta without doing real work) ---
 
 
-@register("initialize")
-async def run_initialize(server_url: str) -> None:
-    """Connect, initialize, list tools, close."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            logger.debug("Initialized successfully")
-            await session.list_tools()
-            logger.debug("Listed tools successfully")
+async def stub_sampling_callback(
+    context: ClientRequestContext,
+    params: types.CreateMessageRequestParams,
+) -> types.CreateMessageResult | types.ErrorData:
+    return types.CreateMessageResult(
+        role="assistant",
+        content=types.TextContent(type="text", text=""),
+        model="conformance-stub",
+    )
 
 
-@register("json-schema-ref-no-deref")
-async def run_json_schema_ref_no_deref(server_url: str) -> None:
-    """Initialize and list tools; the scenario fails only if the client fetches a network $ref.
-
-    ClientSession never walks inputSchema or resolves $refs, so listing is enough (SEP-2106).
-    """
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            await session.list_tools()
-
-
-@register("tools_call")
-async def run_tools_call(server_url: str) -> None:
-    """Connect, initialize, list tools, call add_numbers(a=5, b=3), close."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            await session.list_tools()
-            result = await session.call_tool("add_numbers", {"a": 5, "b": 3})
-            logger.debug(f"add_numbers result: {result}")
-
-
-@register("sse-retry")
-async def run_sse_retry(server_url: str) -> None:
-    """Connect, initialize, list tools, call test_reconnection, close."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            await session.list_tools()
-            result = await session.call_tool("test_reconnection", {})
-            logger.debug(f"test_reconnection result: {result}")
+async def stub_list_roots_callback(context: ClientRequestContext) -> types.ListRootsResult | types.ErrorData:
+    return types.ListRootsResult(roots=[])
 
 
 async def default_elicitation_callback(
@@ -231,17 +229,209 @@ async def default_elicitation_callback(
     return types.ElicitResult(action="accept", content=content)
 
 
+# --- Scenario Handlers ---
+
+
+@register("initialize")
+async def run_initialize(server_url: str) -> None:
+    """Connect, initialize, list tools, close."""
+    async with Client(server_url, mode=client_mode()) as client:
+        logger.debug("Initialized successfully")
+        await client.list_tools()
+        logger.debug("Listed tools successfully")
+
+
+@register("json-schema-ref-no-deref")
+async def run_json_schema_ref_no_deref(server_url: str) -> None:
+    """Initialize and list tools; the scenario fails only if the client fetches a network $ref.
+
+    The client never walks inputSchema or resolves $refs, so listing is enough (SEP-2106).
+    Pinned to mode='legacy': the harness reports PROTOCOL_VERSION=2026-07-28 for this
+    scenario but its mock server only speaks the handshake-era lifecycle and 400s a
+    modern-stamped tools/list. The check is lifecycle-agnostic so this is harmless.
+    """
+    async with Client(server_url, mode="legacy") as client:
+        await client.list_tools()
+
+
+@register("json-schema-2020-12-preservation")
+async def run_json_schema_2020_12_preservation(server_url: str) -> None:
+    """List tools, then echo the focal tool's inputSchema back verbatim (SEP-1613 / SEP-2106).
+
+    The harness diffs what the client round-trips through `json_schema_echo` against its
+    fixture to detect 2020-12 keywords ($schema, $defs, $anchor, additionalProperties,
+    allOf/anyOf, if/then/else) being stripped while parsing tools/list. Unlike
+    json-schema-ref-no-deref, this mock is version-aware, so client_mode() applies.
+    """
+    async with Client(server_url, mode=client_mode()) as client:
+        listed = await client.list_tools()
+        focal = next(tool for tool in listed.tools if tool.name == "json_schema_2020_12_tool")
+        await client.call_tool("json_schema_echo", {"schema": focal.input_schema})
+
+
+@register("tools_call")
+async def run_tools_call(server_url: str) -> None:
+    """Connect, list tools, call add_numbers(a=5, b=3), close."""
+    async with Client(server_url, mode=client_mode()) as client:
+        await client.list_tools()
+        result = await client.call_tool("add_numbers", {"a": 5, "b": 3})
+        logger.debug(f"add_numbers result: {result}")
+
+
+@register("sse-retry")
+async def run_sse_retry(server_url: str) -> None:
+    """Connect, list tools, call test_reconnection, close."""
+    async with Client(server_url, mode=client_mode()) as client:
+        await client.list_tools()
+        result = await client.call_tool("test_reconnection", {})
+        logger.debug(f"test_reconnection result: {result}")
+
+
+@register("request-metadata")
+async def run_request_metadata(server_url: str) -> None:
+    """Connect on the modern path with every client capability declared.
+
+    The scenario inspects every request's `_meta` envelope (SEP-2575) for
+    protocolVersion / clientInfo / clientCapabilities, and the matching
+    MCP-Protocol-Version header. mode='auto' makes the SDK send
+    server/discover (covering the unsupported-version retry check), then adopt
+    and stamp the envelope on the follow-up requests.
+    """
+    async with Client(
+        server_url,
+        mode=client_mode(),
+        sampling_callback=stub_sampling_callback,
+        list_roots_callback=stub_list_roots_callback,
+        elicitation_callback=default_elicitation_callback,
+    ) as client:
+        await client.list_tools()
+        result = await client.call_tool("add_numbers", {"a": 5, "b": 3})
+        logger.debug(f"add_numbers result: {result}")
+
+
+@register("http-standard-headers")
+async def run_http_standard_headers(server_url: str) -> None:
+    """Touch tools, resources and prompts on the modern path so each standard header is checked (SEP-2243).
+
+    The scenario inspects Mcp-Method on each request and Mcp-Name on tools/call,
+    resources/read and prompts/get, and reports methods the client never sent as
+    SKIPPED rather than failed, so exercise one of each. initialize and
+    notifications/initialized stay SKIPPED: the modern path discovers via
+    server/discover and never sends them.
+    """
+    async with Client(server_url, mode=client_mode()) as client:
+        tools = await client.list_tools()
+        if tools.tools:
+            await client.call_tool(tools.tools[0].name, _stub_required_args(tools.tools[0].input_schema))
+        resources = await client.list_resources()
+        if resources.resources:
+            await client.read_resource(resources.resources[0].uri)
+        prompts = await client.list_prompts()
+        if prompts.prompts:
+            await client.get_prompt(prompts.prompts[0].name)
+
+
+def _stub_required_args(input_schema: dict[str, Any]) -> dict[str, Any]:
+    """Minimal arguments satisfying a tool inputSchema's required list."""
+    by_type: dict[str, Any] = {
+        "string": "x",
+        "integer": 0,
+        "number": 0,
+        "boolean": False,
+        "object": {},
+        "array": [],
+        "null": None,
+    }
+    properties = input_schema.get("properties", {})
+    return {name: by_type.get(properties.get(name, {}).get("type"), "x") for name in input_schema.get("required", [])}
+
+
+@register("http-invalid-tool-headers")
+async def run_http_invalid_tool_headers(server_url: str) -> None:
+    """List tools, then call every tool the SDK surfaces (SEP-2243).
+
+    The harness mock advertises one valid tool plus several with malformed
+    x-mcp-header annotations (empty, non-primitive type, duplicate, invalid
+    chars). The scenario passes if valid_tool is called and the malformed
+    ones are not -- so a conforming client filters them out of the list_tools
+    result and the loop below never sees them. The scenario sets
+    allowClientError, so a per-call failure is logged and skipped rather
+    than aborting the whole run.
+    """
+    async with Client(server_url, mode=client_mode()) as client:
+        listed = await client.list_tools()
+        logger.debug(f"Surfaced tools: {[t.name for t in listed.tools]}")
+        for tool in listed.tools:
+            try:
+                await client.call_tool(tool.name, _stub_required_args(tool.input_schema))
+            except Exception:
+                logger.exception(f"call_tool({tool.name!r}) failed")
+
+
+@register("http-custom-headers")
+async def run_http_custom_headers(server_url: str) -> None:
+    """List tools, then replay the harness's `toolCalls` so x-mcp-header args mirror into headers (SEP-2243).
+
+    The scenario supplies the exact arguments to send (including the null/edge-case values that
+    exercise omission and Base64 encoding) via the context `toolCalls`; using them verbatim is
+    what drives every per-parameter check. `list_tools` first so the SDK caches each tool's
+    annotations; a tool the SDK dropped (invalid annotations) is skipped. Per-call failures are
+    logged and skipped rather than aborting the run.
+    """
+    tool_calls: list[dict[str, Any]] = []
+    if os.environ.get("MCP_CONFORMANCE_CONTEXT"):
+        tool_calls = get_conformance_context().get("toolCalls", [])
+    async with Client(server_url, mode=client_mode()) as client:
+        listed = await client.list_tools()
+        surfaced = {tool.name for tool in listed.tools}
+        logger.debug(f"Surfaced tools: {sorted(surfaced)}")
+        for call in tool_calls:
+            name = call["name"]
+            if name not in surfaced:
+                logger.debug(f"skipping {name!r}: not surfaced by list_tools")
+                continue
+            try:
+                await client.call_tool(name, call.get("arguments") or {})
+            except Exception:
+                logger.exception(f"call_tool({name!r}) failed")
+
+
 @register("elicitation-sep1034-client-defaults")
 async def run_elicitation_defaults(server_url: str) -> None:
     """Connect with elicitation callback that applies schema defaults."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
-        async with ClientSession(
-            read_stream, write_stream, elicitation_callback=default_elicitation_callback
-        ) as session:
-            await session.initialize()
-            await session.list_tools()
-            result = await session.call_tool("test_client_elicitation_defaults", {})
-            logger.debug(f"test_client_elicitation_defaults result: {result}")
+    async with Client(server_url, mode=client_mode(), elicitation_callback=default_elicitation_callback) as client:
+        await client.list_tools()
+        result = await client.call_tool("test_client_elicitation_defaults", {})
+        logger.debug(f"test_client_elicitation_defaults result: {result}")
+
+
+@register("sep-2322-client-request-state")
+async def run_mrtr_client(server_url: str) -> None:
+    """Drive the SEP-2322 client mock through `Client.call_tool`'s auto-loop.
+
+    The mock inspects raw `tools/call` params, so registering an
+    `elicitation_callback` and letting the driver run is enough to satisfy
+    all five wire-shape checks: the driver echoes `request_state` byte-exact
+    and omits it when the server sent none, every retry mints a fresh
+    JSON-RPC id, the unrelated call between auto-loops carries no MRTR
+    params, and the no-`resultType` response parses as a terminal
+    `CallToolResult` so the driver never retries it.
+    """
+
+    async def confirm(
+        context: ClientRequestContext, params: types.ElicitRequestParams
+    ) -> types.ElicitResult | types.ErrorData:
+        return types.ElicitResult(action="accept", content={"confirmed": True})
+
+    async with Client(server_url, mode=client_mode(), elicitation_callback=confirm) as client:
+        await client.list_tools()
+
+        await client.call_tool("test_mrtr_echo_state", {})
+        await client.call_tool("test_mrtr_unrelated", {})
+        await client.call_tool("test_mrtr_no_state", {})
+
+        result = await client.call_tool("test_mrtr_no_result_type", {})
+        assert isinstance(result, types.CallToolResult)
 
 
 @register("auth/client-credentials-jwt")
@@ -297,6 +487,70 @@ async def run_client_credentials_basic(server_url: str) -> None:
     await _run_auth_session(server_url, oauth_auth)
 
 
+@register("auth/enterprise-managed-authorization")
+async def run_enterprise_managed_authorization(server_url: str) -> None:
+    """SEP-990 enterprise-managed authorization: RFC 8693 token-exchange at the
+    enterprise IdP for an ID-JAG, then RFC 7523 jwt-bearer at the MCP
+    authorization server."""
+    context = get_conformance_context()
+    client_id = context.get("client_id")
+    client_secret = context.get("client_secret")
+    idp_client_id = context.get("idp_client_id")
+    idp_id_token = context.get("idp_id_token")
+    idp_token_endpoint = context.get("idp_token_endpoint")
+
+    if not client_id:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'client_id'")
+    if not client_secret:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'client_secret'")
+    if not idp_client_id:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_client_id'")
+    if not idp_id_token:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_id_token'")
+    if not idp_token_endpoint:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_token_endpoint'")
+
+    # IdentityAssertionOAuthProvider takes the AS issuer as configuration (the
+    # SEP-990 trust model: the resource server is never asked which AS to use).
+    # The harness does not put the issuer in context, so for conformance we
+    # learn it from the harness's PRM document (RFC 9728); production
+    # deployments would supply it as static configuration instead.
+    prm_url = build_protected_resource_metadata_discovery_urls(None, server_url)[0]
+    async with httpx2.AsyncClient(timeout=30.0) as http:
+        prm = (await http.get(prm_url)).raise_for_status().json()
+    as_issuer = prm["authorization_servers"][0]
+
+    async def fetch_id_jag(audience: str, resource: str) -> str:
+        """Leg 1 - RFC 8693 token-exchange at the enterprise IdP."""
+        async with httpx2.AsyncClient(timeout=30.0) as http:
+            resp = await http.post(
+                idp_token_endpoint,
+                data={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                    "requested_token_type": "urn:ietf:params:oauth:token-type:id-jag",
+                    "subject_token": idp_id_token,
+                    "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+                    "audience": audience,
+                    "resource": resource,
+                    "client_id": idp_client_id,
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()["access_token"]
+
+    oauth_auth = IdentityAssertionOAuthProvider(
+        server_url=server_url,
+        storage=InMemoryTokenStorage(),
+        client_id=client_id,
+        client_secret=client_secret,
+        issuer=as_issuer,
+        assertion_provider=fetch_id_jag,
+        token_endpoint_auth_method="client_secret_basic",
+    )
+
+    await _run_auth_session(server_url, oauth_auth)
+
+
 async def run_auth_code_client(server_url: str) -> None:
     """Authorization code flow (default for auth/* scenarios)."""
     callback_handler = ConformanceOAuthCallbackHandler()
@@ -339,27 +593,24 @@ async def run_auth_code_client(server_url: str) -> None:
     await _run_auth_session(server_url, oauth_auth)
 
 
-async def _run_auth_session(server_url: str, oauth_auth: OAuthClientProvider) -> None:
+async def _run_auth_session(server_url: str, oauth_auth: httpx2.Auth) -> None:
     """Common session logic for all OAuth flows."""
-    client = httpx.AsyncClient(auth=oauth_auth, timeout=30.0)
-    async with streamable_http_client(url=server_url, http_client=client) as (read_stream, write_stream):
-        async with ClientSession(
-            read_stream, write_stream, elicitation_callback=default_elicitation_callback
-        ) as session:
-            await session.initialize()
-            logger.debug("Initialized successfully")
+    http_client = httpx2.AsyncClient(auth=oauth_auth, timeout=30.0)
+    transport = streamable_http_client(url=server_url, http_client=http_client)
+    async with Client(transport, mode=client_mode(), elicitation_callback=default_elicitation_callback) as client:
+        logger.debug("Initialized successfully")
 
-            tools_result = await session.list_tools()
-            logger.debug(f"Listed tools: {[t.name for t in tools_result.tools]}")
+        tools_result = await client.list_tools()
+        logger.debug(f"Listed tools: {[t.name for t in tools_result.tools]}")
 
-            # Call the first available tool (different tests have different tools)
-            if tools_result.tools:
-                tool_name = tools_result.tools[0].name
-                try:
-                    result = await session.call_tool(tool_name, {})
-                    logger.debug(f"Called {tool_name}, result: {result}")
-                except Exception as e:
-                    logger.debug(f"Tool call result/error: {e}")
+        # Call the first available tool (different tests have different tools)
+        if tools_result.tools:
+            tool_name = tools_result.tools[0].name
+            try:
+                result = await client.call_tool(tool_name, {})
+                logger.debug(f"Called {tool_name}, result: {result}")
+            except Exception as e:
+                logger.debug(f"Tool call result/error: {e}")
 
     logger.debug("Connection closed successfully")
 
@@ -372,7 +623,7 @@ def main() -> None:
 
     server_url = sys.argv[1]
     scenario = os.environ.get("MCP_CONFORMANCE_SCENARIO")
-    logger.debug(f"Conformance protocol version: {PROTOCOL_VERSION!r}")
+    logger.debug(f"Conformance protocol version: {PROTOCOL_VERSION!r} -> mode={client_mode()!r}")
 
     if scenario:
         logger.debug(f"Running explicit scenario '{scenario}' against {server_url}")

@@ -4,15 +4,48 @@ from __future__ import annotations
 
 import base64
 import inspect
-import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import Any, Generic, Literal, TypeVar, cast, overload
 
 import anyio
 import pydantic_core
+from mcp_types import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    METHOD_NOT_FOUND,
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
+    Annotations,
+    BlobResourceContents,
+    CallToolRequestParams,
+    CallToolResult,
+    ClientCapabilities,
+    CompleteRequestParams,
+    CompleteResult,
+    Completion,
+    GetPromptRequestParams,
+    GetPromptResult,
+    Icon,
+    InputRequiredResult,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ListToolsResult,
+    MissingRequiredClientCapabilityErrorData,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
+    TextContent,
+    TextResourceContents,
+    ToolAnnotations,
+)
+from mcp_types import Prompt as MCPPrompt
+from mcp_types import PromptArgument as MCPPromptArgument
+from mcp_types import Resource as MCPResource
+from mcp_types import ResourceTemplate as MCPResourceTemplate
+from mcp_types import Tool as MCPTool
+from pydantic import BaseModel, ValidationError
 from pydantic.networks import AnyUrl
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -25,72 +58,58 @@ from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import ServerRequestContext
+from mcp.server.caching import CacheableMethod, CacheHint
+from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
+from mcp.server.extension import (
+    Extension,
+    MethodBinding,
+    RequestHandler,
+    compose_tool_call_handler,
+    validate_extension_identifier,
+)
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
+from mcp.server.mcpserver.exceptions import (
+    ResourceError,
+    ResourceNotFoundError,
+    ToolError,
+    UnexpectedResourceError,
+    UnexpectedToolError,
+)
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
-from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
+from mcp.server.mcpserver.resources import (
+    DEFAULT_RESOURCE_SECURITY,
+    FunctionResource,
+    Resource,
+    ResourceManager,
+    ResourceSecurity,
+)
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
+from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import MCPError
-from mcp.types import (
-    INTERNAL_ERROR,
-    INVALID_PARAMS,
-    Annotations,
-    BlobResourceContents,
-    CallToolRequestParams,
-    CallToolResult,
-    CompleteRequestParams,
-    CompleteResult,
-    Completion,
-    GetPromptRequestParams,
-    GetPromptResult,
-    Icon,
-    ListPromptsResult,
-    ListResourcesResult,
-    ListResourceTemplatesResult,
-    ListToolsResult,
-    PaginatedRequestParams,
-    ReadResourceRequestParams,
-    ReadResourceResult,
-    TextContent,
-    TextResourceContents,
-    ToolAnnotations,
+from mcp.server.streamable_http_manager import (
+    DEFAULT_MAX_SESSIONS,
+    DEFAULT_SESSION_IDLE_TIMEOUT,
+    StreamableHTTPSessionManager,
 )
-from mcp.types import Prompt as MCPPrompt
-from mcp.types import PromptArgument as MCPPromptArgument
-from mcp.types import Resource as MCPResource
-from mcp.types import ResourceTemplate as MCPResourceTemplate
-from mcp.types import Tool as MCPTool
+from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
+from mcp.shared.exceptions import MCPError
+from mcp.shared.uri_template import UriTemplate
 
 logger = get_logger(__name__)
 
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
-class Settings(BaseSettings, Generic[LifespanResultT]):
-    """MCPServer settings.
-
-    All settings can be configured via environment variables with the prefix MCP_.
-    For example, MCP_DEBUG=true will set debug=True.
-    """
-
-    model_config = SettingsConfigDict(
-        env_prefix="MCP_",
-        env_file=".env",
-        env_nested_delimiter="__",
-        nested_model_default_partial_update=True,
-        extra="ignore",
-    )
+class Settings(BaseModel, Generic[LifespanResultT]):
+    """MCPServer settings, as passed to the `MCPServer` constructor."""
 
     # Server settings
     debug: bool
@@ -114,6 +133,15 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     auth: AuthSettings | None
 
 
+_MISSING_AUDIENCE = (
+    "request_state_security is configured but this server has no name. Sealed\n"
+    "requestState carries the server name as an audience claim, so state minted by\n"
+    "another service that shares the same keys is rejected; unnamed servers would\n"
+    "all stamp the same placeholder and the check would mean nothing. Name the\n"
+    'server (MCPServer("my-service", ...)) or set RequestStateSecurity(audience=...).'
+)
+
+
 def lifespan_wrapper(
     app: MCPServer[LifespanResultT],
     lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
@@ -135,12 +163,13 @@ class MCPServer(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[Icon] | None = None,
-        version: str | None = None,
+        version: str = "",
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         token_verifier: TokenVerifier | None = None,
         *,
         tools: list[Tool] | None = None,
         resources: list[Resource] | None = None,
+        extensions: Sequence[Extension] | None = None,
         debug: bool = False,
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
         warn_on_duplicate_resources: bool = True,
@@ -149,7 +178,13 @@ class MCPServer(Generic[LifespanResultT]):
         dependencies: list[str] | None = None,
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
+        resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
+        request_state_security: RequestStateSecurity | None = None,
+        cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
+        subscriptions: SubscriptionBus | Literal[False] | None = None,
+        middleware: Sequence[ServerMiddleware[Any]] | None = None,
     ):
+        self._resource_security = resource_security
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
@@ -167,6 +202,13 @@ class MCPServer(Generic[LifespanResultT]):
             resources=resources, warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
         )
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
+        # The subscriptions/listen fan-out seam (2026-07-28). The default bus is
+        # in-process; pass an `SubscriptionBus` implementation over an external pub/sub
+        # backend to fan events out across replicas. `False` leaves `subscriptions/listen`
+        # unserved; the bus stays so `ctx.notify_*` keeps working, with nobody listening.
+        self._subscriptions: SubscriptionBus = (
+            InMemorySubscriptionBus() if subscriptions is None or subscriptions is False else subscriptions
+        )
         self._lowlevel_server = Server(
             name=name or "mcp-server",
             title=title,
@@ -175,6 +217,8 @@ class MCPServer(Generic[LifespanResultT]):
             website_url=website_url,
             icons=icons,
             version=version,
+            cache_hints=cache_hints,
+            get_tool_input_schema=self._tool_input_schema,
             on_list_tools=self._handle_list_tools,
             on_call_tool=self._handle_call_tool,
             on_list_resources=self._handle_list_resources,
@@ -182,33 +226,65 @@ class MCPServer(Generic[LifespanResultT]):
             on_list_resource_templates=self._handle_list_resource_templates,
             on_list_prompts=self._handle_list_prompts,
             on_get_prompt=self._handle_get_prompt,
+            on_subscriptions_listen=None if subscriptions is False else ListenHandler(self._subscriptions),
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
+        # Ordering: inside OpenTelemetry (spans record the sealed wire form).
+        # Extension interceptors run at the handler layer, inside this
+        # boundary, so they see plaintext.
+        if request_state_security is None:
+            security = RequestStateSecurity.ephemeral()
+        else:
+            # A supplied policy usually means shared keys, where the audience claim is
+            # what separates services; an unnamed server would stamp the placeholder.
+            if not name and request_state_security.audience is None:
+                raise ValueError(_MISSING_AUDIENCE)
+            security = request_state_security
+        self._lowlevel_server.middleware.append(RequestStateBoundary(security, default_audience=self.name))
+        # User middleware runs inside the SDK's built-ins (OpenTelemetry, then the
+        # request-state boundary), outermost-first in the order given.
+        self._lowlevel_server.middleware.extend(middleware or ())
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:  # pragma: no cover
                 raise ValueError("Cannot specify both auth_server_provider and token_verifier")
             if not auth_server_provider and not token_verifier:  # pragma: no cover
                 raise ValueError("Must specify either auth_server_provider or token_verifier when auth is enabled")
-        elif auth_server_provider or token_verifier:  # pragma: no cover
+        elif auth_server_provider or token_verifier:
             raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
 
         self._auth_server_provider = auth_server_provider
         self._token_verifier = token_verifier
 
         # Create token verifier from provider if needed (backwards compatibility)
-        if auth_server_provider and not token_verifier:  # pragma: no cover
+        if auth_server_provider and not token_verifier:
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
 
         # Configure logging
         configure_logging(self.settings.log_level)
 
+        self._extensions: list[Extension] = []
+        for extension in extensions or ():
+            self._apply_extension(extension)
+        self._install_extension_interceptor()
+
     @property
     def name(self) -> str:
         return self._lowlevel_server.name
+
+    @property
+    def middleware(self) -> list[ServerMiddleware[Any]]:
+        """The middleware chain wrapping every inbound message, outermost-first.
+
+        The same list as the low-level `Server.middleware`: append an
+        `async (ctx, call_next)` callable to observe, refuse, or rewrite
+        messages before they reach a handler. Provisional - the signature may
+        change in a 2.x minor release; see the middleware guide.
+        """
+        return self._lowlevel_server.middleware
 
     @property
     def title(self) -> str | None:
@@ -231,7 +307,7 @@ class MCPServer(Generic[LifespanResultT]):
         return self._lowlevel_server.icons
 
     @property
-    def version(self) -> str | None:
+    def version(self) -> str:
         return self._lowlevel_server.version
 
     @property
@@ -246,6 +322,51 @@ class MCPServer(Generic[LifespanResultT]):
         """
         return self._lowlevel_server.session_manager
 
+    def _apply_extension(self, extension: Extension) -> None:
+        """Apply one opt-in extension's contributions through the public surface.
+
+        Registers its tools/resources/methods and advertises its settings under
+        `ServerCapabilities.extensions[extension.identifier]`. Extensions are fixed
+        at construction, so this is private; the `tools/call` interceptor is
+        composed once afterwards by `_install_extension_interceptor`.
+        """
+        identifier = getattr(extension, "identifier", None)
+        validate_extension_identifier(identifier, owner=type(extension).__name__)
+        if any(e.identifier == identifier for e in self._extensions):
+            raise ValueError(f"Extension {identifier!r} is already registered")
+        self._extensions.append(extension)
+
+        for tool in extension.tools():
+            self.add_tool(tool.fn, meta=tool.meta, **tool.kwargs)
+        for resource in extension.resources():
+            self.add_resource(resource.resource)
+        for method in extension.methods():
+            if self._lowlevel_server.get_request_handler(method.method) is not None:
+                raise ValueError(
+                    f"Extension {identifier!r} binds method {method.method!r}, which is already "
+                    "registered; extension methods are additive and cannot replace another handler"
+                )
+            handler = _version_gated(method) if method.protocol_versions is not None else method.handler
+            self._lowlevel_server.add_request_handler(method.method, method.params_type, handler)
+
+        self._lowlevel_server.extensions[extension.identifier] = extension.settings()
+
+    def _install_extension_interceptor(self) -> None:
+        """Wrap the `tools/call` handler with every extension's interceptor.
+
+        Installed only when at least one extension overrides `intercept_tool_call`,
+        so a server with purely additive extensions keeps the bare handler. The
+        chain wraps the handler itself, below the runner's outbound envelope
+        pass, so a short-circuiting interceptor's result is sieved and stamped
+        exactly like a handler result.
+        """
+        if any(type(e).intercept_tool_call is not Extension.intercept_tool_call for e in self._extensions):
+            self._lowlevel_server.add_request_handler(
+                "tools/call",
+                CallToolRequestParams,
+                compose_tool_call_handler(self._extensions, self._handle_call_tool),
+            )
+
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...
 
@@ -258,6 +379,7 @@ class MCPServer(Generic[LifespanResultT]):
         port: int = ...,
         sse_path: str = ...,
         message_path: str = ...,
+        max_request_body_size: int = ...,
         transport_security: TransportSecuritySettings | None = ...,
     ) -> None: ...
 
@@ -273,6 +395,9 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = ...,
         event_store: EventStore | None = ...,
         retry_interval: int | None = ...,
+        max_request_body_size: int = ...,
+        session_idle_timeout: float | None = ...,
+        max_sessions: int | None = ...,
         transport_security: TransportSecuritySettings | None = ...,
     ) -> None: ...
 
@@ -304,16 +429,31 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> ListToolsResult:
         return ListToolsResult(tools=await self.list_tools())
 
+    def _tool_input_schema(self, name: str) -> dict[str, Any] | None:
+        """Called before middleware runs, so it also finds a tool that middleware hides from the caller."""
+        tool = self._tool_manager.get_tool(name)
+        return None if tool is None else tool.parameters
+
     async def _handle_call_tool(
         self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
-    ) -> CallToolResult:
-        context = Context(request_context=ctx, mcp_server=self)
+    ) -> CallToolResult | InputRequiredResult:
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         try:
             return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
-        except Exception as e:
-            return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
+        except Exception as exc:
+            if isinstance(exc, ToolError) and not isinstance(exc, UnexpectedToolError):
+                if isinstance(exc.__cause__, ValidationError):
+                    # Field names only: the rejected values are the caller's data.
+                    fields = sorted({".".join(str(part) for part in err["loc"]) for err in exc.__cause__.errors()})
+                    logger.info("Tool %r rejected arguments: %r", params.name, fields)
+                else:
+                    # %r keeps peer-supplied text on one line.
+                    logger.info("Tool %r failed: %r", params.name, str(exc))
+            else:
+                logger.exception("Tool %r raised an unexpected exception", params.name)
+            return CallToolResult(content=[TextContent(type="text", text=str(exc))], is_error=True)
 
     async def _handle_list_resources(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
@@ -322,14 +462,19 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def _handle_read_resource(
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
-    ) -> ReadResourceResult:
-        context = Context(request_context=ctx, mcp_server=self)
+    ) -> ReadResourceResult | InputRequiredResult:
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         try:
             results = await self.read_resource(params.uri, context)
-        except ResourceNotFoundError as err:
-            raise MCPError(code=INVALID_PARAMS, message=str(err), data={"uri": str(params.uri)})
         except ResourceError as err:
-            raise MCPError(code=INTERNAL_ERROR, message=str(err), data={"uri": str(params.uri)})
+            if isinstance(err, UnexpectedResourceError):
+                logger.exception("Resource %r raised an unexpected exception", str(params.uri))
+            else:
+                logger.info("Resource %r failed: %r", str(params.uri), str(err))
+            code = INVALID_PARAMS if isinstance(err, ResourceNotFoundError) else INTERNAL_ERROR
+            raise MCPError(code=code, message=str(err), data={"uri": str(params.uri)})
+        if isinstance(results, InputRequiredResult):
+            return results
         contents: list[TextResourceContents | BlobResourceContents] = []
         for item in results:
             if isinstance(item.content, bytes):
@@ -364,8 +509,8 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def _handle_get_prompt(
         self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
-    ) -> GetPromptResult:
-        context = Context(request_context=ctx, mcp_server=self)
+    ) -> GetPromptResult | InputRequiredResult:
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         return await self.get_prompt(params.name, params.arguments, context)
 
     async def list_tools(self) -> list[MCPTool]:
@@ -387,10 +532,19 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> CallToolResult:
-        """Call a tool by name with arguments."""
+    ) -> CallToolResult | InputRequiredResult:
+        """Call a tool by name with arguments.
+
+        Raises:
+            ToolError: If the tool is unknown, the arguments fail validation, or the
+                tool (or a resolver) raises `ToolError` or `ResourceError`.
+            UnexpectedToolError: If the tool (or a resolver) raises anything else, or
+                its return value fails output conversion. `__cause__` is the original
+                exception (or, for a nested tool or resource crash, its wrapper).
+            MCPError: Raised by the tool or a resolver; passed through unchanged.
+        """
         if context is None:
-            context = Context(mcp_server=self)
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
 
     async def list_resources(self) -> list[MCPResource]:
@@ -429,24 +583,37 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def read_resource(
         self, uri: AnyUrl | str, context: Context[LifespanResultT, Any] | None = None
-    ) -> Iterable[ReadResourceContents]:
+    ) -> Iterable[ReadResourceContents] | InputRequiredResult:
         """Read a resource by URI.
+
+        An `InputRequiredResult` returned by a resource template function is
+        passed through unchanged (the 2026-07-28 multi-round-trip flow); the
+        retry's answers arrive on `ctx.input_responses`, with
+        `ctx.request_state` carrying the echoed opaque state.
 
         Raises:
             ResourceNotFoundError: If no resource or template matches the URI.
-            ResourceError: If template creation or resource reading fails.
+            ResourceError: If the resource or template function raises `ResourceError`.
+            UnexpectedResourceError: If reading the resource (or creating it from a
+                template) raises anything other than `ResourceError` or `MCPError`.
+                `__cause__` is the original exception.
+            MCPError: Raised by the resource or template function; passed through unchanged.
         """
         if context is None:
-            context = Context(mcp_server=self)
-        resource = await self._resource_manager.get_resource(uri, context)
-
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         try:
-            content = await resource.read()
+            resource = await self._resource_manager.get_resource(uri, context)
+            if isinstance(resource, InputRequiredResult):
+                return resource
+            # Checked at runtime because a Resource subclass may not honour the annotation.
+            content = cast(object, await resource.read())
+            if not isinstance(content, str | bytes):
+                raise TypeError(f"Resource.read() must return str or bytes, not {type(content).__name__}")
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
+        except (MCPError, ResourceError):
+            raise
         except Exception as exc:
-            logger.exception(f"Error getting resource {uri}")
-            # If an exception happens when reading the resource, we should not leak the exception to the client.
-            raise ResourceError(f"Error reading resource {uri}") from exc
+            raise UnexpectedResourceError(f"Error reading resource {uri}") from exc
 
     def add_tool(
         self,
@@ -592,10 +759,18 @@ class MCPServer(Generic[LifespanResultT]):
             async def handler(
                 ctx: ServerRequestContext[LifespanResultT], params: CompleteRequestParams
             ) -> CompleteResult:
-                result = await func(params.ref, params.argument, params.context)
-                return CompleteResult(
-                    completion=result if result is not None else Completion(values=[], total=None, has_more=None),
-                )
+                try:
+                    result = await func(params.ref, params.argument, params.context)
+                    return CompleteResult(
+                        completion=result if result is not None else Completion(values=[], total=None, has_more=None),
+                    )
+                except MCPError:
+                    raise
+                except Exception as exc:
+                    logger.exception("Completion for argument %r raised an unexpected exception", params.argument.name)
+                    raise MCPError(
+                        code=INTERNAL_ERROR, message=f"Error completing argument {params.argument.name}"
+                    ) from exc
 
             self._lowlevel_server.add_request_handler("completion/complete", CompleteRequestParams, handler)
             return func
@@ -621,6 +796,7 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
+        security: ResourceSecurity | None = None,
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a function as a resource.
 
@@ -628,10 +804,14 @@ class MCPServer(Generic[LifespanResultT]):
         The function can return:
         - str for text content
         - bytes for binary content
+        - an InputRequiredResult (template resources only; passed through
+          unchanged for the 2026-07-28 multi-round-trip flow — read
+          `ctx.input_responses` on the retry)
         - other types will be converted to JSON
 
-        If the URI contains parameters (e.g. "resource://{param}") or the function
-        has parameters, it will be registered as a template resource.
+        If the URI contains parameters (e.g. "resource://{param}"), it is
+        registered as a template resource. Otherwise it is registered as a
+        static resource; function parameters on a static URI raise an error.
 
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
@@ -642,6 +822,9 @@ class MCPServer(Generic[LifespanResultT]):
             icons: Optional list of icons for the resource
             annotations: Optional annotations for the resource
             meta: Optional metadata dictionary for the resource
+            security: Path-safety policy for extracted template parameters.
+                Defaults to the server's ``resource_security`` setting.
+                Only applies to template resources.
 
         Example:
             ```python
@@ -663,6 +846,15 @@ class MCPServer(Generic[LifespanResultT]):
                 data = await fetch_weather(city)
                 return f"Weather for {city}: {data}"
             ```
+
+        Raises:
+            InvalidUriTemplate: If ``uri`` is not a valid RFC 6570 template.
+            ValueError: If URI template parameters don't match the
+                function's parameters, or if a parameter bound to a
+                ``{?...}``/``{&...}`` query variable has no default
+                (the client may omit it).
+            TypeError: If the decorator is applied without being called
+                (``@resource`` instead of ``@resource("uri")``).
         """
         # Check if user passed function directly instead of calling decorator
         if callable(uri):
@@ -671,25 +863,42 @@ class MCPServer(Generic[LifespanResultT]):
                 "Did you forget to call it? Use @resource('uri') instead of @resource"
             )
 
+        # Parse once, early — surfaces malformed-template errors at
+        # decoration time with a clear position, and gives us correct
+        # variable names for all RFC 6570 operators.
+        parsed = UriTemplate.parse(uri)
+        uri_params = set(parsed.variable_names)
+
         def decorator(fn: _CallableT) -> _CallableT:
-            # Check if this should be a template
             sig = inspect.signature(fn)
-            has_uri_params = "{" in uri and "}" in uri
-            has_func_params = bool(sig.parameters)
+            context_param = find_context_parameter(fn)
+            func_params = {p for p in sig.parameters.keys() if p != context_param}
 
-            if has_uri_params or has_func_params:
-                # Check for Context parameter to exclude from validation
-                context_param = find_context_parameter(fn)
-
-                # Validate that URI params match function params (excluding context)
-                uri_params = set(re.findall(r"{(\w+)}", uri))
-                # We need to remove the context_param from the resource function if
-                # there is any.
-                func_params = {p for p in sig.parameters.keys() if p != context_param}
-
+            # Template/static is decided purely by the URI: variables
+            # present means template, none means static.
+            if uri_params:
                 if uri_params != func_params:
                     raise ValueError(
                         f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"
+                    )
+
+                # A {?...}/{&...} query variable is optional on the wire:
+                # match() omits it from the extracted parameters when the
+                # client leaves it out of the URI. The handler parameter
+                # bound to it must therefore have a Python default; without
+                # one, the author only finds out on the first request that
+                # omits it, as an opaque internal error.
+                missing_defaults = sorted(
+                    name
+                    for name in parsed.query_variable_names
+                    if sig.parameters[name].default is inspect.Parameter.empty
+                )
+                if missing_defaults:
+                    raise ValueError(
+                        f"Resource {uri!r}: query parameter(s) {missing_defaults} have no "
+                        f"default value. A client may omit a {{?...}}/{{&...}} query "
+                        f"parameter, so the matching handler parameter must declare a "
+                        f"default."
                     )
 
                 # Register as template
@@ -702,9 +911,24 @@ class MCPServer(Generic[LifespanResultT]):
                     mime_type=mime_type,
                     icons=icons,
                     annotations=annotations,
+                    security=security if security is not None else self._resource_security,
                     meta=meta,
                 )
             else:
+                if func_params:
+                    raise ValueError(
+                        f"Resource {uri!r} has no URI template variables, but the "
+                        f"handler declares parameters {func_params}. Add matching "
+                        f"{{...}} variables to the URI or remove the parameters."
+                    )
+                if context_param is not None:
+                    raise ValueError(
+                        f"Resource {uri!r} has no URI template variables, but the "
+                        f"handler declares a Context parameter. Context injection "
+                        f"for static resources is not supported. "
+                        f"Add a template variable to the URI or remove the "
+                        f"Context parameter."
+                    )
                 # Register as regular resource
                 resource = FunctionResource.from_function(
                     fn=fn,
@@ -730,6 +954,17 @@ class MCPServer(Generic[LifespanResultT]):
         """
         self._prompt_manager.add_prompt(prompt)
 
+    def remove_prompt(self, name: str) -> None:
+        """Remove a prompt from the server by name.
+
+        Args:
+            name: The name of the prompt to remove
+
+        Raises:
+            ValueError: If the prompt does not exist
+        """
+        self._prompt_manager.remove_prompt(name)
+
     def prompt(
         self,
         name: str | None = None,
@@ -738,6 +973,11 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a prompt.
+
+        The function returns the prompt messages (a string, content block, `Image`/`Audio`,
+        `Message`, dict, or a sequence of these), or an `InputRequiredResult` to request
+        client input first (the 2026-07-28 multi-round-trip flow — read
+        `ctx.input_responses` on the retry).
 
         Args:
             name: Optional name for the prompt (defaults to function name)
@@ -821,7 +1061,7 @@ class MCPServer(Generic[LifespanResultT]):
             ```
         """
 
-        def decorator(  # pragma: no cover
+        def decorator(
             func: Callable[[Request], Awaitable[Response]],
         ) -> Callable[[Request], Awaitable[Response]]:
             self._custom_starlette_routes.append(
@@ -829,7 +1069,7 @@ class MCPServer(Generic[LifespanResultT]):
             )
             return func
 
-        return decorator  # pragma: no cover
+        return decorator
 
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
@@ -847,6 +1087,7 @@ class MCPServer(Generic[LifespanResultT]):
         port: int = 8000,
         sse_path: str = "/sse",
         message_path: str = "/messages/",
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
         """Run the server using SSE transport."""
@@ -855,6 +1096,7 @@ class MCPServer(Generic[LifespanResultT]):
         starlette_app = self.sse_app(
             sse_path=sse_path,
             message_path=message_path,
+            max_request_body_size=max_request_body_size,
             transport_security=transport_security,
             host=host,
         )
@@ -878,6 +1120,9 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
+        session_idle_timeout: float | None = DEFAULT_SESSION_IDLE_TIMEOUT,
+        max_sessions: int | None = DEFAULT_MAX_SESSIONS,
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
         """Run the server using StreamableHTTP transport."""
@@ -889,6 +1134,9 @@ class MCPServer(Generic[LifespanResultT]):
             stateless_http=stateless_http,
             event_store=event_store,
             retry_interval=retry_interval,
+            max_request_body_size=max_request_body_size,
+            session_idle_timeout=session_idle_timeout,
+            max_sessions=max_sessions,
             transport_security=transport_security,
             host=host,
         )
@@ -907,6 +1155,7 @@ class MCPServer(Generic[LifespanResultT]):
         *,
         sse_path: str = "/sse",
         message_path: str = "/messages/",
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
@@ -919,7 +1168,9 @@ class MCPServer(Generic[LifespanResultT]):
                 allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
             )
 
-        sse = SseServerTransport(message_path, security_settings=transport_security)
+        sse = SseServerTransport(
+            message_path, security_settings=transport_security, max_request_body_size=max_request_body_size
+        )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available
@@ -945,7 +1196,12 @@ class MCPServer(Generic[LifespanResultT]):
                     # extract auth info from request (but do not require it)
                     Middleware(
                         AuthenticationMiddleware,
-                        backend=BearerAuthBackend(self._token_verifier),
+                        backend=BearerAuthBackend(
+                            self._token_verifier,
+                            resource_server_url=self.settings.auth.resource_server_url
+                            if self.settings.auth.validate_token_resource
+                            else None,
+                        ),
                     ),
                     # Add the auth context middleware to store
                     # authenticated user in a contextvar
@@ -963,6 +1219,7 @@ class MCPServer(Generic[LifespanResultT]):
                         service_documentation_url=self.settings.auth.service_documentation_url,
                         client_registration_options=self.settings.auth.client_registration_options,
                         revocation_options=self.settings.auth.revocation_options,
+                        identity_assertion_enabled=self.settings.auth.identity_assertion_enabled,
                     )
                 )
 
@@ -1036,6 +1293,9 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
+        session_idle_timeout: float | None = DEFAULT_SESSION_IDLE_TIMEOUT,
+        max_sessions: int | None = DEFAULT_MAX_SESSIONS,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
@@ -1046,6 +1306,9 @@ class MCPServer(Generic[LifespanResultT]):
             stateless_http=stateless_http,
             event_store=event_store,
             retry_interval=retry_interval,
+            max_request_body_size=max_request_body_size,
+            session_idle_timeout=session_idle_timeout,
+            max_sessions=max_sessions,
             transport_security=transport_security,
             host=host,
             auth=self.settings.auth,
@@ -1078,21 +1341,83 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def get_prompt(
         self, name: str, arguments: dict[str, Any] | None = None, context: Context[LifespanResultT, Any] | None = None
-    ) -> GetPromptResult:
-        """Get a prompt by name with arguments."""
+    ) -> GetPromptResult | InputRequiredResult:
+        """Get a prompt by name with arguments.
+
+        An `InputRequiredResult` returned by the prompt function is passed
+        through unchanged (the 2026-07-28 multi-round-trip flow); the retry's
+        answers arrive on `ctx.input_responses`, with `ctx.request_state`
+        carrying the echoed opaque state.
+
+        Raises:
+            MCPError: If the prompt name is unknown or a required argument is missing,
+                with code `INVALID_PARAMS`, or if the prompt function raises it.
+            ValueError: If rendering fails.
+        """
         if context is None:
-            context = Context(mcp_server=self)
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:
-                raise ValueError(f"Unknown prompt: {name}")
+                raise MCPError(code=INVALID_PARAMS, message=f"Unknown prompt: {name}")
 
-            messages = await prompt.render(arguments, context)
+            rendered = await prompt.render(arguments, context)
+            if isinstance(rendered, InputRequiredResult):
+                return rendered
 
             return GetPromptResult(
                 description=prompt.description,
-                messages=pydantic_core.to_jsonable_python(messages),
+                messages=pydantic_core.to_jsonable_python(rendered),
             )
+        except MCPError:
+            raise
         except Exception as e:
-            logger.exception(f"Error getting prompt {name}")
+            # Not logged here: the dispatcher boundary logs it once.
             raise ValueError(str(e)) from e
+
+
+def _version_gated(method: MethodBinding) -> RequestHandler:
+    """Wrap a method handler so a request at a disallowed protocol version is rejected.
+
+    The low-level `_request_handlers` dict is keyed by method only, so per-version
+    scoping is enforced here rather than at the runner's boundary table.
+    """
+    versions = method.protocol_versions
+    assert versions is not None
+
+    async def gated(ctx: ServerRequestContext[Any, Any], params: Any) -> HandlerResult:
+        if ctx.protocol_version not in versions:
+            raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method.method)
+        return await method.handler(ctx, params)
+
+    return gated
+
+
+def require_client_extension(ctx: ServerRequestContext[Any, Any], identifier: str) -> None:
+    """Assert the connected client declared support for `identifier`.
+
+    Call this from an extension's handler or `intercept_tool_call` before
+    offering extension-specific behaviour. Raises `MCPError` with the
+    `-32021` (missing required client capability) code and a
+    `requiredCapabilities` payload when the client did not declare the
+    extension, per SEP-2133.
+
+    Args:
+        ctx: The current request context.
+        identifier: The extension identifier the client must have declared.
+
+    Raises:
+        MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` if the client
+            did not advertise `identifier`.
+    """
+    capabilities = ctx.session.client_capabilities
+    declared = capabilities.extensions if capabilities else None
+    if not declared or identifier not in declared:
+        data = MissingRequiredClientCapabilityErrorData(
+            required_capabilities=ClientCapabilities(extensions={identifier: {}})
+        )
+        raise MCPError(
+            code=MISSING_REQUIRED_CLIENT_CAPABILITY,
+            message=f"Client did not declare required extension {identifier!r}",
+            data=data.model_dump(by_alias=True, mode="json", exclude_none=True),
+        )

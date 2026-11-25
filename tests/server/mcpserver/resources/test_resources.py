@@ -1,8 +1,8 @@
 import pytest
+from mcp_types import Annotations
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.resources import FunctionResource, Resource
-from mcp.types import Annotations
 
 
 class TestResourceValidation:

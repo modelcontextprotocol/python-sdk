@@ -11,22 +11,21 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, TypeAlias
+from typing import Any, Literal, Self, TypeAlias, overload
 
 import anyio
-import httpx
+import httpx2
+import mcp_types as types
 from pydantic import BaseModel, Field
-from typing_extensions import Self
 
 import mcp
-from mcp import types
 from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
-from mcp.client.streamable_http import streamable_http_client
+from mcp.client.streamable_http import DEFAULT_MAX_SSE_EVENT_SIZE, streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared.dispatcher import ProgressFnT
 from mcp.shared.exceptions import MCPError
-from mcp.shared.session import ProgressFnT
 
 
 class SseServerParameters(BaseModel):
@@ -62,6 +61,9 @@ class StreamableHttpParameters(BaseModel):
 
     # Close the client session when the transport closes.
     terminate_on_close: bool = True
+
+    # Maximum bytes in one server-sent event. None disables the limit.
+    max_sse_event_size: int | None = Field(default=DEFAULT_MAX_SSE_EVENT_SIZE, gt=0)
 
 
 ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
@@ -190,6 +192,7 @@ class ClientSessionGroup:
         """Returns the tools as a dictionary of names to tools."""
         return self._tools
 
+    @overload
     async def call_tool(
         self,
         name: str,
@@ -197,9 +200,44 @@ class ClientSessionGroup:
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
         meta: types.RequestParamsMeta | None = None,
-    ) -> types.CallToolResult:
-        """Executes a tool given its name and arguments."""
+        allow_input_required: Literal[False] = False,
+    ) -> types.CallToolResult: ...
+
+    @overload
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: types.RequestParamsMeta | None = None,
+        allow_input_required: bool,
+    ) -> types.CallToolResult | types.InputRequiredResult: ...
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: types.RequestParamsMeta | None = None,
+        allow_input_required: bool = False,
+    ) -> types.CallToolResult | types.InputRequiredResult:
+        """Executes a tool given its name and arguments.
+
+        Raises:
+            RuntimeError: If the server returns an `InputRequiredResult` and
+                ``allow_input_required`` is ``False``.
+        """
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
         return await session.call_tool(
@@ -207,7 +245,10 @@ class ClientSessionGroup:
             arguments=arguments,
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
+            input_responses=input_responses,
+            request_state=request_state,
             meta=meta,
+            allow_input_required=allow_input_required,
         )
 
     async def disconnect_from_server(self, session: mcp.ClientSession) -> None:
@@ -285,7 +326,7 @@ class ClientSessionGroup:
             else:
                 httpx_client = create_mcp_http_client(
                     headers=server_params.headers,
-                    timeout=httpx.Timeout(
+                    timeout=httpx2.Timeout(
                         server_params.timeout,
                         read=server_params.sse_read_timeout,
                     ),
@@ -296,6 +337,7 @@ class ClientSessionGroup:
                     url=server_params.url,
                     http_client=httpx_client,
                     terminate_on_close=server_params.terminate_on_close,
+                    max_sse_event_size=server_params.max_sse_event_size,
                 )
                 read, write = await session_stack.enter_async_context(client)
 

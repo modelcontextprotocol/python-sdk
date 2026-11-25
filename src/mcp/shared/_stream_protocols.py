@@ -7,9 +7,7 @@ These are general-purpose protocols satisfied by both ``MemoryObjectSendStream``
 from __future__ import annotations
 
 from types import TracebackType
-from typing import Protocol, TypeVar
-
-from typing_extensions import Self
+from typing import Protocol, Self, TypeVar
 
 T_co = TypeVar("T_co", covariant=True)
 T_contra = TypeVar("T_contra", contravariant=True)

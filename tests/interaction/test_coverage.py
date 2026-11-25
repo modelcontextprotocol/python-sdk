@@ -14,9 +14,9 @@ from types import ModuleType
 from typing import cast
 
 import pytest
+from mcp_types import LATEST_PROTOCOL_VERSION
+from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 
-from mcp.shared.version import KNOWN_PROTOCOL_VERSIONS
-from mcp.types import LATEST_PROTOCOL_VERSION
 from tests.interaction._requirements import (
     CONNECTABLE_TRANSPORTS,
     REQUIREMENTS,
@@ -301,6 +301,7 @@ def test_compute_cells_drops_era_locked_transport_outside_its_versions() -> None
         "sse-2025-11-25",
         "streamable-http-2025-11-25",
         "streamable-http-stateless-2025-11-25",
+        "in-memory-2026-07-28",
         "streamable-http-2026-07-28",
     ]
 

@@ -1,0 +1,123 @@
+---
+translation:
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2e9aff14d3a882c0]
+  tool: 1
+---
+# Progress {#progress}
+
+जो tool तीस सेकंड लेता है और तीस सेकंड तक कुछ नहीं बोलता, वह टूटा हुआ लगता है।
+
+**Progress notifications** इसे ठीक करते हैं। Tool बताता है कि काम कितना हो चुका है; client तय करता है कि उससे क्या दिखाए: bar, spinner, या log line।
+
+## Tool से report करें {#report-it-from-the-tool}
+
+एक **`Context`** parameter लें और `report_progress` call करें:
+
+```python title="server.py" hl_lines="8 11"
+--8<-- "docs_src/progress/tutorial001.py"
+```
+
+तीन arguments, और उनका मतलब आप तय करते हैं:
+
+* `progress`: आप कहाँ तक पहुँचे हैं। Spec की माँग है कि यह हर report के साथ **बढ़े**; कोई value न दोहराएँ, न पीछे जाएँ।
+* `total`: कुल कितना है, अगर आपको पता हो। Optional।
+* `message`: **इसी** चरण के बारे में एक human-readable line। Optional।
+
+`ctx` अपने type hint की वजह से inject होता है और model इसे कभी नहीं देखता: `import_catalog` के input schema में सिर्फ़ एक property है, `urls`। **[Context](context.md)** page पूरी तरह उसी object के बारे में है; progress उन चीज़ों में से एक है जो वह आपको देता है।
+
+## Client से सुनें {#listen-for-it-from-the-client}
+
+client **हर call पर** अलग से opt in करता है, `call_tool` को `progress_callback=` देकर:
+
+```python title="client.py" hl_lines="5 14"
+import anyio
+from mcp import Client
+
+
+async def show(progress: float, total: float | None, message: str | None) -> None:
+    print(f"{message} ({progress}/{total})")
+
+
+async def main() -> None:
+    async with Client("http://localhost:8000/mcp") as client:
+        result = await client.call_tool(
+            "import_catalog",
+            {"urls": ["https://example.com/a.json", "https://example.com/b.json"]},
+            progress_callback=show,
+        )
+    print(result.structured_content)
+
+
+anyio.run(main)
+```
+
+callback एक `async` function है जो ठीक वही लेता है जो server ने report किया: `progress`, `total`, `message`।
+
+!!! info
+    `Client` को आपने चाहे जो भी दिया हो, `progress_callback` parameter वही रहता है: यहाँ की तरह
+    URL, कोई `StdioServerParameters`, या test में server object। हाँ, असली transport पर timing का
+    ध्यान रखें। हर notification अपने आप में अलग, response के साथ-साथ पहुँचता है, इसलिए एक धीमा
+    callback `call_tool` के लौटने के बाद भी चल रहा हो सकता है। सिर्फ़ in-process test connection
+    ही callback को inline चलाता है और यह पक्का करता है कि हर report पहले पहुँचे।
+
+### इसे आज़माएँ {#try-it}
+
+`server.py` को HTTP पर serve करें, फिर दूसरे terminal से client चलाएँ:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+Imported https://example.com/a.json (1.0/2.0)
+Imported https://example.com/b.json (2.0/2.0)
+{'result': 'Imported 2 records.'}
+```
+
+server पर हर `await ctx.report_progress(...)` client पर `show` का एक call बना, उसी क्रम में। progress result में समेटकर नहीं भेजा जाता। वह tool के काम करते रहने के दौरान ही stream होता है।
+
+!!! warning
+    `progress_callback` **call** का है, `Client` का नहीं। इसके लिए कोई constructor argument नहीं है,
+    क्योंकि अलग-अलग calls को अलग-अलग callbacks चाहिए: एक download bar चलाता है, अगला
+    एक log line।
+
+!!! check
+    अब `progress_callback=show` हटा दें और फिर से चलाएँ:
+
+    ```text
+    {'result': 'Imported 2 records.'}
+    ```
+
+    कोई error नहीं, कोई warning नहीं, वही result। जब caller ने progress नहीं माँगा हो तब
+    `report_progress` **no-op** है, इसलिए आप बिना शर्त report करें और कभी यह सोचने की ज़रूरत नहीं
+    कि कोई सुन भी रहा है या नहीं।
+
+## जब total पता न हो {#when-you-dont-know-the-total}
+
+`total` तब के लिए है जब आपको denominator पता हो। अक्सर नहीं होता: आप कोई feed खाली कर रहे हैं, cursor पर चल रहे हैं, बिना length header वाली कोई चीज़ download कर रहे हैं।
+
+इसे छोड़ दें:
+
+```python title="server.py" hl_lines="20"
+--8<-- "docs_src/progress/tutorial002.py"
+```
+
+Callback को `total=None` मिलता है। Client अब भी **activity** दिखा सकता है ("3 imported so far..."), लेकिन percentage नहीं दिखा सकता। ज़्यादा सुंदर bar पाने के लिए कोई total न गढ़ें।
+
+!!! tip
+    ज़रूरी नहीं कि `progress` किसी ख़ास चीज़ को गिने। Bytes, rows, pages: वह unit चुनें जिसे
+    user पहचाने, और सिर्फ़ वही `total` वादा करें जिसे आप निभा सकें।
+
+## सारांश {#recap}
+
+* `Context` लेने वाले किसी भी tool से `await ctx.report_progress(progress, total=None, message=None)`।
+* client `call_tool` को `progress_callback=` देता है: हर call पर, कभी `Client` पर नहीं।
+* callback `async (progress, total, message) -> None` है और tool के चलते रहने के दौरान ही fire होता है।
+* call पर callback न हो तो `report_progress` कुछ नहीं करता। बिना शर्त report करें।
+* जब `total` पता न हो तो उसे छोड़ दें; callback को `None` मिलता है।
+
+progress उस client के लिए है जो अब भी इंतज़ार कर रहा है। client के इंतज़ार करना छोड़ देने पर आपके tool को जो दिखता है, वह **[Cancellation](cancellation.md)** है।

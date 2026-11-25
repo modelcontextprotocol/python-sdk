@@ -1,0 +1,187 @@
+name: Docs Preview
+
+# Builds the docs site for a PR and deploys it to Cloudflare Pages.
+#
+# Security: the build executes Python from the PR (mkdocstrings imports
+# src/mcp, `!!python/name:` config directives run, and heads may ship their
+# own build scripts). The build is gated by `authorize` (admin sender on a
+# same-repo branch for auto-preview, admin/maintainer commenter for
+# /preview-docs) and isolated from Cloudflare secrets — `build` runs PR code
+# with no secrets and hands the static site to `deploy` via an artifact, so
+# PR code never shares a runner with the Cloudflare token. Fork PRs get no
+# automatic preview: actions/checkout refuses to fetch a fork's head in a
+# pull_request_target run, so a maintainer requests one with /preview-docs,
+# which runs under issue_comment with the same gating and isolation.
+# `authorize` and `comment` run .github/scripts/docs_preview.js, checked out
+# from the default branch only; those two checkouts must never take a `ref:`.
+#
+# Required configuration:
+#   - secrets.CLOUDFLARE_API_TOKEN   (scope: Account → Cloudflare Pages → Edit)
+#   - secrets.CLOUDFLARE_ACCOUNT_ID
+#   - vars.CLOUDFLARE_PAGES_PROJECT  (existing Pages project, e.g. mcp-python-sdk-docs)
+
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] build is permission-gated and secret-isolated; see header comment
+    types: [opened, reopened, synchronize]
+    paths:
+      - docs/**
+      - docs_src/**
+      - i18n/**
+      - mkdocs.yml
+      - scripts/docs/**
+      - pyproject.toml
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  # Workflow-level concurrency is evaluated when the run is queued — before any
+  # job-level `if:` — so an unrelated PR comment would otherwise cancel an
+  # in-flight build. Only runs that actually produce a preview share a group;
+  # everything else falls through to a unique run_id group.
+  group: >-
+    docs-preview-pr-${{
+      github.event_name == 'pull_request_target' && github.event.pull_request.number
+      || (github.event.issue.pull_request && startsWith(github.event.comment.body, '/preview-docs') && github.event.issue.number)
+      || github.run_id
+    }}
+  cancel-in-progress: true
+
+jobs:
+  authorize:
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request && startsWith(github.event.comment.body, '/preview-docs'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      authorized: ${{ steps.check.outputs.authorized }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+      head_sha: ${{ steps.check.outputs.head_sha }}
+      slash_attempt: ${{ steps.check.outputs.slash_attempt }}
+    steps:
+      - name: Check out the scripts (default branch)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No `ref:` here, ever: this job trusts what it checks out (see header).
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - name: Determine authorization
+        id: check
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { authorize } = require('./.github/scripts/docs_preview.js');
+            await authorize({ github, context, core });
+
+  build:
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.authorize.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          # Keep the untrusted build away from the shared Actions cache. GitHub
+          # already limits pull_request_target and issue_comment runs to
+          # read-only access in the default branch's cache scope, so this is
+          # defence in depth (and avoids a refused save in the post step).
+          # Mirrors publish-pypi.yml.
+          enable-cache: false
+          version: 0.12.24
+
+      # Both triggers run this workflow file from the default branch (whatever
+      # the PR targets), so the whole recipe — dependency sync included — must
+      # come from the checkout itself: heads that ship scripts/docs/build.sh
+      # (the Zensical toolchain) build with it; older heads and v1.x heads still
+      # build with MkDocs. Both arms must write the site to site/. Keep the
+      # detection in sync with build_site() in scripts/build-docs.sh.
+      - run: |
+          if [ -f scripts/docs/build.sh ]; then
+            bash scripts/docs/build.sh
+          else
+            uv sync --frozen --group docs
+            # The env var silences mkdocs-material's MkDocs 2.0 warning banner.
+            NO_MKDOCS_2_WARNING=1 uv run --frozen --no-sync mkdocs build
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site
+          path: site/
+          retention-days: 1
+          # An empty site/ means the build arm broke its output contract; fail
+          # here instead of surfacing as a confusing download error in deploy.
+          if-no-files-found: error
+
+  deploy:
+    needs: [authorize, build]
+    if: needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      deployment_url: ${{ steps.wrangler.outputs.deployment-url }}
+      alias_url: ${{ steps.wrangler.outputs.pages-deployment-alias-url }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: site
+
+      - name: Deploy to Cloudflare Pages
+        id: wrangler
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: npm
+          command: >-
+            pages deploy ./site
+            --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+            --branch=pr-${{ needs.authorize.outputs.pr_number }}
+            --commit-hash=${{ needs.authorize.outputs.head_sha }}
+            --commit-dirty=true
+
+  comment:
+    needs: [authorize, build, deploy]
+    if: >-
+      always() &&
+      needs.deploy.result != 'cancelled' &&
+      (needs.authorize.outputs.authorized == 'true' || needs.authorize.outputs.slash_attempt == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # check out the script from the default branch
+      pull-requests: write
+    steps:
+      - name: Check out the scripts (default branch)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No `ref:` here, ever: this job trusts what it checks out (see header).
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - name: Post or update preview comment
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          AUTHORIZED: ${{ needs.authorize.outputs.authorized }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          DEPLOYMENT_URL: ${{ needs.deploy.outputs.deployment_url }}
+          ALIAS_URL: ${{ needs.deploy.outputs.alias_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const { comment } = require('./.github/scripts/docs_preview.js');
+            await comment({ github, context, core });

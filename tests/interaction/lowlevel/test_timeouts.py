@@ -9,21 +9,27 @@ cancellation reason these tests snapshot.)
 """
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import REQUEST_TIMEOUT, CallToolResult, ErrorData, JSONRPCNotification, TextContent
 from trio.testing import MockClock
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.message import SessionMessage
-from mcp.types import REQUEST_TIMEOUT, CallToolResult, ErrorData, JSONRPCNotification, TextContent
 from tests.interaction._helpers import RecordingTransport
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`."""
 
 
 @requirement("protocol:timeout:basic")
@@ -48,7 +54,7 @@ async def test_request_timeout_fails_the_pending_call() -> None:
 
     server = Server("blocker", on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("block", {}, read_timeout_seconds=0.000001)
 
@@ -106,7 +112,7 @@ async def test_server_request_timeout_sends_cancellation_to_the_client() -> None
             await release.wait()
         return types.CreateMessageResult(role="assistant", content=TextContent(text="too late"), model="test-model")
 
-    async with Client(recording, sampling_callback=sampling_callback) as client:
+    async with Client(recording, mode="legacy", sampling_callback=sampling_callback) as client:
         result = await client.call_tool("impatient", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="gave up")]))
@@ -147,7 +153,7 @@ async def test_session_serves_requests_after_timeout() -> None:
 
     server = Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         with pytest.raises(MCPError):
             await client.call_tool("block", {}, read_timeout_seconds=0.000001)
 
@@ -179,7 +185,7 @@ async def test_session_level_timeout_applies_to_every_request() -> None:
 
     server = Server("blocker", on_call_tool=call_tool)
 
-    async with Client(server, read_timeout_seconds=0.05) as client:
+    async with Client(server, mode="legacy", read_timeout_seconds=0.05) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("block", {})
 

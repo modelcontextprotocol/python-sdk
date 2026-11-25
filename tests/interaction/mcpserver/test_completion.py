@@ -1,9 +1,7 @@
 """Completion behaviour against MCPServer, driven through the public Client API."""
 
 import pytest
-
-from mcp.server.mcpserver import MCPServer
-from mcp.types import (
+from mcp_types import (
     Completion,
     CompletionArgument,
     CompletionContext,
@@ -11,6 +9,8 @@ from mcp.types import (
     PromptReference,
     ResourceTemplateReference,
 )
+
+from mcp.server.mcpserver import MCPServer
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -32,7 +32,7 @@ async def test_completion_capability_is_advertised_only_when_a_handler_is_regist
         raise NotImplementedError
 
     async with connect(with_handler) as client:
-        assert client.initialize_result.capabilities.completions == CompletionsCapability()
+        assert client.server_capabilities.completions == CompletionsCapability()
 
     async with connect(MCPServer("plain")) as client:
-        assert client.initialize_result.capabilities.completions is None
+        assert client.server_capabilities.completions is None

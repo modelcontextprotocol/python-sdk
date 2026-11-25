@@ -1,0 +1,209 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "工具",
+      "note": "MCP protocol noun (a server exposes tools). Wire identifiers such as `tools/call` and `tools/list` are code and stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "resource",
+      "target": "资源",
+      "note": "MCP protocol noun; \"resource template\" → 资源模板. `resources/read` stays Latin. Provisional pending native review."
+    },
+    {
+      "source": "prompt",
+      "target": "提示词",
+      "note": "The MCP feature: a reusable prompt a server exposes (`prompts/get` stays Latin). Not the bare 提示, which reads as \"hint\" and is the standard rendering of the `tip` admonition title. Provisional pending native review."
+    },
+    {
+      "source": "sampling",
+      "target": "采样",
+      "note": "The (deprecated) client feature that lets a server borrow the client's model. Gloss the English on first use per page: 采样（sampling）. The `sampling` capability key and `sampling/createMessage` stay Latin. 抽样/取样 mean statistical sampling and are the wrong sense here.",
+      "avoid": ["抽样", "取样"]
+    },
+    {
+      "source": "roots",
+      "target": "根目录",
+      "note": "The (deprecated) client feature listing workspace folders; a `Root` object in code font stays Latin. Gloss the English on first use per page: 根目录（roots）. Never the bare 根 and never 根节点 (a tree node). Provisional pending native review.",
+      "avoid": ["根节点"]
+    },
+    {
+      "source": "elicitation",
+      "target": "征询",
+      "note": "OPEN QUESTION for native review: existing Chinese material renders this concept as 引导, 引导获取, 询问 or 征询, and even our own drafts disagree between 征询 and 引导. Provisionally pinned to 征询, glossed with the English on first use per page: 征询（elicitation）. Use it consistently within a page whichever way the review settles. `elicitation/create` and the `Elicit` class stay Latin."
+    },
+    {
+      "source": "capability",
+      "target": "能力",
+      "note": "A negotiated protocol capability (声明了 `sampling` 能力). The `capabilities` field and keys such as `sampling.tools` stay Latin. Not 功能, which means \"feature\" — the corpus uses \"feature\" as a separate word. Provisional pending native review."
+    },
+    {
+      "source": "transport",
+      "target": "传输",
+      "note": "As a countable noun use 传输方式 (\"three transports\" → 三种传输方式). The transport names stdio, Streamable HTTP and SSE stay in English. Provisional pending native review."
+    },
+    {
+      "source": "session",
+      "target": "会话",
+      "note": "An MCP session (the negotiated connection state); `session` objects in code font stay Latin. Not 会议 (a meeting). Provisional pending native review.",
+      "avoid": ["会议"]
+    },
+    {
+      "source": "handler",
+      "target": "处理函数",
+      "note": "The tool, resource or prompt function you register (nav section \"Inside your handler\" → 在处理函数内部). Open question for native review: 处理器 is the competing rendering; pick one and never mix within a page. Provisional."
+    },
+    {
+      "source": "dependency",
+      "target": "依赖",
+      "note": "The SDK's dependency-injection feature (the \"Dependencies\" page); use 依赖项 where a countable noun is needed. The `Resolve` marker class stays Latin. Provisional pending native review."
+    },
+    {
+      "source": "client",
+      "target": "客户端",
+      "note": "An MCP client, and the client side of a connection. The `Client` class name stays Latin in code font. Not 客户 (a customer). Provisional pending native review."
+    },
+    {
+      "source": "server",
+      "target": "服务器",
+      "note": "An MCP server (the program you build). \"server-side\" → 服务器端. The low-level `Server` class stays Latin in code font. Not 伺服器 (the zh-TW term); do not mix in 服务端 for the same noun. Provisional pending native review.",
+      "avoid": ["伺服器"]
+    },
+    {
+      "source": "host",
+      "target": "宿主",
+      "note": "The MCP host: the application that embeds the client and drives the model. Not 主机 (a machine or hostname). Provisional pending native review."
+    },
+    {
+      "source": "resolver",
+      "target": "解析器",
+      "note": "The SDK's dependency-resolver mechanism (\"an elicitation resolver\" → elicitation 解析器 in glossary terms: 征询解析器). The `Resolve` class stays Latin. Provisional pending native review, together with the handler entry."
+    },
+    {
+      "source": "lifespan",
+      "target": "生命周期",
+      "note": "The server's startup/shutdown scope (the \"Lifespan\" page). The `lifespan` parameter name stays Latin in code font. 寿命 is the biological sense and is wrong here. Provisional pending native review."
+    },
+    {
+      "source": "callback",
+      "target": "回调",
+      "note": "Client callbacks; parameter names such as `sampling_callback` stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "notification",
+      "target": "通知",
+      "note": "A JSON-RPC notification (a message that expects no response); method strings such as `notifications/tools/list_changed` stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "back-channel",
+      "target": "反向通道",
+      "note": "The server-to-client request channel that exists only on 2025-era, non-stateless connections. Provisional coinage: gloss the English on first use per page — 反向通道（back-channel）. Pending native review."
+    },
+    {
+      "source": "wire",
+      "target": "线路",
+      "note": "The corpus's light metaphor for the transport stream (\"on the wire\" → 在线路上; \"nothing changes on the wire\" → 线路上没有任何变化). Never 电线 (a physical cable). Provisional pending native review.",
+      "avoid": ["电线"]
+    },
+    {
+      "source": "deprecated",
+      "target": "已弃用",
+      "note": "Also \"deprecation warning\" → 弃用警告 and \"X is deprecated\" → X 已弃用. Pin the 弃用 family throughout; do not switch to 废弃 or 淘汰 for the same concept. Provisional pending native review."
+    },
+    {
+      "source": "context",
+      "target": "上下文",
+      "note": "The generic lower-case word (\"provide context to LLMs\" → 为 LLM 提供上下文). The capitalised `Context` is the SDK object injected as `ctx`; both are on the keep list and stay in English in prose (\"The Context\" → Context). Provisional pending native review."
+    },
+    {
+      "source": "multi-round-trip",
+      "target": "多轮往返",
+      "note": "The 2026-07-28 request pattern (\"Multi-round-trip requests\" → 多轮往返请求); \"round-trip\" alone → 往返. Provisional coinage: gloss the English on first use per page — 多轮往返（multi-round-trip）. Pending native review."
+    },
+    {
+      "source": "you",
+      "target": "你",
+      "note": "The register rule from instructions.md made machine-checkable: 您 must never appear on a page. Prefer dropping the pronoun; when one is needed it is 你.",
+      "avoid": ["您"]
+    },
+    {
+      "source": "Get started",
+      "target": "快速开始",
+      "note": "The nav section that opens the guide, and the title of its index page. \"First steps\" is a separate page inside that section (第一步), so the two need distinct renderings or the sidebar shows the same title twice. Provisional pending native review. 入门 is the alternative for the section."
+    },
+    {
+      "source": "First steps",
+      "target": "第一步",
+      "note": "The tutorial page inside the \"Get started\" section; never reuse this rendering for the section itself (see that entry). Provisional pending native review."
+    },
+    {
+      "source": "Recap",
+      "target": "回顾",
+      "note": "Recurring section heading that closes most pages; one rendering everywhere, not 回顾 on some pages and 小结 on others. Provisional pending native review."
+    },
+    {
+      "source": "Try it",
+      "target": "试一试",
+      "note": "Recurring section heading above a runnable example; one rendering everywhere. Provisional pending native review."
+    }
+  ]
+}

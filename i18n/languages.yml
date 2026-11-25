@@ -1,0 +1,52 @@
+# One entry per translated site. English is the source at docs/.
+model: claude-opus-5 # public model id; used for every translation call
+exclude: [migration.md] # nav pages never translated (exact path or "dir/**")
+languages:
+  - code: de # directory under i18n/ and URL prefix /de/
+    name: Deutsch # switcher label (shown as "de - Deutsch")
+    theme: de # theme `language` (UI strings, search)
+    hreflang: de # announced in <link rel="alternate">
+  - code: es
+    name: español
+    theme: es
+    hreflang: es
+  - code: fr
+    name: français
+    theme: fr
+    hreflang: fr
+  - code: hi
+    name: हिन्दी
+    theme: hi
+    hreflang: hi
+  - code: ja
+    name: 日本語
+    theme: ja
+    hreflang: ja
+  - code: ko
+    name: 한국어
+    theme: ko
+    hreflang: ko
+  - code: pt # Brazilian Portuguese
+    name: português (Brasil)
+    theme: pt-BR
+    hreflang: pt
+  - code: ru
+    name: русский язык
+    theme: ru
+    hreflang: ru
+  - code: tr
+    name: Türkçe
+    theme: tr
+    hreflang: tr
+  - code: uk
+    name: українська мова
+    theme: uk
+    hreflang: uk
+  - code: zh
+    name: 简体中文
+    theme: zh
+    hreflang: zh-Hans
+  - code: zh-hant
+    name: 繁體中文
+    theme: zh-Hant
+    hreflang: zh-Hant

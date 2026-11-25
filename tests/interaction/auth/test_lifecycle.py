@@ -11,15 +11,16 @@ from collections import Counter
 from urllib.parse import parse_qsl, urlsplit
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import INTERNAL_ERROR, ListToolsResult, Tool
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
-from mcp.types import INTERNAL_ERROR, ListToolsResult, Tool
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -132,6 +133,31 @@ async def test_an_expired_access_token_is_transparently_refreshed_before_the_nex
     assert storage.tokens is not None
     assert f"Bearer {storage.tokens.access_token}" in bearers
     assert storage.tokens.expires_in == 3600
+
+
+@requirement("client-auth:refresh:transparent")
+async def test_a_refreshed_access_token_is_still_accepted_when_the_server_validates_token_resource() -> None:
+    """With `AuthSettings.validate_token_resource` on, the access token minted by the refresh grant
+    still passes the gate: the provider carries the original grant's resource on `RefreshToken` and
+    onto the refreshed `AccessToken` (SDK-defined propagation), so the request after the refresh is
+    served rather than answered 401."""
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider(issue_expired_first=True)
+    server = Server("guarded", on_list_tools=list_tools)
+    settings = auth_settings(validate_token_resource=True)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, settings=settings, on_request=on_request) as (
+            client,
+            _,
+        ):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+    assert [form_body(r)["grant_type"] for r in find(recorded, "POST", "/token")] == snapshot(
+        ["authorization_code", "refresh_token"]
+    )
+    assert {t.resource for t in provider.access_tokens.values()} == {f"{BASE_URL}/mcp"}
 
 
 @requirement("client-auth:403-scope-upgrade")
@@ -371,7 +397,8 @@ async def test_client_credentials_provider_obtains_a_token_without_an_authorize_
         storage=InMemoryTokenStorage(),
         client_id="m2m-client",
         client_secret="m2m-secret",
-        scopes="mcp",
+        scope="mcp",
+        issuer=BASE_URL,
     )
 
     with anyio.fail_after(5):
@@ -422,7 +449,8 @@ async def test_private_key_jwt_provider_authenticates_the_token_request_with_an_
         storage=InMemoryTokenStorage(),
         client_id="m2m-jwt-client",
         assertion_provider=assertion_provider,
-        scopes="mcp",
+        scope="mcp",
+        issuer=BASE_URL,
     )
 
     with anyio.fail_after(5):

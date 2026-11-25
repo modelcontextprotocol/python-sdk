@@ -1,0 +1,205 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "JSON Schema",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "도구",
+      "note": "MCP primitive: an action the model chooses and calls. The wire identifiers `tools/call` and `tools/list` and any code identifiers stay in Latin script inside code font; not the colloquial 툴. Provisional pending native review."
+    },
+    {
+      "source": "resource",
+      "target": "리소스",
+      "note": "MCP primitive: read-only data the application reads. `resources/read` and other identifiers stay Latin in code font. Provisional pending native review; 자원 is the general system-resources word and is avoided here."
+    },
+    {
+      "source": "prompt",
+      "target": "프롬프트",
+      "note": "Both the MCP primitive (a message template a person invokes) and the general LLM sense; 프롬프트 in both. Provisional pending native review."
+    },
+    {
+      "source": "sampling",
+      "target": "샘플링",
+      "note": "MCP feature where the server asks the client's model for a completion; not the statistics sense (표본 추출). Provisional pending native review.",
+      "avoid": ["표본 추출", "표집"]
+    },
+    {
+      "source": "roots",
+      "target": "루트",
+      "note": "Filesystem locations the client exposes. No plural marker (write 루트, not 루트들); the `roots/list` identifier stays Latin. Target provisional pending native review; 뿌리 (the botanical root) is never correct here.",
+      "avoid": ["뿌리"]
+    },
+    {
+      "source": "elicitation",
+      "target": "엘리시테이션",
+      "note": "Transliteration; write 엘리시테이션(elicitation) at the first occurrence on a page, 엘리시테이션 alone afterwards. The verb \"elicit\" in prose is 사용자에게 입력을 요청하다; `ctx.elicit(...)` stays code. Provisional pending native review — the least settled term in this file; 유도 is the candidate alternative to confirm against, so it is noted here rather than banned; 도출 is not a candidate."
+    },
+    {
+      "source": "capability",
+      "target": "기능",
+      "note": "A negotiated protocol feature (\"capability negotiation\" → 기능 협상), not 역량 or 능력; the `capabilities` wire field and `client.server_capabilities` stay Latin in code. Provisional pending native review — 기능 doubles as \"feature\"; native review should confirm the collision is acceptable."
+    },
+    {
+      "source": "transport",
+      "target": "트랜스포트",
+      "note": "The countable, named connection mechanism (stdio 트랜스포트, 인메모리 트랜스포트) and the `Transport` protocol name in code. Prose describing the generic idea of how messages are carried may say 전송 방식 without implying a separate term. Provisional pending native review; 운송/수송 (freight transport) are never correct.",
+      "avoid": ["운송", "수송"]
+    },
+    {
+      "source": "session",
+      "target": "세션",
+      "note": "Standard loanword; `ctx.session` and other identifiers stay code. Provisional pending native review."
+    },
+    {
+      "source": "handler",
+      "target": "핸들러",
+      "note": "The function registered for a tool, resource or prompt. 핸들러 rather than 처리기, to match modern Korean developer docs and the code vocabulary. Provisional pending native review."
+    },
+    {
+      "source": "dependency",
+      "target": "의존성",
+      "note": "Dependency-injection sense (\"dependency injection\" → 의존성 주입); a package dependency in installation contexts is also 의존성. Provisional pending native review; 종속성 is the competing house style."
+    },
+    {
+      "source": "client",
+      "target": "클라이언트",
+      "note": "The protocol role. The `Client` and `ClientSession` class names stay Latin in code font (see keep list). Provisional pending native review; 고객 means a customer and is never correct here.",
+      "avoid": ["고객"]
+    },
+    {
+      "source": "server",
+      "target": "서버",
+      "note": "The protocol role. The `MCPServer` and `Server` class names stay Latin in code font (see keep list). Provisional pending native review."
+    },
+    {
+      "source": "host",
+      "target": "호스트",
+      "note": "\"MCP host\" is the application that embeds a client (a desktop assistant, an editor); the corpus also says \"ASGI host\" for the app that serves an ASGI app — 호스트 covers both. Provisional pending native review.",
+      "avoid": ["주최자"]
+    },
+    {
+      "source": "request",
+      "target": "요청",
+      "note": "A JSON-RPC or HTTP request; the verb \"to request\" is 요청하다. Not the transliteration 리퀘스트. Provisional pending native review."
+    },
+    {
+      "source": "response",
+      "target": "응답",
+      "note": "A JSON-RPC or HTTP response; not the transliteration 리스폰스. Provisional pending native review."
+    },
+    {
+      "source": "context",
+      "target": "컨텍스트",
+      "note": "The \"context provided to a model\" sense (as in Model Context Protocol). The `Context` class and `ctx` are identifiers and stay Latin (see keep list). The everyday idiom \"in this context\" is not this term and may be recast (이 경우, 여기서는). Provisional pending native review; 맥락 is the competing rendering for the general word."
+    },
+    {
+      "source": "notification",
+      "target": "알림",
+      "note": "Protocol notifications (`notifications/...` identifiers stay Latin); \"send a notification\" → 알림을 보내다; not 통지. Provisional pending native review."
+    },
+    {
+      "source": "resolver",
+      "target": "리졸버",
+      "note": "The SDK's `Resolve(...)`-annotated parameter resolvers. Provisional pending native review; 해석기 (parser/interpreter) and 해결자 are avoided.",
+      "avoid": ["해결자"]
+    },
+    {
+      "source": "authorization",
+      "target": "인가",
+      "note": "Security sense: authorization → 인가 (인가 서버 for authorization server, 인가 코드 for authorization code), distinct from authentication → 인증. The `Authorization` HTTP header and code identifiers stay Latin. Provisional pending native review — 승인 and 권한 부여 are competing renderings to confirm against."
+    },
+    {
+      "source": "deprecated",
+      "target": "지원 중단 예정",
+      "note": "Advisory status: still works but discouraged. First occurrence on a page may add the original: 지원 중단 예정(deprecated). \"Removed\" is a different word (제거됨); the corpus contrasts the two, so never render deprecated as 폐기됨 or 제거됨. Provisional pending native review."
+    },
+    {
+      "source": "round-trip",
+      "target": "왕복",
+      "note": "A network round trip; \"multi-round-trip requests\" → 다중 왕복 요청; not the transliteration 라운드 트립. Provisional pending native review."
+    },
+    {
+      "source": "lifespan",
+      "target": "lifespan",
+      "note": "Keep the English word in Korean prose (lifespan 함수, 호스트 앱의 lifespan), matching the `lifespan=` parameter it names. Provisional pending native review — 수명 주기 was rejected because it collides with \"lifecycle\" (생명 주기)."
+    },
+    {
+      "source": "Get started",
+      "target": "시작하기",
+      "note": "The nav section that opens the guide, and the title of its index page. \"First steps\" is a separate page inside that section (첫걸음), so the two need distinct renderings or the sidebar shows the same title twice. Provisional pending native review. 첫 단계 is the alternative for the page."
+    },
+    {
+      "source": "First steps",
+      "target": "첫걸음",
+      "note": "The tutorial page inside the \"Get started\" section; never reuse this rendering for the section itself (see that entry). Provisional pending native review."
+    },
+    {
+      "source": "Recap",
+      "target": "요약",
+      "note": "Recurring section heading that closes most pages; one rendering everywhere, not 요약 on some pages and 정리 on others. Provisional pending native review."
+    },
+    {
+      "source": "Try it",
+      "target": "직접 해 보기",
+      "note": "Recurring section heading above a runnable example; one rendering everywhere, with this spacing (해 보기), not 실행해 보기 or 사용해 보기 on some pages. Provisional pending native review."
+    }
+  ]
+}
