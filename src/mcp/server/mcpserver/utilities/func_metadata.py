@@ -1,6 +1,7 @@
 import functools
 import inspect
 import json
+import math
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
@@ -31,7 +32,7 @@ from typing_inspection.introspection import (
     is_union_origin,
 )
 
-from mcp.server.mcpserver.exceptions import InvalidSignature
+from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.shared.exceptions import MCPDeprecationWarning
@@ -100,6 +101,25 @@ def _inline_root_ref(schema: dict[str, Any]) -> dict[str, Any]:
     definition = cast(dict[str, Any], schema["$defs"][ref.removeprefix(_LOCAL_DEFS_PREFIX)])
     siblings = {key: value for key, value in schema.items() if key != "$ref"}
     return {**definition, **siblings}
+
+
+def _ensure_finite_floats(value: Any) -> None:
+    """Reject NaN/Inf floats before JSON serialization turns them into non-JSON tokens."""
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            raise ToolError(f"Tool result contains non-finite float ({value!r}), which cannot be represented in JSON")
+        return
+    if isinstance(value, BaseModel):
+        for field_name in type(value).model_fields:
+            _ensure_finite_floats(getattr(value, field_name))
+        return
+    if isinstance(value, dict):
+        for item in cast(dict[Any, Any], value).values():
+            _ensure_finite_floats(item)
+        return
+    if isinstance(value, list | tuple | set):
+        for item in cast(list[Any] | tuple[Any, ...] | set[Any], value):
+            _ensure_finite_floats(item)
 
 
 class ArgModelBase(BaseModel):
@@ -216,6 +236,7 @@ class FuncMetadata(BaseModel):
         if isinstance(result, CallToolResult):
             if output_model is not None and not result.is_error:
                 self._output_adapter(output_model).validate_python(result.structured_content)
+                _ensure_finite_floats(result.structured_content)
             return result
 
         unstructured_content = _convert_to_content(result)
@@ -229,6 +250,7 @@ class FuncMetadata(BaseModel):
         # The tool hands back Python-side names; the wire (and outputSchema) use aliases.
         adapter = self._output_adapter(output_model)
         validated = adapter.validate_python(result, by_alias=True, by_name=True)
+        _ensure_finite_floats(validated)
         if isinstance(validated, BaseModel):
             # Dump via the instance so a returned subclass keeps its own fields.
             structured_content = validated.model_dump(mode="json", by_alias=True)

@@ -1647,3 +1647,28 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+async def test_tool_returning_non_finite_float_returns_tool_error(bad_value: float) -> None:
+    """Non-finite floats in structured tool output must surface as isError=True instead of client schema failure."""
+    from mcp import Client
+    from mcp.server import MCPServer
+
+    class Metrics(BaseModel):
+        accuracy: float
+        auc: float
+
+    mcp = MCPServer("nan-demo")
+
+    @mcp.tool()
+    def evaluate() -> Metrics:
+        return Metrics(accuracy=0.9, auc=bad_value)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("evaluate", {})
+
+    assert result.is_error is True
+    text = " ".join(block.text for block in result.content if block.type == "text")
+    assert "non-finite float" in text
