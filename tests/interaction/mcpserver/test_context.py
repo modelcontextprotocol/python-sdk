@@ -271,3 +271,43 @@ async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(con
             LoggingMessageNotificationParams(level="error", data="signal"),
         ]
     )
+
+
+def test_context_request_id_preserves_int_str_and_none() -> None:
+    """Context.request_id should preserve int, str, and None rather than stringifying."""
+    from mcp.server.context import ServerRequestContext
+
+    int_ctx = Context(
+        request_context=ServerRequestContext(
+            session=None,  # type: ignore[arg-type]
+            lifespan_context={},
+            method="tools/call",
+            request_id=42,
+            protocol_version="2026-07-28",
+        )
+    )
+    assert int_ctx.request_id == 42
+    assert isinstance(int_ctx.request_id, int)
+
+    str_ctx = Context(
+        request_context=ServerRequestContext(
+            session=None,  # type: ignore[arg-type]
+            lifespan_context={},
+            method="tools/call",
+            request_id="req-1",
+            protocol_version="2026-07-28",
+        )
+    )
+    assert str_ctx.request_id == "req-1"
+
+    none_ctx = Context(
+        request_context=ServerRequestContext(
+            session=None,  # type: ignore[arg-type]
+            lifespan_context={},
+            method="notifications/message",
+            request_id=None,
+            protocol_version="2026-07-28",
+        )
+    )
+    assert none_ctx.request_id is None
+    assert Context().request_id is None
