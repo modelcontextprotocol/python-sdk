@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, cast
 
 from mcp_types import RequestId
 
@@ -88,6 +88,47 @@ def _validate_rendered_properties(json_schema: dict[str, Any]) -> None:
             ) from None
 
 
+def _inline_enum_defs(json_schema: dict[str, Any]) -> dict[str, Any]:
+    """Inline `$defs` entries for string enums so `properties` stay `$ref`-free."""
+    raw_defs = json_schema.get("$defs")
+    if not isinstance(raw_defs, dict):
+        return json_schema
+
+    defs = cast(dict[str, Any], raw_defs)
+    prefix = "#/$defs/"
+    enum_defs: dict[str, dict[str, Any]] = {}
+    for name, raw_defn in defs.items():
+        if isinstance(raw_defn, dict):
+            defn = cast(dict[str, Any], raw_defn)
+            if "enum" in defn and defn.get("type") == "string":
+                enum_defs[name] = defn
+    if not enum_defs:
+        return json_schema
+
+    def _resolve(node: Any) -> Any:
+        if isinstance(node, dict):
+            node_dict = cast(dict[str, Any], node)
+            ref = node_dict.get("$ref")
+            if isinstance(ref, str) and ref.startswith(prefix):
+                key = ref.removeprefix(prefix)
+                if key in enum_defs:
+                    siblings = {k: _resolve(v) for k, v in node_dict.items() if k != "$ref"}
+                    return {**enum_defs[key], **siblings}
+            return {k: _resolve(v) for k, v in node_dict.items()}
+        if isinstance(node, list):
+            return [_resolve(item) for item in cast(list[Any], node)]
+        return node
+
+    resolved_props = _resolve(json_schema.get("properties", {}))
+    result: dict[str, Any] = {**json_schema, "properties": resolved_props}
+    remaining_defs: dict[str, Any] = {k: v for k, v in defs.items() if k not in enum_defs}
+    if remaining_defs:
+        result["$defs"] = remaining_defs
+    else:
+        result.pop("$defs", None)
+    return result
+
+
 def render_elicitation_schema(schema: type[BaseModel]) -> dict[str, Any]:
     """Render a model as the spec-valid `requested_schema` for an elicitation.
 
@@ -95,7 +136,7 @@ def render_elicitation_schema(schema: type[BaseModel]) -> dict[str, Any]:
         TypeError: If a field renders as something the spec's
             `PrimitiveSchemaDefinition` does not accept.
     """
-    json_schema = schema.model_json_schema(schema_generator=_ElicitationJsonSchema)
+    json_schema = _inline_enum_defs(schema.model_json_schema(schema_generator=_ElicitationJsonSchema))
     _validate_rendered_properties(json_schema)
     return json_schema
 

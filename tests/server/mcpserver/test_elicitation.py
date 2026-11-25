@@ -403,3 +403,42 @@ async def test_elicitation_literal_field_renders_as_a_spec_enum_schema():
         return ElicitResult(action="accept", content={"size": "m", "extras": ["a"]})
 
     await call_tool_and_assert(mcp, callback, "pick", {}, "m:a")
+
+
+def test_render_elicitation_schema_inlines_string_enums() -> None:
+    """StrEnum and (str, Enum) fields should inline as spec-valid enum schemas without $defs/$ref."""
+    from enum import Enum, StrEnum
+
+    from mcp.server.elicitation import render_elicitation_schema
+
+    class Color(StrEnum):
+        RED = "red"
+        BLUE = "blue"
+
+    class LegacyColor(str, Enum):
+        GREEN = "green"
+        YELLOW = "yellow"
+
+    class EnumForm(BaseModel):
+        color: Color
+        optional_color: Color | None = None
+        legacy: LegacyColor
+        colors: list[Color]
+
+    rendered = render_elicitation_schema(EnumForm)
+    assert "$defs" not in rendered
+    assert rendered["properties"]["color"]["enum"] == ["red", "blue"]
+    assert rendered["properties"]["color"]["type"] == "string"
+    assert rendered["properties"]["optional_color"]["enum"] == ["red", "blue"]
+    assert rendered["properties"]["legacy"]["enum"] == ["green", "yellow"]
+    assert rendered["properties"]["colors"]["items"]["enum"] == ["red", "blue"]
+
+    class Nested(BaseModel):
+        x: int
+
+    class BadForm(BaseModel):
+        color: Color
+        nested: Nested
+
+    with pytest.raises(TypeError, match="PrimitiveSchemaDefinition"):
+        render_elicitation_schema(BadForm)
