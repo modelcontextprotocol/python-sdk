@@ -903,6 +903,41 @@ async def test_get_sse_stream(basic_app: Starlette) -> None:
 
 
 @pytest.mark.anyio
+async def test_concurrent_get_sse_streams_reject_second_with_409(basic_app: Starlette) -> None:
+    """Concurrent GET SSE requests for the same session must yield [200, 409] without racing."""
+    async with make_client(basic_app) as client:
+        init_response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert init_response.status_code == 200
+        session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
+        assert session_id is not None
+        negotiated_version = extract_protocol_version_from_sse(init_response)
+
+        get_headers = {
+            "Accept": "text/event-stream",
+            MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
+        }
+        statuses: dict[str, int] = {}
+
+        async def open_stream(key: str) -> None:
+            async with client.stream("GET", "/mcp", headers=get_headers) as response:
+                statuses[key] = response.status_code
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(open_stream, "first")
+            tg.start_soon(open_stream, "second")
+
+        assert sorted(statuses.values()) == [200, 409]
+
+
+@pytest.mark.anyio
 async def test_get_validation(basic_app: Starlette) -> None:
     """A GET without an Accept header covering text/event-stream is rejected with 406."""
     async with make_client(basic_app) as client:
@@ -2318,10 +2353,13 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
     transport._request_streams = SignalingStreams()  # pyright: ignore[reportPrivateUsage]
 
     gate = anyio.Event()
+    response_started = anyio.Event()
     sent: list[Message] = []
 
     async def asgi_send(message: Message) -> None:
         sent.append(message)
+        if message["type"] == "http.response.start":
+            response_started.set()
         await gate.wait()
 
     # Never delivers anything, parking the response's disconnect listener.
@@ -2347,7 +2385,9 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
                 standalone_send = transport._request_streams[GET_STREAM_KEY][0]  # pyright: ignore[reportPrivateUsage]
                 # Zero-buffer rendezvous: once send() returns, the writer has dequeued the event
                 # and is blocked forwarding it past the closed gate — the between-dequeues window.
+                await response_started.wait()
                 await standalone_send.send(EventMessage(notification))
+                await anyio.sleep(0.01)
                 await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
                 # Unblock the response; the writer's next dequeue hits its closed stream.
                 gate.set()

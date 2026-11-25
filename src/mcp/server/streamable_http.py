@@ -773,18 +773,18 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
+        # Register the standalone message stream synchronously before starting the response
+        # so concurrent GET requests cannot race past the 409 check.
+        self._request_streams[GET_STREAM_KEY] = anyio.create_memory_object_stream[EventMessage](
+            REQUEST_STREAM_BUFFER_SIZE
+        )
+        standalone_stream_reader = self._request_streams[GET_STREAM_KEY][1]
+
         # Create SSE stream
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
 
         async def standalone_sse_writer():
             try:
-                # Create a standalone message stream for server-initiated messages
-
-                self._request_streams[GET_STREAM_KEY] = anyio.create_memory_object_stream[EventMessage](
-                    REQUEST_STREAM_BUFFER_SIZE
-                )
-                standalone_stream_reader = self._request_streams[GET_STREAM_KEY][1]
-
                 async with sse_stream_writer, standalone_stream_reader:
                     # Process messages from the standalone stream
                     async for event_message in standalone_stream_reader:
@@ -817,8 +817,8 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
         except Exception:  # pragma: lax no cover
             logger.exception("Error in standalone SSE response")
-            await self._clean_up_memory_streams(GET_STREAM_KEY)
         finally:
+            await self._clean_up_memory_streams(GET_STREAM_KEY)
             await sse_stream_writer.aclose()
             await sse_stream_reader.aclose()
 
