@@ -1647,3 +1647,56 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+def test_structured_output_wrapped_pydantic_and_stdlib_scalars():
+    """Pydantic scalar types like AnyHttpUrl and stdlib value/enum types should wrap in {'result': ...}."""
+    from datetime import UTC, date, datetime, time, timedelta
+    from decimal import Decimal
+    from enum import Enum, IntEnum, StrEnum
+    from ipaddress import IPv4Address, IPv4Network, IPv6Address
+    from pathlib import Path, PurePosixPath
+    from uuid import UUID
+
+    from pydantic import AnyHttpUrl, AnyUrl
+
+    class Color(StrEnum):
+        RED = "red"
+
+    class Priority(IntEnum):
+        HIGH = 1
+
+    class Status(Enum):
+        OK = "ok"
+
+    cases: list[tuple[Any, Any, Any]] = [
+        (AnyHttpUrl, AnyHttpUrl("https://example.com/"), "https://example.com/"),
+        (AnyUrl, AnyUrl("https://example.com/a"), "https://example.com/a"),
+        (Color, Color.RED, "red"),
+        (Priority, Priority.HIGH, 1),
+        (Status, Status.OK, "ok"),
+        (UUID, UUID("12345678-1234-5678-1234-567812345678"), "12345678-1234-5678-1234-567812345678"),
+        (datetime, datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), "2026-01-02T03:04:05Z"),
+        (date, date(2026, 1, 2), "2026-01-02"),
+        (time, time(3, 4, 5), "03:04:05"),
+        (timedelta, timedelta(seconds=90), "PT1M30S"),
+        (Decimal, Decimal("12.34"), "12.34"),
+        (Path, Path("foo/bar.txt"), str(Path("foo/bar.txt"))),
+        (PurePosixPath, PurePosixPath("foo/bar.txt"), "foo/bar.txt"),
+        (IPv4Address, IPv4Address("127.0.0.1"), "127.0.0.1"),
+        (IPv6Address, IPv6Address("::1"), "::1"),
+        (IPv4Network, IPv4Network("10.0.0.0/8"), "10.0.0.0/8"),
+    ]
+
+    for return_type, sample_value, expected_json_value in cases:
+
+        def fn(val: Any = sample_value) -> Any:
+            return val
+
+        fn.__annotations__["return"] = return_type
+        meta = func_metadata(fn, structured_output=True)
+        assert meta.output_schema is not None
+        assert "result" in meta.output_schema["properties"]
+        converted = meta.convert_result(sample_value)
+        assert isinstance(converted, CallToolResult)
+        assert converted.structured_content == {"result": expected_json_value}
