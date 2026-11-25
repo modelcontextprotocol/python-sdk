@@ -59,7 +59,7 @@ class BinaryResource(Resource):
 
     async def read(self) -> bytes:
         """Read the binary content."""
-        return self.data  # pragma: no cover
+        return self.data
 
 
 class FunctionResource(Resource):

@@ -231,6 +231,20 @@ class ResourceTemplate(BaseModel):
             if isinstance(result, InputRequiredResult):
                 return result
 
+            if isinstance(result, Resource):
+                explicit = result.model_fields_set
+                return FunctionResource(
+                    uri=uri,  # type: ignore
+                    name=result.name if "name" in explicit else self.name,
+                    title=result.title if "title" in explicit else self.title,
+                    description=result.description if "description" in explicit else self.description,
+                    mime_type=result.mime_type if "mime_type" in explicit else self.mime_type,
+                    icons=result.icons if "icons" in explicit else self.icons,
+                    annotations=result.annotations if "annotations" in explicit else self.annotations,
+                    meta=result.meta if "meta" in explicit else self.meta,
+                    fn=result.read,
+                )
+
             return FunctionResource(
                 uri=uri,  # type: ignore
                 name=self.name,

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError
-from mcp.server.mcpserver.resources import FunctionResource, ResourceTemplate
+from mcp.server.mcpserver.resources import BinaryResource, FunctionResource, ResourceTemplate, TextResource
 from mcp.server.mcpserver.resources.templates import (
     DEFAULT_RESOURCE_SECURITY,
     ResourceSecurity,
@@ -459,6 +459,72 @@ class TestResourceTemplateMetadata:
         assert resource.meta == metadata
         assert resource.meta["category"] == "inventory"
         assert resource.meta["cacheable"] is True
+
+    @pytest.mark.anyio
+    async def test_template_preserves_returned_resource_fields(self):
+        """When a template handler returns a Resource instance, explicitly set fields on the
+        returned resource take precedence over the template defaults (#3874)."""
+        mcp = MCPServer("test")
+
+        @mcp.resource("bin://{name}")
+        def get_bin(name: str) -> BinaryResource:
+            return BinaryResource(
+                uri=f"bin://{name}",
+                name=name,
+                title="Binary Item",
+                description="Raw PNG bytes",
+                data=b"\x89PNG\r\n\x1a\n",
+                mime_type="image/png",
+                annotations=Annotations(priority=0.8),
+                meta={"source": "camera"},
+            )
+
+        template = mcp._resource_manager.list_templates()[0]
+        resource = await template.create_resource("bin://cat.png", {"name": "cat.png"}, Context())
+        assert isinstance(resource, FunctionResource)
+        assert resource.uri == "bin://cat.png"
+        assert resource.name == "cat.png"
+        assert resource.title == "Binary Item"
+        assert resource.description == "Raw PNG bytes"
+        assert resource.mime_type == "image/png"
+        assert resource.annotations == Annotations(priority=0.8)
+        assert resource.meta == {"source": "camera"}
+
+        contents = await mcp.read_resource("bin://cat.png")
+        assert not isinstance(contents, InputRequiredResult)
+        items = list(contents)
+        assert len(items) == 1
+        assert items[0].content == b"\x89PNG\r\n\x1a\n"
+        assert items[0].mime_type == "image/png"
+        assert items[0].meta == {"source": "camera"}
+
+    @pytest.mark.anyio
+    async def test_template_returned_resource_falls_back_to_template_defaults(self):
+        """Fields not explicitly set on a returned Resource fall back to the template's metadata."""
+
+        def get_doc(slug: str) -> TextResource:
+            return TextResource(uri=f"doc://{slug}", text=f"# {slug}")
+
+        template = ResourceTemplate.from_function(
+            fn=get_doc,
+            uri_template="doc://{slug}",
+            name="doc_template",
+            title="Doc Title",
+            description="Doc Description",
+            mime_type="text/markdown",
+            annotations=Annotations(priority=0.4),
+            meta={"section": "guides"},
+        )
+
+        resource = await template.create_resource("doc://intro", {"slug": "intro"}, Context())
+        assert isinstance(resource, FunctionResource)
+        assert resource.name == "doc_template"
+        assert resource.title == "Doc Title"
+        assert resource.description == "Doc Description"
+        assert resource.mime_type == "text/markdown"
+        assert resource.annotations == Annotations(priority=0.4)
+        assert resource.meta == {"section": "guides"}
+        assert await resource.read() == "# intro"
 
 
 @pytest.mark.anyio
