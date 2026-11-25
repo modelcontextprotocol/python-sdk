@@ -7,7 +7,20 @@ from dataclasses import dataclass
 from functools import cache, reduce
 from operator import or_
 from types import TracebackType, UnionType
-from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, Self, TypeAlias, cast, get_args, overload
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Final,
+    Literal,
+    Protocol,
+    Self,
+    TypeAlias,
+    cast,
+    get_args,
+    get_origin,
+    overload,
+)
 
 import anyio
 import anyio.abc
@@ -76,6 +89,18 @@ def _clamp_inbound_ttl(raw: dict[str, Any]) -> None:
     ttl = raw.get("ttlMs")
     if isinstance(ttl, int | float) and not isinstance(ttl, bool) and ttl < 0:
         raw["ttlMs"] = 0
+
+
+def _expects_cacheable_result(target: Any) -> bool:
+    """Return whether `target` (or any union arm inside it) is a `CacheableResult` subclass."""
+    if isinstance(target, TypeAdapter):
+        target = getattr(cast(TypeAdapter[Any], target), "_type", None)
+    origin = get_origin(target)
+    if origin is Annotated:
+        return _expects_cacheable_result(get_args(target)[0])
+    if isinstance(target, UnionType) or origin is not None:
+        return any(_expects_cacheable_result(arm) for arm in get_args(target))
+    return isinstance(target, type) and issubclass(target, types.CacheableResult)
 
 
 @cache
@@ -584,7 +609,8 @@ class ClientSession:
             if metadata.on_resumption_token_update is not None:
                 opts["on_resumption_token"] = metadata.on_resumption_token_update
         raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
-        _clamp_inbound_ttl(raw)
+        if method in _methods.CACHEABLE_METHODS or _expects_cacheable_result(result_type):
+            _clamp_inbound_ttl(raw)
         # Literal fallback covers pre-handshake and stateless; matches runner.py.
         version = self._negotiated_version or "2025-11-25"
         try:

@@ -2126,3 +2126,44 @@ def test_intercept_consumes_acks_for_live_routes_and_leaves_malformed_ones():
     # Events deliver but are never consumed - they still tee to message_handler.
     assert intercept("notifications/tools/list_changed", meta) is False
     assert list(route._pending) == [ToolsListChanged()]  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.anyio
+async def test_non_cacheable_extension_result_preserves_negative_ttl_and_validates_strictly() -> None:
+    """Non-cacheable extension results must not have ttlMs clamped before validation, while CacheableResult does."""
+    from typing import Annotated, Literal
+
+    from pydantic import Field, ValidationError
+
+    from mcp.shared.skills import ListSkillsRequest, ListSkillsResult
+
+    class RetentionResult(types.Result):
+        result_type: Literal["task"] = "task"
+        ttl_ms: Annotated[int, Field(strict=True, ge=-9007199254740991, le=9007199254740991)] | None = None
+
+    dispatcher = _ScriptedDispatcher(
+        _discover_result_dict(),
+        {"resultType": "task", "ttlMs": -1},
+        {"resultType": "task", "ttlMs": -1.5},
+        {"skills": [], "ttlMs": -5, "cacheScope": "private"},
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            ok = await session.send_request(
+                types.CallToolRequest(params=types.CallToolRequestParams(name="slow")),
+                RetentionResult,
+            )
+            assert ok.ttl_ms == -1
+
+            with pytest.raises(ValidationError):
+                await session.send_request(
+                    types.CallToolRequest(params=types.CallToolRequestParams(name="slow")),
+                    RetentionResult,
+                )
+
+            skills = await session.send_request(
+                ListSkillsRequest(),  # type: ignore[arg-type]
+                ListSkillsResult,
+            )
+            assert skills.ttl_ms == 0
