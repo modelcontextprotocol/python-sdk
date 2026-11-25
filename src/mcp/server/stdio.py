@@ -11,6 +11,7 @@ Example:
     ```
 """
 
+import json
 import os
 import sys
 import threading
@@ -18,7 +19,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from io import TextIOWrapper
-from typing import BinaryIO, Literal, TextIO
+from typing import Any, BinaryIO, Literal, TextIO, cast
 
 import anyio
 import anyio.lowlevel
@@ -158,6 +159,19 @@ def _claim_fd(
     return os.fdopen(private_fd, mode, closefd=False), release
 
 
+def _extract_request_id(line: str) -> types.RequestId | None:
+    """Best-effort extraction of JSON-RPC request `id` when `validate_json` fails."""
+    try:
+        raw: Any = json.loads(line)
+    except Exception:
+        return None
+    if isinstance(raw, dict):
+        raw_id: Any = cast(dict[str, Any], raw).get("id")
+        if isinstance(raw_id, str) or (isinstance(raw_id, int) and not isinstance(raw_id, bool)):
+            return raw_id
+    return None
+
+
 @asynccontextmanager
 async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
     """Serve MCP over the process's stdin and stdout.
@@ -188,6 +202,16 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                         try:
                             message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
                         except Exception as exc:
+                            error_response = types.JSONRPCError(
+                                jsonrpc="2.0",
+                                id=_extract_request_id(line),
+                                error=types.ErrorData(
+                                    code=types.PARSE_ERROR,
+                                    message=f"Invalid JSON-RPC message: {exc}",
+                                ),
+                            )
+                            with suppress(anyio.ClosedResourceError):
+                                await write_stream.send(SessionMessage(error_response))
                             await read_stream_writer.send(exc)
                             continue
 

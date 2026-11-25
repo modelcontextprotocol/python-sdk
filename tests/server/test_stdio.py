@@ -692,3 +692,33 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     # resultType is modern-only: proves the request was served at the discovered version.
     assert responses[1].result["tools"] == []
     assert responses[1].result["resultType"] == "complete"
+
+
+@pytest.mark.anyio
+async def test_stdio_server_replies_parse_error_on_invalid_json_line() -> None:
+    """Invalid JSON-RPC request lines (such as lone surrogates) must return -32700 instead of hanging."""
+    import json
+
+    lone_surrogate_line = (
+        '{"jsonrpc":"2.0","id":3,"method":"tools/call",'
+        '"params":{"name":"echo","arguments":{"text":"bad \\ud83d bad"}}}\n'
+    )
+    malformed_line = "{not valid json\n"
+    stdin = anyio.wrap_file(io.StringIO(lone_surrogate_line + malformed_line))
+    out_buf = io.StringIO()
+    stdout = anyio.wrap_file(out_buf)
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=stdin, stdout=stdout) as (read_stream, write_stream):
+            async with read_stream, write_stream:
+                received = [item async for item in read_stream]
+
+    assert len(received) == 2
+    assert all(isinstance(item, Exception) for item in received)
+
+    lines = [json.loads(line) for line in out_buf.getvalue().splitlines() if line.strip()]
+    assert len(lines) == 2
+    assert lines[0]["id"] == 3
+    assert lines[0]["error"]["code"] == -32700
+    assert lines[1]["id"] is None
+    assert lines[1]["error"]["code"] == -32700
