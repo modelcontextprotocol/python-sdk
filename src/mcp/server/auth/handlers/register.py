@@ -117,6 +117,29 @@ class RegistrationHandler:
                 status_code=400,
             )
 
+        # RFC 7591 §2: "Clients using flows with redirection MUST register their
+        # redirection URI values." This handler only accepts the authorization_code
+        # grant, which is such a flow, so a registration without redirect URIs can
+        # never be used: every /authorize call would fail
+        # `validate_redirect_uri()` with `InvalidRedirectUriError`. Refuse it here,
+        # before minting credentials, rather than persisting a dead client.
+        #
+        # `redirect_uris` is `list[AnyUrl] | None` on `OAuthClientMetadata` because
+        # non-redirect clients (the client_credentials and identity-assertion
+        # extensions) build it with `redirect_uris=None`. `None` satisfies that union
+        # and bypasses `min_length=1`, so an explicit JSON `"redirect_uris": null`
+        # parses - and would otherwise register successfully. Omitted and `[]` are
+        # already rejected by the model; this closes the third spelling, matching the
+        # check `private_key_jwt` above.
+        if not client_metadata.redirect_uris:
+            return PydanticJSONResponse(
+                content=RegistrationErrorResponse(
+                    error="invalid_client_metadata",
+                    error_description="redirect_uris is required for authorization_code grant",
+                ),
+                status_code=400,
+            )
+
         client_id_issued_at = int(time.time())
         # RFC 7591 §3.2.1: client_secret_expires_at is REQUIRED whenever a client_secret is
         # issued, with 0 (not omission) meaning it never expires; a public client gets none.

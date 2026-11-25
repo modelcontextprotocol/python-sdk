@@ -9,6 +9,7 @@ from io import TextIOWrapper
 
 import anyio
 import anyio.to_thread
+import mcp_types as types
 import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
@@ -25,6 +26,15 @@ from typing_extensions import Buffer
 from mcp.server.mcpserver import MCPServer
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
+
+LONE_SURROGATE_LINE = (
+    '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"echo","arguments":{"text":"bad \\ud83d bad"}}}'
+)
+"""The request line from issue #3894: pure ASCII, but pydantic-core rejects the escape.
+
+`json.dumps(ensure_ascii=True)` emits `\\ud83d` for text cut in the middle of an emoji, so
+this is what a real client produces from a sliced stream - not a hand-crafted attack.
+"""
 
 
 @pytest.mark.anyio
@@ -95,6 +105,167 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> Non
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+
+async def _serve_lines(
+    lines: list[str],
+) -> tuple[list[SessionMessage | Exception], list[JSONRPCMessage]]:
+    """Drive `stdio_server()` over injected streams with `lines` on stdin.
+
+    Returns what the transport handed the session (one item per line) and what it wrote
+    to the wire. The test plays the session's part here, so only the *transport's* own
+    output lands in the second list - the error replies this fix adds. The write side is
+    closed before the context exits, or the writer task never finishes and the task-group
+    join deadlocks.
+    """
+    stdin = io.StringIO("".join(line if line.endswith("\n") else line + "\n" for line in lines))
+    stdout = io.StringIO()
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+            read_stream,
+            write_stream,
+        ):
+            try:
+                async with read_stream:
+                    # One item per line, so the reader never blocks on a full stream.
+                    received: list[SessionMessage | Exception] = [await read_stream.receive() for _ in lines]
+            finally:
+                await write_stream.aclose()
+
+    stdout.seek(0)
+    return received, [jsonrpc_message_adapter.validate_json(line) for line in stdout.readlines()]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("label", "line", "expected_id", "expected_code"),
+    [
+        # Well-formed JSON, unusable envelope: -32600. The id is recoverable, so the
+        # client's pending call is answered rather than left to time out.
+        ("missing-method", '{"jsonrpc":"2.0","id":7}', 7, types.INVALID_REQUEST),
+        ("wrong-version", '{"jsonrpc":"1.0","id":8,"method":"ping"}', 8, types.INVALID_REQUEST),
+        ("params-not-object", '{"jsonrpc":"2.0","id":10,"method":"ping","params":[1]}', 10, types.INVALID_REQUEST),
+        # A string id is a valid RequestId, so it is echoed verbatim.
+        ("string-id", '{"jsonrpc":"2.0","id":"req-a","method":7}', "req-a", types.INVALID_REQUEST),
+        # Well-formed JSON with no usable id: -32600 with `id: null`. `true` is a bool,
+        # not the int it subclasses; a float and an array match neither RequestId arm.
+        # Each needs another defect to reach the envelope rung: on its own an unusable
+        # `id` makes the union fall through to the notification arm, which ignores it.
+        ("bool-id", '{"jsonrpc":"2.0","id":true,"method":7}', None, types.INVALID_REQUEST),
+        ("float-id", '{"jsonrpc":"1.0","id":1.5,"method":"ping"}', None, types.INVALID_REQUEST),
+        ("array-id", '{"jsonrpc":"1.0","id":[1],"method":"ping"}', None, types.INVALID_REQUEST),
+        ("explicit-null-id", '{"jsonrpc":"2.0","id":null,"method":7}', None, types.INVALID_REQUEST),
+        ("empty-object", "{}", None, types.INVALID_REQUEST),
+        ("batch-array", '[{"jsonrpc":"2.0","id":1,"method":"ping"}]', None, types.INVALID_REQUEST),
+        ("bare-scalar", "123", None, types.INVALID_REQUEST),
+        # Not JSON at all: -32700, with the id recovered from the lenient decode where
+        # one exists (the lone surrogate case from issue #3894) and `null` otherwise.
+        ("lone-surrogate", LONE_SURROGATE_LINE, 3, types.PARSE_ERROR),
+        ("truncated", '{"jsonrpc":"2.0","id":3,"method":', None, types.PARSE_ERROR),
+        ("plain-text", "not json", None, types.PARSE_ERROR),
+    ],
+)
+async def test_stdio_server_answers_an_invalid_line_with_a_jsonrpc_error(
+    label: str, line: str, expected_id: object, expected_code: int
+) -> None:
+    """A stdin line that fails validation gets the JSON-RPC error it is owed, not silence.
+
+    Regression lock for issue #3894: the reader forwarded the exception and dropped the
+    line, and because server sessions install no `on_stream_exception` the dispatcher
+    logged it at debug level. The client's call then hung until its own timeout. JSON-RPC
+    2.0 §5 requires `-32700` for malformed JSON and `-32600` for a well-formed body that
+    is not a valid request.
+    """
+    valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+
+    received, written = await _serve_lines([valid.model_dump_json(by_alias=True), line])
+
+    # The valid request still reaches the session, unchanged.
+    assert received[0] == SessionMessage(valid), label
+    # The bad line surfaces as an exception to observers, as before, *and* on the wire.
+    assert isinstance(received[1], Exception), label
+    assert len(written) == 1, f"{label}: expected exactly one reply line, got {written!r}"
+    error = written[0]
+    assert isinstance(error, types.JSONRPCError), label
+    assert error.id == expected_id, label
+    assert error.error.code == expected_code, label
+
+
+@pytest.mark.anyio
+async def test_stdio_server_still_streams_after_answering_an_invalid_line() -> None:
+    """Answering a bad line does not end the stream: later requests are served normally.
+
+    The issue's repro sent a normal call, a lone-surrogate line, then another normal call;
+    the trailing call arriving proves the reader kept going (it already `continue`d, so
+    this locks the behaviour the fix must not regress).
+    """
+    first = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    last = JSONRPCRequest(jsonrpc="2.0", id=4, method="ping")
+
+    received, written = await _serve_lines(
+        [first.model_dump_json(by_alias=True), LONE_SURROGATE_LINE, last.model_dump_json(by_alias=True)]
+    )
+
+    assert received[0] == SessionMessage(first)
+    assert isinstance(received[1], Exception)
+    assert received[2] == SessionMessage(last)
+    assert [reply.id for reply in written if isinstance(reply, types.JSONRPCError)] == [3]
+
+
+@pytest.mark.anyio
+async def test_stdio_server_answers_a_line_whose_id_is_itself_unserializable() -> None:
+    """A lone surrogate in the id itself is answered with `id: null`, not dropped.
+
+    Echoing that id would put it back on the wire, where serializing the reply raises
+    `UnicodeEncodeError` and kills the writer - trading a silent hang for a dead transport.
+    An id this server cannot reproduce is undeterminable, and §5 answers those with `null`.
+    """
+    valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+
+    _, written = await _serve_lines(
+        [valid.model_dump_json(by_alias=True), '{"jsonrpc":"2.0","id":"bad \\ud83d","method":"ping"}']
+    )
+
+    assert len(written) == 1
+    error = written[0]
+    assert isinstance(error, types.JSONRPCError)
+    assert error.id is None
+    assert error.error.code == types.PARSE_ERROR
+
+
+@pytest.mark.anyio
+async def test_stdio_server_acknowledges_a_line_that_is_only_a_newline() -> None:
+    """A blank line is malformed JSON, so it is answered with `-32700` and an `id: null`."""
+    valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+
+    _, written = await _serve_lines([valid.model_dump_json(by_alias=True), ""])
+
+    assert len(written) == 1
+    error = written[0]
+    assert isinstance(error, types.JSONRPCError)
+    assert error.id is None
+    assert error.error.code == types.PARSE_ERROR
+
+
+@pytest.mark.anyio
+async def test_a_dropped_reply_for_an_invalid_line_does_not_kill_the_reader() -> None:
+    """If the session closed the write stream first, the reply send is swallowed, not raised.
+
+    A transport torn down between reading a bad line and answering it must not surface a
+    `ClosedResourceError` from the reader's task group - the pre-fix code never wrote, so
+    this path is new and needs its own lock.
+    """
+    line = '{"jsonrpc":"2.0","id":3,"method":"ping","params":[1]}'
+
+    with anyio.fail_after(5):
+        async with stdio_server(
+            stdin=anyio.AsyncFile(io.StringIO(line + "\n")), stdout=anyio.AsyncFile(io.StringIO())
+        ) as (read_stream, write_stream):
+            await write_stream.aclose()
+            async with read_stream:  # pragma: no branch
+                first = await read_stream.receive()
+                assert isinstance(first, Exception)
 
 
 @contextmanager
@@ -616,6 +787,16 @@ def _serve_stdio_and_collect(
     `responses` lines arrive - as a real client would - so handlers never race EOF cancellation.
     """
     payload = "".join(f.model_dump_json(by_alias=True, exclude_none=True) + "\n" for f in frames).encode()
+    return _serve_raw_stdio_and_collect(monkeypatch, server, payload, responses)
+
+
+def _serve_raw_stdio_and_collect(
+    monkeypatch: pytest.MonkeyPatch, server: MCPServer, payload: bytes, responses: int
+) -> list[JSONRPCMessage]:
+    """Like `_serve_stdio_and_collect`, but the caller supplies the exact wire bytes.
+
+    Needed for a line that a model cannot produce: the issue's lone-surrogate request.
+    """
     stdin = _GatedStdin(payload)
     stdout = _NotifyingStdout()
     monkeypatch.setattr(sys, "stdin", TextIOWrapper(stdin, encoding="utf-8"))
@@ -692,3 +873,61 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     # resultType is modern-only: proves the request was served at the discovered version.
     assert responses[1].result["tools"] == []
     assert responses[1].result["resultType"] == "complete"
+
+
+def test_mcpserver_run_stdio_answers_the_issue_3894_lone_surrogate_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End to end over process stdio: the issue's bad line is answered, and serving continues.
+
+    The reported repro is `initialize`, a normal `tools/call`, the lone-surrogate line, then a
+    normal call again. Before the fix the third line produced nothing and the client hung; here
+    the error arrives addressed to id 3 and the trailing call is still served.
+    """
+    initialize = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method="initialize",
+        params={
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "repro", "version": "0"},
+        },
+    )
+    normal = JSONRPCRequest(
+        jsonrpc="2.0", id=2, method="tools/call", params={"name": "echo", "arguments": {"text": "hello"}}
+    )
+    after = JSONRPCRequest(
+        jsonrpc="2.0", id=4, method="tools/call", params={"name": "echo", "arguments": {"text": "world"}}
+    )
+
+    payload = "".join(
+        [
+            initialize.model_dump_json(by_alias=True, exclude_unset=True) + "\n",
+            normal.model_dump_json(by_alias=True) + "\n",
+            LONE_SURROGATE_LINE + "\n",
+            after.model_dump_json(by_alias=True) + "\n",
+        ]
+    ).encode()
+
+    # The loom is never touched: the bad line fails before dispatch, which is the point.
+    server = MCPServer(name="LoneSurrogateServer")
+
+    @server.tool(name="echo")
+    def echo(text: str) -> str:
+        return text
+
+    responses = _serve_raw_stdio_and_collect(monkeypatch, server, payload, 4)
+
+    # Replies are correlated by id, not by arrival order: the error is written by the
+    # transport reader the moment the bad line is read, so it can overtake a request
+    # the dispatcher is still serving. That is the point - it needs no round trip.
+    by_id = {response.id: response for response in responses}
+    assert set(by_id) == {1, 2, 3, 4}
+
+    assert isinstance(by_id[1], JSONRPCResponse)
+    assert isinstance(by_id[2], JSONRPCResponse)
+    # The line that used to vanish now carries a reply the client can correlate.
+    assert isinstance(by_id[3], types.JSONRPCError)
+    assert by_id[3].error.code == types.PARSE_ERROR
+    assert isinstance(by_id[4], JSONRPCResponse)

@@ -11,6 +11,8 @@ Example:
     ```
 """
 
+import json
+import logging
 import os
 import sys
 import threading
@@ -18,15 +20,19 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from io import TextIOWrapper
-from typing import BinaryIO, Literal, TextIO
+from typing import Any, BinaryIO, Final, Literal, TextIO, cast
 
 import anyio
 import anyio.lowlevel
 import mcp_types as types
+import pydantic_core
 
 from mcp.os.win32.utilities import rebind_std_handle_to_fd
 from mcp.shared._context_streams import create_context_streams
+from mcp.shared._stream_protocols import WriteStream
 from mcp.shared.message import SessionMessage
+
+logger = logging.getLogger(__name__)
 
 if sys.platform != "win32":  # pragma: no branch
     import fcntl  # pragma: lax no cover - POSIX-only line, uncovered on Windows runners
@@ -158,6 +164,114 @@ def _claim_fd(
     return os.fdopen(private_fd, mode, closefd=False), release
 
 
+_PARSE_ERROR_MESSAGE: Final = "Parse error"
+"""JSON-RPC 2.0 §5 wording for -32700: the line was not well-formed JSON."""
+
+_INVALID_REQUEST_MESSAGE: Final = "Invalid Request"
+"""JSON-RPC 2.0 §5 wording for -32600: well-formed JSON that is not one usable message."""
+
+
+def _lenient_decode(line: str) -> Any:
+    """Decode a line with Python's `json`, which tolerates what pydantic-core refuses.
+
+    Used only to *identify* a line pydantic-core rejected, never to accept one:
+    the engines disagree on invalid Unicode escapes. A lone surrogate such as
+    `\\ud83d` - the escape `json.dumps(ensure_ascii=True)` writes for half of a
+    sliced emoji - decodes under `json` and is refused by pydantic-core, so
+    `json` still yields the envelope, and with it the id the client awaits.
+
+    Returns the decoded value, or `None` when even `json` cannot parse the line.
+    """
+    try:
+        return json.loads(line)
+    except (ValueError, RecursionError):
+        # Not just JSONDecodeError: oversized integer literals raise bare
+        # ValueError and deep nesting raises RecursionError.
+        return None
+
+
+def _recover_request_id(line: str) -> types.RequestId | None:
+    """The request id of a rejected line, when it carries one the wire accepts.
+
+    JSON-RPC 2.0 §5: an error response carries the id of the request it answers,
+    and `null` only when the id could not be determined. A line that *validated*
+    badly usually still identifies itself, and answering with `null` would leave
+    the client's pending call unmatched - precisely the hang being fixed, since
+    a `null` id correlates with nothing in a client's pending map.
+
+    Only the envelope's own top-level `id` counts: an `id` nested inside `params`
+    is a tool argument, and attributing the reply to it would resolve an
+    unrelated request. A member that is not a valid `RequestId` (a float, a bool,
+    an array, an object, or an explicit `null`) is dropped rather than echoed,
+    because putting it on the wire would violate the same spec.
+    """
+    decoded = _lenient_decode(line)
+    if not isinstance(decoded, dict):
+        return None
+    envelope = cast("dict[str, Any]", decoded)
+    raw_id: Any = envelope.get("id")
+    # `bool` subclasses `int`; JSON `true` is not a request id.
+    if isinstance(raw_id, bool):
+        return None
+    if isinstance(raw_id, str):
+        # The lenient decoder tolerates a string id carrying the same lone
+        # surrogate that got the line rejected; echoing it would make the reply
+        # itself unserializable and take the writer down. Such an id is
+        # undeterminable for this server, so it is answered with `null`.
+        try:
+            raw_id.encode("utf-8")
+        except UnicodeEncodeError:
+            return None
+        return raw_id
+    if isinstance(raw_id, int):
+        return raw_id
+    return None
+
+
+def _invalid_line_response(line: str) -> types.JSONRPCError:
+    """The JSON-RPC error owed to a client whose request line could not be accepted.
+
+    The code follows the rung the line failed at, which is read by replaying only
+    the decode stage: `-32700 Parse error` when the JSON layer refuses the line,
+    `-32600 Invalid Request` when the JSON is well-formed but not one message.
+    (`jsonrpc_message_adapter` is a union of the four message models, so a batch,
+    a bare scalar, `{}`, a bad `jsonrpc` version or a missing `method` all fail
+    the envelope rung rather than the JSON one.)
+    """
+    try:
+        pydantic_core.from_json(line)
+    except ValueError:
+        code, message = types.PARSE_ERROR, _PARSE_ERROR_MESSAGE
+    else:
+        code, message = types.INVALID_REQUEST, _INVALID_REQUEST_MESSAGE
+    return types.JSONRPCError(
+        jsonrpc="2.0",
+        id=_recover_request_id(line),
+        error=types.ErrorData(code=code, message=message),
+    )
+
+
+async def _reply_to_invalid_line(write_stream: WriteStream[SessionMessage], line: str, exc: Exception) -> None:
+    """Send the error reply for an unusable line instead of leaving the client to time out.
+
+    `JSONRPCDispatcher._dispatch` drops a bare `Exception` item when no
+    `on_stream_exception` observer is installed, and a server session installs
+    none - so forwarding the exception alone, as this reader used to, produced
+    silence on the wire. The exception is still forwarded (observers keep seeing
+    it); the reply is what unblocks the caller.
+    """
+    response = _invalid_line_response(line)
+    # Warning, not debug: the line is discarded, and that is worth an operator's
+    # attention - the issue reported the silence on stderr as part of the defect.
+    logger.warning("rejected stdin line as %s (%s)", response.error.message, type(exc).__name__)
+    try:
+        await write_stream.send(SessionMessage(response))
+    except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+        # The session already tore down; a reply that was never written must not
+        # take the reader's task group with it.
+        logger.debug("dropped %s reply: write stream closed", response.error.code)
+
+
 @asynccontextmanager
 async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
     """Serve MCP over the process's stdin and stdout.
@@ -188,6 +302,9 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                         try:
                             message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
                         except Exception as exc:
+                            # Forward the fault to observers, and answer the client:
+                            # a dropped line leaves its call pending until timeout.
+                            await _reply_to_invalid_line(write_stream, line, exc)
                             await read_stream_writer.send(exc)
                             continue
 

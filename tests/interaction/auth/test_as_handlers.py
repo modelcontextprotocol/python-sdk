@@ -256,6 +256,69 @@ async def test_registration_with_invalid_metadata_is_rejected_with_400(
     )
 
 
+@requirement("hosting:auth:as:register-error-response")
+@pytest.mark.parametrize(
+    ("label", "payload"),
+    [
+        # RFC 7591 §2 makes redirect_uris REQUIRED for redirection flows; the model
+        # rejects the three spellings below at parse time.
+        ("omitted", {}),
+        ("empty-array", {"redirect_uris": []}),
+        # The one the model lets through: `list[AnyUrl] | None` is there so non-redirect
+        # clients (client_credentials, identity assertion) can build the model with None,
+        # and None satisfies the union, bypassing min_length=1 (issue #3885).
+        ("explicit-null", {"redirect_uris": None}),
+    ],
+    ids=["omitted", "empty-array", "explicit-null"],
+)
+async def test_registration_without_redirect_uris_is_rejected_with_400(
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
+    label: str,
+    payload: dict[str, object],
+) -> None:
+    """Registration without usable redirect URIs is refused, and nothing is persisted.
+
+    Regression lock for issue #3885: `{"redirect_uris": null}` returned `201 Created`,
+    minting a client_id/client_secret and storing a client whose every `/authorize`
+    request would then fail `validate_redirect_uri()` with `InvalidRedirectUriError`.
+    RFC 7591 §2: "Clients using flows with redirection MUST register their redirection
+    URI values"; this handler only accepts the authorization_code grant.
+    """
+    http, provider = as_app
+    registered_before = len(provider.clients)
+
+    response = await http.post("/register", json=payload | {"client_name": label})
+
+    assert response.status_code == 400, label
+    body = response.json()
+    assert body["error"] == "invalid_client_metadata", label
+    # The description is the model's for the two it rejects itself, and the handler's
+    # own for the null spelling; either way the defect is named.
+    assert "redirect_uris" in body["error_description"], label
+    # No credentials minted, nothing stored: the refusal is total, not cosmetic.
+    assert "client_id" not in body, label
+    assert len(provider.clients) == registered_before, label
+
+
+@requirement("hosting:auth:as:register-error-response")
+async def test_registration_with_redirect_uris_still_succeeds(
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
+) -> None:
+    """The new null check does not narrow the accepted path: a normal registration still 201s.
+
+    Guards against over-rejecting - `redirect_uris` present and non-empty must keep
+    working, and the stored client must be able to resolve its redirect.
+    """
+    http, provider = as_app
+
+    response = await http.post("/register", json=oauth_client_metadata().model_dump(mode="json", exclude_none=True))
+
+    assert response.status_code == 201
+    client_info = OAuthClientInformationFull.model_validate_json(response.content)
+    assert client_info.redirect_uris
+    assert provider.clients[client_info.client_id].redirect_uris == client_info.redirect_uris
+
+
 @requirement("hosting:auth:as:register-echo")
 @pytest.mark.parametrize("application_type", ["web", "native"])
 async def test_registration_response_echoes_the_registered_application_type(
