@@ -520,3 +520,26 @@ def test_template_return_annotation_is_not_run_through_tool_output_schema_deriva
 
     template = ResourceTemplate.from_function(charts, uri_template="charts://{year}")
     assert template.uri_template == "charts://{year}"
+
+
+@pytest.mark.anyio
+async def test_create_resource_preserves_returned_resource_mime_type_and_meta() -> None:
+    """When a template handler returns a Resource instance, preserve its mime_type and meta."""
+    from mcp.server.mcpserver.resources.types import BinaryResource
+
+    def get_bin(name: str) -> BinaryResource:
+        return BinaryResource(
+            uri=f"bin://{name}",  # type: ignore[arg-type]
+            name=name,
+            data=b"\x89PNG\r\n\x1a\n",
+            mime_type="image/png",
+            meta={"source": "camera"},
+        )
+
+    template = ResourceTemplate.from_function(fn=get_bin, uri_template="bin://{name}")
+    resource = await template.create_resource("bin://cat.png", {"name": "cat.png"}, Context())
+
+    assert isinstance(resource, FunctionResource)
+    assert resource.mime_type == "image/png"
+    assert resource.meta == {"source": "camera"}
+    assert await resource.read() == b"\x89PNG\r\n\x1a\n"

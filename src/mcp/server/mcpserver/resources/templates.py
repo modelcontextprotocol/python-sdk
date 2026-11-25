@@ -231,6 +231,19 @@ class ResourceTemplate(BaseModel):
             if isinstance(result, InputRequiredResult):
                 return result
 
+            if isinstance(result, Resource):
+                return FunctionResource(
+                    uri=uri,  # type: ignore
+                    name=result.name or self.name,
+                    title=result.title or self.title,
+                    description=result.description or self.description,
+                    mime_type=result.mime_type or self.mime_type,
+                    icons=result.icons or self.icons,
+                    annotations=result.annotations or self.annotations,
+                    meta=result.meta if result.meta is not None else self.meta,
+                    fn=result.read,
+                )
+
             return FunctionResource(
                 uri=uri,  # type: ignore
                 name=self.name,
