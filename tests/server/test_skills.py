@@ -394,3 +394,26 @@ async def test_directory_read_rejects_a_handler_result_with_a_grandchild() -> No
                 ReadDirectoryRequest(params=ReadDirectoryParams(uri="skill://git-workflow")), ReadDirectoryResult
             )
     assert exc_info.value.code == INTERNAL_ERROR
+
+
+async def test_directory_read_rejects_handler_validation_error_and_mutation_as_internal_error() -> None:
+    """Handler ValidationError and post-construction mutation must surface as INTERNAL_ERROR."""
+
+    async def bad_construct(ctx: ServerRequestContext[Any, Any], params: ReadDirectoryParams) -> ReadDirectoryResult:
+        return ReadDirectoryResult(resources=[], cache_scope="everyone")  # type: ignore[arg-type]
+
+    async def bad_mutate(ctx: ServerRequestContext[Any, Any], params: ReadDirectoryParams) -> ReadDirectoryResult:
+        res = ReadDirectoryResult(resources=[Resource(uri="skill://git-workflow/SKILL.md", name="SKILL.md")])
+        res.cache_scope = "invalid-scope"  # type: ignore[assignment]
+        return res
+
+    for handler in (bad_construct, bad_mutate):
+        server = MCPServer(
+            "catalog", extensions=[Skills(list_skills=_list_skills, get_skill=_get_skill, read_directory=handler)]
+        )
+        async with Client(server) as client:
+            with pytest.raises(MCPError) as exc_info:
+                await client.session.send_request(
+                    ReadDirectoryRequest(params=ReadDirectoryParams(uri="skill://git-workflow")), ReadDirectoryResult
+                )
+        assert exc_info.value.code == INTERNAL_ERROR

@@ -134,10 +134,11 @@ class Skills(Extension):
     ) -> HandlerResult:
         assert self._read_directory is not None
         _require_directory_uri(params.uri)
-        result = await self._read_directory(ctx, params)
         try:
+            result = await self._read_directory(ctx, params)
+            ReadDirectoryResult.model_validate(result.model_dump())
             validate_directory_result(params.uri, result)
-        except ValueError:
+        except (ValidationError, ValueError):
             raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         return _finalize_cacheable(result, ctx.protocol_version)
 
