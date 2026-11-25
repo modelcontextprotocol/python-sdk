@@ -191,6 +191,73 @@ async def test_runner_handles_initialize_and_populates_connection(server: SrvT):
 
 
 @pytest.mark.anyio
+async def test_runner_rejects_changed_duplicate_initialize(server: SrvT):
+    """A changed retry leaves negotiated state unchanged.
+
+    Raw requests are needed to emit the invalid second handshake.
+    """
+    async with connected_runner(server, initialized=False) as (client, runner):
+        first_params = _initialize_params()
+        await client.send_raw_request("initialize", first_params)
+        initial_params = runner.connection.client_params
+        assert initial_params is not None
+
+        second_params = _initialize_params()
+        second_params["protocolVersion"] = "2024-11-05"
+        second_params["capabilities"] = {"sampling": {}}
+        second_params["clientInfo"] = {"name": "second-client", "version": "1.0"}
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("initialize", second_params)
+
+        assert exc.value.error == ErrorData(
+            code=INVALID_PARAMS,
+            message="Session already initialized with different parameters",
+            data=None,
+        )
+        assert runner.connection.client_params == initial_params
+        tools = await client.send_raw_request("tools/list", None)
+        assert [tool["name"] for tool in tools["tools"]] == ["t"]
+
+
+@pytest.mark.anyio
+async def test_runner_accepts_identical_duplicate_initialize(server: SrvT):
+    """An identical retry is idempotent.
+
+    Raw requests are needed because the typed client cannot emit a second handshake.
+    """
+    async with connected_runner(server, initialized=False) as (client, runner):
+        await client.send_raw_request("initialize", _initialize_params())
+        initial_params = runner.connection.client_params
+        assert initial_params is not None
+
+        result = await client.send_raw_request("initialize", _initialize_params())
+
+        assert result["serverInfo"]["name"] == "test-server"
+        assert runner.connection.client_params == initial_params
+
+
+@pytest.mark.anyio
+async def test_runner_duplicate_initialize_ignores_request_meta(server: SrvT):
+    """Request `_meta` is not negotiated state; raw requests are needed to retry with a different progress token."""
+    async with connected_runner(server, initialized=False) as (client, runner):
+        await client.send_raw_request("initialize", _initialize_params())
+        initial_params = runner.connection.client_params
+        assert initial_params is not None
+        initial_protocol = runner.connection.protocol_version
+
+        second_params = _initialize_params()
+        second_params["_meta"] = {"progressToken": "second-token"}
+        result = await client.send_raw_request("initialize", second_params)
+
+        assert result["serverInfo"]["name"] == "test-server"
+        assert runner.connection.client_params is not None
+        assert runner.connection.client_params.model_dump(exclude={"meta"}) == initial_params.model_dump(
+            exclude={"meta"}
+        )
+        assert runner.connection.protocol_version == initial_protocol
+
+
+@pytest.mark.anyio
 async def test_runner_initialize_opens_gate_but_event_fires_only_after_initialized_notification(server: SrvT):
     """`initialize` commits the gate flag and peer info, but the public
     `connection.initialized` event waits for `notifications/initialized` (the
