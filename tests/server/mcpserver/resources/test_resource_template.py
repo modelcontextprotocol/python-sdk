@@ -520,3 +520,39 @@ def test_template_return_annotation_is_not_run_through_tool_output_schema_deriva
 
     template = ResourceTemplate.from_function(charts, uri_template="charts://{year}")
     assert template.uri_template == "charts://{year}"
+
+
+@pytest.mark.anyio
+async def test_template_read_avoids_extra_worker_thread_hop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reading a resource created from a template should not hop to a worker thread just to return the value."""
+    import anyio.to_thread
+
+    hops = 0
+    real_run_sync = anyio.to_thread.run_sync
+
+    async def counting_run_sync(func: Any, *args: Any, **kwargs: Any) -> Any:
+        nonlocal hops
+        hops += 1
+        return await real_run_sync(func, *args, **kwargs)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", counting_run_sync)
+
+    def sync_user(user_id: str) -> str:
+        return f"user {user_id}"
+
+    async def async_order(order_id: str) -> str:
+        return f"order {order_id}"
+
+    sync_template = ResourceTemplate.from_function(fn=sync_user, uri_template="users://{user_id}")
+    async_template = ResourceTemplate.from_function(fn=async_order, uri_template="orders://{order_id}")
+
+    sync_resource = await sync_template.create_resource("users://1", {"user_id": "1"}, Context())
+    assert isinstance(sync_resource, FunctionResource)
+    assert await sync_resource.read() == "user 1"
+    assert hops == 1
+
+    hops = 0
+    async_resource = await async_template.create_resource("orders://1", {"order_id": "1"}, Context())
+    assert isinstance(async_resource, FunctionResource)
+    assert await async_resource.read() == "order 1"
+    assert hops == 0

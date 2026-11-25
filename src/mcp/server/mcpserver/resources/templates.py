@@ -231,6 +231,9 @@ class ResourceTemplate(BaseModel):
             if isinstance(result, InputRequiredResult):
                 return result
 
+            async def _return_result() -> Any:
+                return result
+
             return FunctionResource(
                 uri=uri,  # type: ignore
                 name=self.name,
@@ -240,7 +243,7 @@ class ResourceTemplate(BaseModel):
                 icons=self.icons,
                 annotations=self.annotations,
                 meta=self.meta,
-                fn=lambda: result,  # Capture result in closure
+                fn=_return_result,
             )
         except (ResourceError, MCPError):
             raise
