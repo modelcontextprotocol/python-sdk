@@ -787,7 +787,9 @@ async def streamable_http_client(
             try:
                 yield read_stream, write_stream
             finally:
-                if transport.session_id and terminate_on_close:
-                    await transport.terminate_session(client)
-                tg.cancel_scope.cancel()
+                with anyio.CancelScope(shield=True):
+                    if transport.session_id and terminate_on_close:
+                        with anyio.move_on_after(5):
+                            await transport.terminate_session(client)
+                    tg.cancel_scope.cancel()
         await resync_tracer()

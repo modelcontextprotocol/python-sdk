@@ -1208,6 +1208,44 @@ async def test_streamable_http_client_session_termination_204(basic_app: Starlet
 
 
 @pytest.mark.anyio
+async def test_streamable_http_client_sends_delete_on_cancellation(basic_app: Starlette) -> None:
+    """Cancelling the caller scope must not abort the DELETE session-termination request."""
+    methods_seen: list[str] = []
+
+    class RecordingTransport(httpx2.AsyncBaseTransport):
+        def __init__(self, inner: StreamingASGITransport) -> None:
+            self.inner = inner
+
+        async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+            methods_seen.append(request.method)
+            return await self.inner.handle_async_request(request)
+
+        async def __aenter__(self) -> RecordingTransport:
+            await self.inner.__aenter__()
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            await self.inner.__aexit__(*args)
+
+    httpx_client, _ = create_session_id_capturing_client(
+        basic_app, transport=RecordingTransport(StreamingASGITransport(basic_app))
+    )
+
+    async with httpx_client:
+        with anyio.CancelScope() as scope:
+            async with streamable_http_client(f"{BASE_URL}/mcp", http_client=httpx_client) as (
+                read_stream,
+                write_stream,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    scope.cancel()
+                    await anyio.sleep_forever()
+
+    assert "DELETE" in methods_seen
+
+
+@pytest.mark.anyio
 async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventStore, Starlette]) -> None:
     """A second client resumes an interrupted request with a resumption token and receives the rest."""
     _, app = event_app
