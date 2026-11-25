@@ -117,6 +117,15 @@ class RegistrationHandler:
                 status_code=400,
             )
 
+        if not client_metadata.redirect_uris:
+            return PydanticJSONResponse(
+                content=RegistrationErrorResponse(
+                    error="invalid_client_metadata",
+                    error_description="redirect_uris is required for authorization_code grant",
+                ),
+                status_code=400,
+            )
+
         client_id_issued_at = int(time.time())
         # RFC 7591 §3.2.1: client_secret_expires_at is REQUIRED whenever a client_secret is
         # issued, with 0 (not omission) meaning it never expires; a public client gets none.

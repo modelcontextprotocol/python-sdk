@@ -118,6 +118,22 @@ async def test_registration_error_handling(client: httpx2.AsyncClient, oauth_pro
 
 
 @pytest.mark.anyio
+async def test_registration_rejects_null_redirect_uris(client: httpx2.AsyncClient):
+    """Explicit null redirect_uris must be rejected for authorization_code clients."""
+    response = await client.post(
+        "/register",
+        json={
+            "redirect_uris": None,
+            "client_name": "Null Redirect Client",
+        },
+    )
+    assert response.status_code == 400, response.content
+    data = response.json()
+    assert data["error"] == "invalid_client_metadata"
+    assert "redirect_uris" in data["error_description"]
+
+
+@pytest.mark.anyio
 async def test_authorize_error_handling(
     client: httpx2.AsyncClient,
     oauth_provider: MockOAuthProvider,
