@@ -1456,3 +1456,26 @@ async def test_a_graceful_exit_with_a_surviving_child_leaks_no_pipe_fds(  # prag
         # Subset, not equality: other machinery may close fds, but never open new
         # ones; a leaked pipe fd would show up as an extra entry.
         assert set(os.listdir("/proc/self/fd")) <= baseline
+
+
+def test_get_windows_executable_command_probes_once_without_ps1(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_windows_executable_command delegates to shutil.which once and never probes .ps1."""
+    from mcp.os.win32.utilities import get_windows_executable_command
+
+    probed: list[str] = []
+
+    def fake_which(cmd: str) -> str | None:
+        probed.append(cmd)
+        return None
+
+    monkeypatch.setattr("shutil.which", fake_which)
+    assert get_windows_executable_command("my-tool") == "my-tool"
+    assert probed == ["my-tool"]
+
+    probed.clear()
+
+    def fake_which_found(_cmd: str) -> str:
+        return r"C:\bin\my-tool.cmd"
+
+    monkeypatch.setattr("shutil.which", fake_which_found)
+    assert get_windows_executable_command("my-tool") == r"C:\bin\my-tool.cmd"

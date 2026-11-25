@@ -62,21 +62,9 @@ _process_jobs: "weakref.WeakKeyDictionary[Process | FallbackProcess, object]" = 
 
 
 def get_windows_executable_command(command: str) -> str:
-    """Resolves the command to a Windows executable path.
-
-    Tries the bare name first, then the common script extensions (.cmd, .bat,
-    .exe, .ps1).
-    """
+    """Resolve a command name to a Windows executable path via `shutil.which`."""
     try:
-        if command_path := shutil.which(command):
-            return command_path
-
-        for ext in [".cmd", ".bat", ".exe", ".ps1"]:
-            ext_version = f"{command}{ext}"
-            if ext_path := shutil.which(ext_version):
-                return ext_path
-
-        return command
+        return shutil.which(command) or command
     except OSError:
         return command  # path probing failed (permissions, broken symlinks)
 
