@@ -188,7 +188,7 @@ class StreamableHTTPTransport:
                 return False
             try:
                 message = jsonrpc_message_adapter.validate_json(sse.data, by_name=False)
-                logger.debug(f"SSE message: {message}")
+                logger.debug("SSE message: %s", message)
 
                 # If this is a response and we have original_request_id, replace it
                 if original_request_id is not None and isinstance(message, JSONRPCResponse | JSONRPCError):
@@ -632,7 +632,7 @@ class StreamableHTTPTransport:
                     # Check if this is a resumption request
                     is_resumption = bool(metadata and metadata.resumption_token)
 
-                    logger.debug(f"Sending client message: {message}")
+                    logger.debug("Sending client message: %s", message)
 
                     # Handle initialized notification
                     if self._is_initialized_notification(message):
