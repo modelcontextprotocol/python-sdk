@@ -81,7 +81,7 @@ same option on `StreamableHttpParameters`.
     nothing away, except [redirect handling](#redirects). It is also where OAuth plugs in:
     `httpx2.AsyncClient(auth=OAuthClientProvider(...))`. That whole flow is **[OAuth clients](oauth-clients.md)**.
     A `ClientSessionGroup` has no `http_client=` argument. Put that same object on `auth=` of
-    `StreamableHttpParameters` or `SseServerParameters` (**[Multiple servers](session-groups.md#authentication)**).
+    `StreamableHttpParameters` (**[Multiple servers](session-groups.md#authentication)**).
 
 ### Redirects
 

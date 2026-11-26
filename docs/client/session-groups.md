@@ -72,17 +72,15 @@ If you already hold a connected `ClientSession` (`Client.session` is one), hand 
 
 ## Authentication
 
-An HTTP server takes the same `httpx2.Auth` you would put on an `httpx2.AsyncClient`. `OAuthClientProvider` is one. Build it as in **[OAuth clients](oauth-clients.md)**, then pass it on the parameters. The group builds the HTTP client, so there is no `http_client=` argument here.
+A Streamable HTTP server takes the same `httpx2.Auth` you would put on an `httpx2.AsyncClient`. `OAuthClientProvider` is one. Build it as in **[OAuth clients](oauth-clients.md)**, then pass it on the parameters. The group builds the HTTP client, so there is no `http_client=` argument here.
 
 ```python title="client.py" hl_lines="26"
 --8<-- "docs_src/session_groups/tutorial005.py"
 ```
 
-* One auth object per server. `OAuthClientProvider` keeps its tokens on that object, so two servers that share one instance share one refresh cycle. Construct a new one for each `StreamableHttpParameters` or `SseServerParameters`.
+* One auth object per server. `OAuthClientProvider` keeps its tokens on that object, so two servers that share one instance share one refresh cycle. Construct a new one for each `StreamableHttpParameters`.
 * `headers=` is still sent. A header other than `Authorization` arrives as you set it. `Authorization` does not, once the handler has a token: the handler writes that header itself. Before it has a token, a manual `Authorization` header is what goes out.
 * `auth` is left out of `model_dump()`, `model_dump_json()`, and `repr()`. It can hold a credential, and it is not JSON. Build it again when you build the parameters again.
-
-`SseServerParameters` takes the same `auth`.
 
 ## Recap
 
@@ -92,6 +90,6 @@ An HTTP server takes the same `httpx2.Auth` you would put on an `httpx2.AsyncCli
 * Names must be unique across the whole group; two servers with a `search` tool cannot coexist on their own.
 * `component_name_hook=` rewrites every registered name. The dict key changes, the wire name does not.
 * `connect_with_session` adds a session you already hold; `disconnect_from_server` removes one.
-* HTTP parameters take `auth=`, an `httpx2.Auth`. It is not serialized. One instance per server.
+* `StreamableHttpParameters` takes `auth=`, an `httpx2.Auth`. It is not serialized. One instance per server.
 
 The handshake a group speaks (and the faster one a `Client` prefers) is the subject of **[Protocol versions](../protocol-versions.md)**.
