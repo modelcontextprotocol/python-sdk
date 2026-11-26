@@ -6,10 +6,11 @@ exact same aggregation path through `connect_with_session` with in-memory sessio
 
 import traceback
 
+import httpx2
 import pytest
 from mcp_types import INVALID_PARAMS, Implementation
 
-from docs_src.session_groups import tutorial001, tutorial002, tutorial004
+from docs_src.session_groups import tutorial001, tutorial002, tutorial004, tutorial005
 from mcp import Client, ClientSessionGroup, MCPError
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
@@ -91,6 +92,19 @@ async def test_call_tool_routes_to_the_owning_server() -> None:
         assert web_result.structured_content == {"result": "12 pages match 'model context protocol'."}
         library_result = await group.call_tool("Library.search", {"query": "dune"})
         assert library_result.structured_content == {"result": "3 books match 'dune'."}
+
+
+def test_auth_stays_on_the_parameters_and_out_of_a_dump() -> None:
+    """tutorial005: `auth` is the handler, headers survive a dump, and the token does not."""
+    params = tutorial005.library
+    assert isinstance(params.auth, tutorial005.BearerAuth)
+    request = httpx2.Request("POST", params.url)
+    assert next(params.auth.auth_flow(request)) is request
+    assert request.headers["Authorization"] == "Bearer library-token"
+    assert params.model_dump()["headers"] == {"X-Trace-Id": "library"}
+    assert "auth" not in params.model_dump()
+    assert "library-token" not in params.model_dump_json()
+    assert "library-token" not in repr(params)
 
 
 async def test_disconnect_removes_every_component_of_that_server() -> None:

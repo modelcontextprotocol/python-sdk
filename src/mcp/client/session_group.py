@@ -16,7 +16,7 @@ from typing import Any, Literal, Self, TypeAlias, overload
 import anyio
 import httpx2
 import mcp_types as types
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 import mcp
 from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
@@ -31,6 +31,9 @@ from mcp.shared.exceptions import MCPError
 class SseServerParameters(BaseModel):
     """Parameters for initializing an sse_client."""
 
+    # httpx2.Auth is not a pydantic type. Omitted from dumps and repr: it can hold credentials.
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     # The endpoint URL.
     url: str
 
@@ -43,9 +46,15 @@ class SseServerParameters(BaseModel):
     # Timeout for SSE read operations (in seconds).
     sse_read_timeout: float = 300.0
 
+    # Optional httpx2 authentication handler, for example OAuthClientProvider.
+    auth: httpx2.Auth | None = Field(default=None, exclude=True, repr=False)
+
 
 class StreamableHttpParameters(BaseModel):
     """Parameters for initializing a streamable_http_client."""
+
+    # httpx2.Auth is not a pydantic type. Omitted from dumps and repr: it can hold credentials.
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # The endpoint URL.
     url: str
@@ -64,6 +73,9 @@ class StreamableHttpParameters(BaseModel):
 
     # Maximum bytes in one server-sent event. None disables the limit.
     max_sse_event_size: int | None = Field(default=DEFAULT_MAX_SSE_EVENT_SIZE, gt=0)
+
+    # Optional httpx2 authentication handler, for example OAuthClientProvider.
+    auth: httpx2.Auth | None = Field(default=None, exclude=True, repr=False)
 
 
 ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
@@ -321,6 +333,7 @@ class ClientSessionGroup:
                     headers=server_params.headers,
                     timeout=server_params.timeout,
                     sse_read_timeout=server_params.sse_read_timeout,
+                    auth=server_params.auth,
                 )
                 read, write = await session_stack.enter_async_context(client)
             else:
@@ -330,6 +343,7 @@ class ClientSessionGroup:
                         server_params.timeout,
                         read=server_params.sse_read_timeout,
                     ),
+                    auth=server_params.auth,
                 )
                 await session_stack.enter_async_context(httpx_client)
 
