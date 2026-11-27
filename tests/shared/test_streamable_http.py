@@ -903,6 +903,46 @@ async def test_get_sse_stream(basic_app: Starlette) -> None:
 
 
 @pytest.mark.anyio
+async def test_concurrent_get_sse_streams_reject_duplicate(basic_app: Starlette) -> None:
+    """Concurrent GET requests for the same session establish one SSE stream and reject the other with 409."""
+    async with make_client(basic_app) as client:
+        init_response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert init_response.status_code == 200
+
+        session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
+        assert session_id is not None
+        negotiated_version = extract_protocol_version_from_sse(init_response)
+
+        get_headers = {
+            "Accept": "text/event-stream",
+            MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
+        }
+        statuses: list[int] = []
+        both_responded = anyio.Event()
+
+        async def open_stream() -> None:
+            async with client.stream("GET", "/mcp", headers=get_headers) as response:
+                statuses.append(response.status_code)
+                if len(statuses) == 2:
+                    both_responded.set()
+                await both_responded.wait()
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(open_stream)
+            tg.start_soon(open_stream)
+
+        assert sorted(statuses) == [200, 409]
+
+
+@pytest.mark.anyio
 async def test_get_validation(basic_app: Starlette) -> None:
     """A GET without an Accept header covering text/event-stream is rejected with 406."""
     async with make_client(basic_app) as client:
@@ -2345,8 +2385,10 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
                 tg.start_soon(transport.handle_request, scope, asgi_receive, asgi_send)
                 await stream_registered.wait()
                 standalone_send = transport._request_streams[GET_STREAM_KEY][0]  # pyright: ignore[reportPrivateUsage]
-                # Zero-buffer rendezvous: once send() returns, the writer has dequeued the event
-                # and is blocked forwarding it past the closed gate — the between-dequeues window.
+                while not standalone_send.statistics().tasks_waiting_receive:
+                    await anyio.sleep(0)
+                # Once the writer is parked in receive(), send() hands the event directly to it
+                # and yields while it forwards the event past the closed gate — the between-dequeues window.
                 await standalone_send.send(EventMessage(notification))
                 await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
                 # Unblock the response; the writer's next dequeue hits its closed stream.
