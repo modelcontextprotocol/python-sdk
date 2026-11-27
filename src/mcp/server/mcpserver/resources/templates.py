@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING, Any
 
 import anyio.to_thread
 from mcp_types import Annotations, Icon, InputRequiredResult
-from pydantic import BaseModel, Field, validate_call
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError, validate_call
 
-from mcp.server.mcpserver.exceptions import ResourceError, UnexpectedResourceError
+from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError, UnexpectedResourceError
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
-from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
 from mcp.shared.path_security import contains_path_traversal, is_absolute_path
@@ -117,6 +117,7 @@ class ResourceTemplate(BaseModel):
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
     parsed_template: UriTemplate = Field(exclude=True, description="Parsed RFC 6570 template")
     security: ResourceSecurity = Field(exclude=True, description="Path-safety policy for extracted parameters")
+    _arg_model: type[ArgModelBase] = PrivateAttr()
 
     @classmethod
     def from_function(
@@ -158,7 +159,7 @@ class ResourceTemplate(BaseModel):
         # ensure the arguments are properly cast
         fn = validate_call(fn)
 
-        return cls(
+        template = cls(
             uri_template=uri_template,
             name=func_name,
             title=title,
@@ -173,6 +174,8 @@ class ResourceTemplate(BaseModel):
             parsed_template=parsed,
             security=security,
         )
+        template._arg_model = func_arg_metadata.arg_model
+        return template
 
     def matches(self, uri: str) -> dict[str, str | list[str]] | None:
         """Check if a URI matches this template and extract parameters.
@@ -214,19 +217,27 @@ class ResourceTemplate(BaseModel):
         carrying the echoed opaque state.
 
         Raises:
+            ResourceNotFoundError: If `params` fail validation against the template
+                function's parameter annotations, or if the template function raises it.
             ResourceError: If the template function raises `ResourceError`.
-            UnexpectedResourceError: If the template function raises anything other
-                than `ResourceError` or `MCPError`. `__cause__` is the original exception.
+            UnexpectedResourceError: If argument validation or the template function
+                raises anything other than `ResourceError` or `MCPError`. `__cause__`
+                is the original exception.
         """
         try:
+            try:
+                params = self._arg_model.model_validate(params).model_dump_one_level()
+            except ValidationError as exc:
+                raise ResourceNotFoundError(f"Unknown resource: {uri}") from exc
+
             # Add context to params if needed
             params = inject_context(self.fn, params, context, self.context_kwarg)
 
-            fn = self.fn
+            fn = getattr(self.fn, "__wrapped__", self.fn)
             if is_async_callable(fn):
                 result = await fn(**params)
             else:
-                result = await anyio.to_thread.run_sync(functools.partial(self.fn, **params))
+                result = await anyio.to_thread.run_sync(functools.partial(fn, **params))
 
             if isinstance(result, InputRequiredResult):
                 return result

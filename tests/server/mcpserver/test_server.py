@@ -3022,6 +3022,108 @@ async def test_deliberate_resource_error_passes_its_message_through_and_is_logge
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
+async def test_resource_template_parameter_validation_failure_is_not_found_logged_at_info(
+    caplog: pytest.LogCaptureFixture,
+):
+    """SDK-defined: a URI parameter that fails the template handler's type annotation names no
+    resource, so it is answered with -32602 Unknown resource and logged once at INFO without a
+    traceback, matching an unmatched URI or a path-safety rejection."""
+    mcp = MCPServer()
+
+    @mcp.resource("users://{user_id}/profile")
+    def profile(user_id: int) -> str:
+        return f"user {user_id}"
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        valid = await client.read_resource("users://42/profile")
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("users://abc/profile")
+    with pytest.raises(ResourceNotFoundError) as direct:
+        await mcp.read_resource("users://abc/profile")
+
+    assert valid.contents == [TextResourceContents(uri="users://42/profile", mime_type="text/plain", text="user 42")]
+    assert exc.value.error == snapshot(
+        ErrorData(
+            code=INVALID_PARAMS,
+            message="Unknown resource: users://abc/profile",
+            data={"uri": "users://abc/profile"},
+        )
+    )
+    assert type(direct.value) is ResourceNotFoundError
+    assert isinstance(direct.value.__cause__, ValidationError)
+    assert _server_records(caplog) == snapshot(
+        [("INFO", "Resource 'users://abc/profile' failed: 'Unknown resource: users://abc/profile'", False)]
+    )
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+async def test_validation_error_raised_inside_the_resource_template_body_is_a_crash(
+    caplog: pytest.LogCaptureFixture,
+):
+    """SDK-defined: only parameter validation against the template signature is treated as not-found;
+    a pydantic ValidationError raised inside the handler body is still logged and answered as a crash."""
+    mcp = MCPServer()
+
+    class Row(BaseModel):
+        n: int
+
+    @mcp.resource("rows://{row_id}")
+    def get_row(row_id: int) -> str:
+        Row.model_validate({"n": "x"})
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("rows://1")
+
+    assert exc.value.error == snapshot(
+        ErrorData(
+            code=INTERNAL_ERROR,
+            message="Error creating resource from template rows://1",
+            data={"uri": "rows://1"},
+        )
+    )
+    assert _server_records(caplog) == snapshot([("ERROR", "Resource 'rows://1' raised an unexpected exception", True)])
+    assert isinstance(_cause_chain(_logged_exception(caplog))[-1], ValidationError)
+
+
+async def test_resource_template_parameter_validator_that_crashes_is_a_crash(
+    caplog: pytest.LogCaptureFixture,
+):
+    """SDK-defined: a parameter validator raising anything other than ValueError/AssertionError
+    (or ResourceError/MCPError) is a bug in the template's schema and is wrapped and logged as a crash."""
+    mcp = MCPServer()
+    raised = TypeError("ids are compared as integers")
+
+    def check(user_id: str) -> str:
+        raise raised
+
+    @mcp.resource("users://{user_id}")
+    def get_user(user_id: Annotated[str, AfterValidator(check)]) -> str:
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("users://42")
+    with pytest.raises(UnexpectedResourceError) as direct:
+        await mcp.read_resource("users://42")
+
+    assert exc.value.error == snapshot(
+        ErrorData(
+            code=INTERNAL_ERROR,
+            message="Error creating resource from template users://42",
+            data={"uri": "users://42"},
+        )
+    )
+    assert direct.value.__cause__ is raised
+    assert _server_records(caplog) == snapshot(
+        [("ERROR", "Resource 'users://42' raised an unexpected exception", True)]
+    )
+
+
 async def test_prompt_raising_unexpected_exception_is_logged_once(caplog: pytest.LogCaptureFixture):
     """SDK-defined: a prompt crash is logged exactly once, by the dispatcher boundary that turns it
     into the JSON-RPC error, and not a second time by MCPServer."""

@@ -1,13 +1,13 @@
 import json
 import threading
-from typing import Any
+from typing import Annotated, Any
 
 import pytest
 from mcp_types import Annotations, ElicitRequest, ElicitRequestFormParams, InputRequiredResult
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel, ValidationError
 
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.mcpserver.exceptions import ResourceError
+from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
 from mcp.server.mcpserver.resources import FunctionResource, ResourceTemplate
 from mcp.server.mcpserver.resources.templates import (
     DEFAULT_RESOURCE_SECURITY,
@@ -520,3 +520,40 @@ def test_template_return_annotation_is_not_run_through_tool_output_schema_deriva
 
     template = ResourceTemplate.from_function(charts, uri_template="charts://{year}")
     assert template.uri_template == "charts://{year}"
+
+
+@pytest.mark.anyio
+async def test_create_resource_parameter_validation_failure_raises_resource_not_found() -> None:
+    """A template parameter that fails its type annotation raises ResourceNotFoundError
+    chained to the ValidationError before the handler runs."""
+
+    def profile(user_id: int) -> str:
+        raise NotImplementedError
+
+    template = ResourceTemplate.from_function(profile, uri_template="users://{user_id}/profile")
+
+    with pytest.raises(ResourceNotFoundError, match="Unknown resource: users://abc/profile") as exc:
+        await template.create_resource("users://abc/profile", {"user_id": "abc"}, Context())
+    assert isinstance(exc.value.__cause__, ValidationError)
+
+
+@pytest.mark.anyio
+async def test_create_resource_validates_parameters_once() -> None:
+    """Pre-validating against the template's argument model calls the unwrapped function so custom
+    parameter validators run once per read rather than a second time through validate_call."""
+    calls = 0
+
+    def record(value: int) -> int:
+        nonlocal calls
+        calls += 1
+        return value
+
+    def profile(user_id: Annotated[int, AfterValidator(record)]) -> str:
+        return f"user {user_id}"
+
+    template = ResourceTemplate.from_function(profile, uri_template="users://{user_id}/profile")
+    resource = await template.create_resource("users://42/profile", {"user_id": "42"}, Context())
+
+    assert isinstance(resource, FunctionResource)
+    assert await resource.read() == "user 42"
+    assert calls == 1
