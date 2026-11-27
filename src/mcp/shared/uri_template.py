@@ -1079,22 +1079,30 @@ def _scan_prefix(
         assert isinstance(nxt, _Lit)
 
         if atom.ifemp:
-            # RFC §3.2.7 ifemp: ;name=val for non-empty, bare ;name for
-            # empty. Decide which form is present without falling through
-            # to the stop-char scan when the value is empty.
+            # RFC §3.2.7 ifemp: ;name=val for a non-empty value, bare
+            # ;name for an empty one. The '=' that opens the value form is
+            # also the first character of a following literal that begins
+            # with '=', so the two forms collide when the value's text
+            # starts with that literal (e.g. {;a}=end with a="end" expands
+            # to ;a=end=end). Prefer the value form: locate the following
+            # literal after the '='; only treat the value as empty when it
+            # cannot be found there.
+            if pos < limit and uri[pos] == "=":
+                value_start = pos + 1
+                latest = value_start
+                while latest < limit and uri[latest] not in stops:
+                    latest += 1
+                end = uri.find(nxt.text, value_start, latest + len(nxt.text))
+                if end != -1:
+                    result[var.name] = unquote(uri[value_start:end])
+                    pos = end
+                    continue
+            # No '=', or the '=' belongs to the following literal: the
+            # value is empty iff the following literal starts here.
             if uri.startswith(nxt.text, pos):
-                # Following literal begins immediately: value is empty.
-                # Checked before '=' so a literal that itself starts
-                # with '=' is not mistaken for the ifemp separator.
                 result[var.name] = ""
                 continue
-            if pos < limit and uri[pos] == "=":
-                pos += 1  # value follows; fall through to the scan
-            else:
-                # The following literal does not start here and there is
-                # no '=': the URI's name continued past the template's
-                # (e.g. ;keys vs ;key) — no parse.
-                return None
+            return None
 
         # Latest valid end: the var stops at the first stop-char or
         # the scan limit, whichever comes first.

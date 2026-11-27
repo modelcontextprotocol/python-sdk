@@ -747,6 +747,41 @@ def test_match_prefix_ifemp_empty_before_non_stop_literal():
     assert t.match("api;keyZX/tail") is None
 
 
+def test_match_prefix_ifemp_value_collides_with_eq_literal() -> None:
+    # Regression for #3852: an ifemp (";") capture whose non-empty value
+    # collides with the following literal that begins with "=" must not be
+    # misread as empty. "{;a}=end{+rest}" with a="end" expands to
+    # ";a=end=end/x": the leading "=end" is a="end" and the trailing "=end"
+    # is the template literal feeding the greedy {+rest}.
+    t = UriTemplate.parse("{;a}=end{+rest}")
+    variables = {"a": "end", "rest": "/x"}
+    assert t.expand(variables) == ";a=end=end/x"
+    assert t.match(t.expand(variables)) == variables
+
+    # Same collision with a leading literal; the greedy var forces the
+    # prefix scan that contains the defect.
+    t2 = UriTemplate.parse("/api{;mode}=fast{+rest}")
+    variables2 = {"mode": "fast", "rest": "/42"}
+    assert t2.match(t2.expand(variables2)) == variables2
+
+    # --- Boundary conditions: valid inputs are unaffected ---
+    # Empty value before a literal starting with "=" is still detected empty.
+    assert t.match(";a=end/x") == {"a": "", "rest": "/x"}
+    # A value that does not collide with the literal is unchanged.
+    assert t.match(";a=v=end/x") == {"a": "v", "rest": "/x"}
+    # Name continuation with no "=" is still rejected, not mis-parsed.
+    assert t.match(";aZ=end/x") is None
+    # No-greedy / suffix path ("{;a}=end") round-trips both value forms.
+    t3 = UriTemplate.parse("{;a}=end")
+    assert t3.match(t3.expand({"a": "end"})) == {"a": "end"}
+    assert t3.match(t3.expand({"a": ""})) == {"a": ""}
+    # A '=' with no following literal and no literal at pos is a non-match.
+    assert t.match(";a=xyz") is None
+    # Empty value when the following literal does NOT start with '='.
+    t4 = UriTemplate.parse("p{;a}LIT{+r}")
+    assert t4.match(t4.expand({"a": "", "r": "x"})) == {"a": "", "r": "x"}
+
+
 def test_match_large_uri_against_greedy_template():
     # Large payload against a greedy template — the scan visits each
     # character once for the suffix anchor and once for the greedy
