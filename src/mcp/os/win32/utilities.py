@@ -1,16 +1,18 @@
 """Windows-specific functionality for stdio transport operations."""
 
 import logging
+import os
 import shutil
 import subprocess
 import sys
 import weakref
 from contextlib import suppress
+from io import FileIO
 from pathlib import Path
 from typing import BinaryIO, TextIO, TypeAlias, cast
 
 import anyio
-from anyio.abc import Process
+from anyio.abc import ByteReceiveStream, Process
 from anyio.streams.file import FileReadStream, FileWriteStream
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,8 @@ if sys.platform == "win32":
     import win32api
     import win32con
     import win32job
+    import win32pipe
+    import winerror
 else:
     # Type stubs for non-Windows platforms
     win32api = None
@@ -51,7 +55,7 @@ def rebind_std_handle_to_fd(fd: int) -> None:
         raise OSError(f"SetStdHandle failed for fd {fd}") from exc
 
 
-# How often FallbackProcess polls the underlying Popen for exit.
+# How often the Popen fallback polls for exit or pending pipe data.
 _EXIT_POLL_INTERVAL = 0.01
 
 # Job Object handle per spawned process, for tree termination at shutdown.
@@ -81,6 +85,46 @@ def get_windows_executable_command(command: str) -> str:
         return command  # path probing failed (permissions, broken symlinks)
 
 
+class _FallbackStderr(ByteReceiveStream):
+    """Reads the fallback stderr pipe without parking a worker in a blocking read."""
+
+    def __init__(self, pipe: FileIO) -> None:
+        self._pipe = pipe
+        if sys.platform != "win32":
+            os.set_blocking(pipe.fileno(), False)
+
+    def _read_nowait(self, max_bytes: int) -> bytes | None:
+        if sys.platform == "win32":
+            handle = msvcrt.get_osfhandle(self._pipe.fileno())
+            try:
+                _, pending, _ = win32pipe.PeekNamedPipe(handle, 0)
+            except pywintypes.error as exc:
+                if exc.winerror == winerror.ERROR_BROKEN_PIPE:
+                    return b""
+                raise anyio.BrokenResourceError from exc
+            if not pending:
+                return None
+            max_bytes = min(max_bytes, pending)
+        return self._pipe.read(max_bytes)
+
+    async def receive(self, max_bytes: int = 65536) -> bytes:
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be a positive integer")
+        try:
+            while (chunk := self._read_nowait(max_bytes)) is None:
+                await anyio.sleep(_EXIT_POLL_INTERVAL)
+        except ValueError:
+            raise anyio.ClosedResourceError from None
+        except OSError as exc:
+            raise anyio.BrokenResourceError from exc
+        if not chunk:
+            raise anyio.EndOfStream
+        return chunk
+
+    async def aclose(self) -> None:
+        self._pipe.close()
+
+
 class FallbackProcess:
     """Async wrapper around subprocess.Popen for SelectorEventLoop.
 
@@ -92,9 +136,13 @@ class FallbackProcess:
         self.popen: subprocess.Popen[bytes] = popen_obj
         stdin = popen_obj.stdin
         stdout = popen_obj.stdout
+        stderr = popen_obj.stderr
 
         self.stdin = FileWriteStream(cast(BinaryIO, stdin)) if stdin else None
         self.stdout = FileReadStream(cast(BinaryIO, stdout)) if stdout else None
+        # Popen uses FileIO for pipes when bufsize=0.
+        assert stderr is None or isinstance(stderr, FileIO)
+        self.stderr = _FallbackStderr(stderr) if stderr is not None else None
 
     async def wait(self) -> int:
         """Waits for exit by polling the Popen.
@@ -137,7 +185,7 @@ async def create_windows_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> Process | FallbackProcess:
     """Creates a subprocess with Job Object support for tree termination.
@@ -150,7 +198,7 @@ async def create_windows_process(
     (see the inline note below).
 
     Returns:
-        Process | FallbackProcess: The spawned process with async stdin/stdout streams.
+        Process | FallbackProcess: The spawned process with async streams for its pipes.
     """
     try:
         process = await anyio.open_process(
@@ -177,7 +225,7 @@ async def _create_windows_fallback_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> FallbackProcess:
     """Spawns via subprocess.Popen and wraps it in FallbackProcess."""

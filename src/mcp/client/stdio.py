@@ -1,15 +1,17 @@
 """stdio client transport.
 
 Runs an MCP server as a subprocess and exchanges newline-delimited JSON-RPC
-messages with it over stdin/stdout. Two pipe tasks bridge the server's pipes
-to the session's in-memory streams; shutdown follows the MCP spec sequence
+messages with it over stdin/stdout. Pipe tasks bridge the server's pipes to
+the session's in-memory streams. Shutdown follows the MCP spec sequence
 (close stdin, wait, then kill the process tree) inside a cancellation shield
 with every wait bounded, so a cancelled caller can neither leak a live server
 process nor hang on one.
 """
 
+import codecs
 import logging
 import os
+import subprocess
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
@@ -20,7 +22,7 @@ import anyio
 import anyio.lowlevel
 import anyio.to_thread
 import mcp_types as types
-from anyio.abc import AsyncResource, Process
+from anyio.abc import AsyncResource, ByteReceiveStream, Process
 from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
 
@@ -69,6 +71,9 @@ _KILL_REAP_TIMEOUT = 2.0
 # Time for the writer to flush accepted messages before stdin closes.
 _WRITER_FLUSH_TIMEOUT = 0.5
 
+# Time to deliver remaining stderr after the server exits.
+_STDERR_DRAIN_TIMEOUT = 0.5
+
 # How often to poll returncode while waiting for the process to die.
 _EXIT_POLL_INTERVAL = 0.01
 
@@ -113,21 +118,25 @@ class StdioServerParameters(BaseModel):
 
 @asynccontextmanager
 async def stdio_client(
-    server: StdioServerParameters, errlog: TextIO = sys.stderr
+    server: StdioServerParameters, errlog: TextIO | None = None
 ) -> AsyncGenerator[TransportStreams, None]:
     """Spawns an MCP server subprocess and connects to it over stdin/stdout.
+
+    The server's stderr is sent to `errlog`, defaulting to the current `sys.stderr`.
 
     Raises:
         OSError: If the server process cannot be spawned.
         ValueError: If the spawn parameters are invalid (embedded NUL bytes).
     """
     command = await _get_executable_command(server.command)
+    errlog = sys.stderr if errlog is None else errlog
+    stderr = _stderr_redirect(errlog)
 
     process = await _create_platform_compatible_process(
         command=command,
         args=server.args,
         env=get_default_environment() | (server.env or {}),
-        errlog=errlog,
+        errlog=stderr,
         cwd=server.cwd,
     )
 
@@ -138,6 +147,19 @@ async def stdio_client(
 
     shutting_down = False
     writer_done = anyio.Event()
+    stderr_done = anyio.Event() if stderr == subprocess.PIPE else None
+    stderr_scope = anyio.CancelScope(shield=True) if stderr_done is not None else None
+
+    async def stderr_reader() -> None:
+        assert (
+            errlog is not None and process.stderr is not None and stderr_done is not None and stderr_scope is not None
+        )
+        # Keep draining while caller cancellation closes stdin and stops the server.
+        try:
+            with stderr_scope:
+                await _forward_stderr(process.stderr, errlog, server)
+        finally:
+            stderr_done.set()
 
     async def stdout_reader() -> None:
         assert process.stdout, "Opened process is missing stdout"
@@ -193,7 +215,7 @@ async def stdio_client(
             await writer_done.wait()
         if flush_scope.cancelled_caught:
             await anyio.lowlevel.cancel_shielded_checkpoint()  # resync coverage on 3.11 (gh-106749)
-        await _stop_server_process(process)
+        await _stop_server_process(process, stderr_done)
         await _aclose_all(read_stream, write_stream, read_stream_writer, write_stream_reader)
         # One pass so unblocked tasks exit via their except paths before the cancel.
         await anyio.lowlevel.checkpoint()
@@ -201,6 +223,8 @@ async def stdio_client(
     async with anyio.create_task_group() as tg:
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        if stderr_done is not None:
+            tg.start_soon(stderr_reader)
         try:
             yield read_stream, write_stream
         finally:
@@ -208,12 +232,51 @@ async def stdio_client(
             # Shutdown must finish even under caller cancellation, or the server
             # process would leak; every wait inside is bounded. (Native
             # task.cancel() and the fallback's worker threads can still defeat it.)
-            with anyio.CancelScope(shield=True):
-                await shutdown()
+            try:
+                with anyio.CancelScope(shield=True):
+                    await shutdown()
+            finally:
+                if stderr_scope is not None:
+                    stderr_scope.cancel()
             # Unstick pipe tasks a kill survivor's open pipe end could still block.
             tg.cancel_scope.cancel()
     # The cancel lands via throw(); one yield resyncs 3.11 coverage (gh-106749).
     await anyio.lowlevel.cancel_shielded_checkpoint()
+
+
+def _stderr_redirect(errlog: TextIO | None) -> int | None:
+    if errlog is None:
+        return None
+    # OutStream.fileno() can point to the original terminal and bypass the notebook.
+    outstream = getattr(sys.modules.get("ipykernel.iostream"), "OutStream", None)
+    if isinstance(outstream, type) and isinstance(errlog, outstream):
+        return subprocess.PIPE
+    try:
+        fd = errlog.fileno()
+    except (AttributeError, OSError, ValueError):
+        return subprocess.PIPE
+    return fd if fd >= 0 else subprocess.PIPE
+
+
+async def _forward_stderr(stderr: ByteReceiveStream, errlog: TextIO, server: StdioServerParameters) -> None:
+    def write(chunk: bytes) -> None:
+        if text := decoder.decode(chunk, final=not chunk):
+            errlog.write(text)
+            errlog.flush()
+
+    with suppress(anyio.ClosedResourceError, anyio.BrokenResourceError, ConnectionError):
+        try:
+            decoder = codecs.getincrementaldecoder(server.encoding)(errors=server.encoding_error_handler)
+            async for chunk in stderr:
+                await anyio.to_thread.run_sync(write, chunk, abandon_on_cancel=True)
+            await anyio.to_thread.run_sync(write, b"", abandon_on_cancel=True)
+        except (LookupError, OSError, ValueError):
+            # The logger can also be configured to write to the failed destination.
+            with suppress(OSError, ValueError):
+                logger.exception("Forwarding the MCP server's stderr failed")
+            # A failed destination must not leave the child blocked on a full pipe.
+            async for _ in stderr:
+                pass
 
 
 def _parse_line(line: str) -> SessionMessage | Exception:
@@ -246,7 +309,7 @@ async def _drain_stdout(process: ServerProcess) -> None:
                 await process.stdout.receive()
 
 
-async def _stop_server_process(process: ServerProcess) -> None:
+async def _stop_server_process(process: ServerProcess, stderr_done: anyio.Event | None = None) -> None:
     """Closes stdin, waits out the grace period, then kills the whole tree.
 
     The escalation order is spec text; timeouts and tree-wide scope are SDK policy:
@@ -263,6 +326,11 @@ async def _stop_server_process(process: ServerProcess) -> None:
 
     # Reaps surviving Windows job members now, not at GC; no-op on POSIX.
     close_process_job(process)
+    if stderr_done is not None:
+        assert process.stderr is not None
+        with anyio.move_on_after(_STDERR_DRAIN_TIMEOUT):
+            await stderr_done.wait()
+        await _close_pipe(process.stderr)
     # A kill survivor can hold the stdout pipe open; poison the reader anyway.
     await _close_pipe(process.stdout)
     _close_subprocess_transport(process)
@@ -330,7 +398,7 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> ServerProcess:
     """Spawns the server in its own kill scope.

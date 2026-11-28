@@ -9,16 +9,19 @@ client<->server round trip is pinned by tests/interaction/transports/test_stdio.
 
 import errno
 import gc
+import io
 import logging
 import math
 import os
 import signal
+import subprocess
 import sys
 import threading
 from collections.abc import Callable
 from contextlib import AsyncExitStack, suppress
+from functools import partial
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import TextIO, cast
 
 import anyio
@@ -1251,7 +1254,7 @@ def _record_spawned_processes(monkeypatch: pytest.MonkeyPatch) -> list[anyio.abc
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
+        errlog: TextIO | int | None = sys.stderr,
         cwd: Path | str | None = None,
     ) -> anyio.abc.Process | FallbackProcess:
         process = await _create_platform_compatible_process(command, args, env, errlog, cwd)
@@ -1277,6 +1280,191 @@ def _kill_spawn_groups(spawned: list[anyio.abc.Process | FallbackProcess]) -> No
         # macOS killpg raises EPERM for a group holding only unreaped zombies.
         with suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, signal.SIGKILL)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [
+        "asyncio",
+        # Trio 0.31 opens its Linux pidfd without encoding= (it never reads text from it).
+        pytest.param("trio", marks=pytest.mark.filterwarnings("ignore::EncodingWarning:trio._subprocess")),
+    ],
+)
+async def test_stderr_is_forwarded_to_a_stream_without_a_fileno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Python-only stderr stream receives the server's final diagnostic on clean exit."""
+    spawned = _record_spawned_processes(monkeypatch)
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", "import sys; sys.stdin.read(); sys.stderr.buffer.write(b'  final diagnostic\\n')"],
+    )
+
+    with io.StringIO() as errlog, anyio.fail_after(5):
+        async with stdio_client(server, errlog=errlog):
+            pass
+
+        assert errlog.getvalue() == "  final diagnostic\n"
+    assert spawned[0].returncode == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("fileno_error", [AttributeError, OSError, ValueError, None])
+async def test_stderr_uses_the_current_sys_stderr_when_fileno_fails(
+    monkeypatch: pytest.MonkeyPatch, fileno_error: type[Exception] | None
+) -> None:
+    """A replacement installed after import receives the subprocess diagnostics."""
+
+    class Errlog(io.StringIO):
+        def fileno(self) -> int:
+            if fileno_error is not None:
+                raise fileno_error("no file descriptor")
+            return -1
+
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", "import sys; sys.stdin.read(); sys.stderr.buffer.write(b'diagnostic')"],
+    )
+    with Errlog() as errlog, anyio.fail_after(5):
+        monkeypatch.setattr(sys, "stderr", errlog)
+        async with stdio_client(server):
+            pass
+        assert errlog.getvalue() == "diagnostic"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("notebook_stream", [False, True])
+async def test_stderr_uses_the_correct_destination_for_streams_with_a_fileno(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, notebook_stream: bool
+) -> None:
+    """A file receives the original bytes and a notebook stream receives Python text."""
+    path = tmp_path / "stderr.log"
+    with path.open("w", encoding="utf-8") as file:
+
+        class OutStream(io.StringIO):
+            def fileno(self) -> int:
+                return file.fileno()
+
+        iostream = ModuleType("ipykernel.iostream")
+        setattr(iostream, "OutStream", OutStream)
+        monkeypatch.setitem(sys.modules, "ipykernel.iostream", iostream)
+        server = StdioServerParameters(
+            command=sys.executable,
+            args=["-c", "import sys; sys.stdin.read(); sys.stderr.buffer.write(b'caf\\xe9\\n')"],
+            encoding="latin-1",
+        )
+
+        with OutStream() as outstream:
+            assert outstream.fileno() == file.fileno()
+            monkeypatch.setattr(sys, "stderr", outstream if notebook_stream else file)
+            with anyio.fail_after(5):
+                async with stdio_client(server):
+                    pass
+
+            assert outstream.getvalue() == ("café\n" if notebook_stream else "")
+    assert path.read_bytes() == (b"" if notebook_stream else b"caf\xe9\n")
+
+
+@pytest.mark.anyio
+async def test_popen_fallback_delivers_stderr_and_exits_when_another_writer_holds_the_pipe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An inherited stderr writer cannot force the fallback client to wait for EOF."""
+    read_fd, write_fd = os.pipe()
+    finished = anyio.Event()
+
+    async def spawn_fallback(
+        command: str, args: list[str], env: dict[str, str], errlog: int | None, cwd: Path | str | None
+    ) -> FallbackProcess:
+        assert errlog == subprocess.PIPE
+        # On POSIX Popen blocks in an exec handshake, so start it in a worker.
+        popen = await anyio.to_thread.run_sync(
+            partial(
+                subprocess.Popen,
+                [command, *args],
+                env=env,
+                cwd=cwd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=stderr_writer,
+                bufsize=0,
+            )
+        )
+        popen.stderr = stderr_reader
+        return FallbackProcess(popen)
+
+    async def hold_writer_open() -> None:
+        try:
+            with anyio.fail_after(5):
+                await finished.wait()
+        finally:
+            stderr_writer.close()
+
+    monkeypatch.setattr(stdio, "_create_platform_compatible_process", spawn_fallback)
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", "import sys; sys.stdin.read(); sys.stderr.buffer.write(b'fallback diagnostic')"],
+    )
+    with (
+        os.fdopen(read_fd, "rb", buffering=0) as stderr_reader,
+        os.fdopen(write_fd, "wb", buffering=0) as stderr_writer,
+        io.StringIO() as errlog,
+    ):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(hold_writer_open)
+            async with stdio_client(server, errlog=errlog):
+                pass
+            finished.set()
+        assert stderr_reader.closed
+        assert errlog.getvalue() == "fallback diagnostic"
+
+
+@pytest.mark.anyio
+async def test_stderr_uses_inherited_stderr_when_sys_stderr_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A process can start on hosts that have no Python stderr stream."""
+    spawned = _record_spawned_processes(monkeypatch)
+    monkeypatch.setattr(sys, "stderr", None)
+    server = StdioServerParameters(command=sys.executable, args=["-c", "import sys; sys.stdin.read()"])
+    with anyio.fail_after(5):
+        async with stdio_client(server):
+            pass
+    assert spawned[0].returncode == 0
+
+
+@pytest.mark.anyio
+async def test_stderr_applies_the_configured_decode_error_handler_at_eof() -> None:
+    """An incomplete character at EOF is forwarded with the configured replacement."""
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", "import sys; sys.stdin.read(); sys.stderr.buffer.write(b'diagnostic: \\xc3')"],
+        encoding_error_handler="replace",
+    )
+    with io.StringIO() as errlog, anyio.fail_after(5):
+        async with stdio_client(server, errlog=errlog):
+            pass
+        assert errlog.getvalue() == "diagnostic: \ufffd"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("closed_logging_handler", [False, True])
+async def test_a_closed_errlog_does_not_stop_stderr_from_draining(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, closed_logging_handler: bool
+) -> None:
+    """A server flushing more than a pipe's capacity still exits if its destination closes."""
+    spawned = _record_spawned_processes(monkeypatch)
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", "import sys; sys.stdin.read(); sys.stderr.buffer.write(b'x' * 2_000_000)"],
+    )
+    with io.StringIO() as errlog, monkeypatch.context() as patch, anyio.fail_after(5):
+        if closed_logging_handler:
+            patch.setattr(logging, "raiseExceptions", True)
+            patch.setattr(stdio.logger, "handlers", [logging.StreamHandler(errlog)])
+            patch.setattr(sys, "stderr", errlog)
+        async with stdio_client(server, errlog=errlog):
+            errlog.close()
+    assert spawned[0].returncode == 0
+    if not closed_logging_handler:
+        assert any("Forwarding the MCP server's stderr failed" in record.message for record in caplog.records)
 
 
 @pytest.mark.anyio
@@ -1444,8 +1632,8 @@ async def test_a_graceful_exit_with_a_surviving_child_leaks_no_pipe_fds(  # prag
         baseline = set(os.listdir("/proc/self/fd"))
 
         # Two interpreter cold starts on a loaded runner; healthy runs take ~0.3s.
-        with anyio.fail_after(15.0):
-            async with stdio_client(server_params):
+        with io.StringIO() as errlog, anyio.fail_after(15.0):
+            async with stdio_client(server_params, errlog=errlog):
                 stream = await _accept_alive(sock)
             await stream.aclose()
 

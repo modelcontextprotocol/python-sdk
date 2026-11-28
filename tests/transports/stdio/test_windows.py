@@ -4,6 +4,7 @@ The test bodies are excluded because non-Windows CI also enforces coverage.
 """
 
 import asyncio
+import io
 import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -119,7 +120,7 @@ async def test_a_selector_event_loop_session_uses_the_fallback_process_and_exits
 ) -> None:
     """`stdio_client` uses `FallbackProcess` under `SelectorEventLoop`.
 
-    This covers clean exit because forced shutdown can strand the fallback reader thread.
+    This covers clean exit and delivery of stderr to a Python-only stream.
     """
     async with AsyncExitStack() as stack:
         sock, port = await open_liveness_listener()
@@ -130,15 +131,17 @@ async def test_a_selector_event_loop_session_uses_the_fallback_process_and_exits
             f"s = socket.create_connection(('127.0.0.1', {port}))\n"
             f"s.sendall(b'alive')\n"
             f"sys.stdin.read()\n"
+            f"sys.stderr.buffer.write(b'selector diagnostic')\n"
         )
         server_params = StdioServerParameters(command=sys.executable, args=["-c", server])
 
         # Allow one cold interpreter start on loaded CI.
-        with anyio.fail_after(10.0):
-            async with stdio_client(server_params):
+        with io.StringIO() as errlog, anyio.fail_after(10.0):
+            async with stdio_client(server_params, errlog=errlog):
                 stream = await accept_alive(sock)
                 stack.push_async_callback(stream.aclose)
                 assert isinstance(spawned_processes[0], FallbackProcess)
+            assert errlog.getvalue() == "selector diagnostic"
 
         await assert_stream_closed(stream)
         assert spawned_processes[0].returncode == 0
