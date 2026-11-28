@@ -118,6 +118,19 @@ async def test_registration_error_handling(client: httpx2.AsyncClient, oauth_pro
 
 
 @pytest.mark.anyio
+async def test_registration_rejects_null_redirect_uris(client: httpx2.AsyncClient, oauth_provider: MockOAuthProvider):
+    """DCR must reject {"redirect_uris": null} for authorization_code clients (RFC 7591 §2)."""
+    with unittest.mock.patch.object(oauth_provider, "register_client", wraps=oauth_provider.register_client) as spy:
+        response = await client.post("/register", json={"redirect_uris": None, "client_name": "Test Client"})
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"] == "invalid_client_metadata"
+    assert "redirect_uris" in data["error_description"]
+    spy.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_authorize_error_handling(
     client: httpx2.AsyncClient,
     oauth_provider: MockOAuthProvider,
