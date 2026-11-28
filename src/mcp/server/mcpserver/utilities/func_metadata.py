@@ -1,6 +1,7 @@
 import functools
 import inspect
 import json
+import math
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
@@ -31,7 +32,7 @@ from typing_inspection.introspection import (
     is_union_origin,
 )
 
-from mcp.server.mcpserver.exceptions import InvalidSignature
+from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.shared.exceptions import MCPDeprecationWarning
@@ -216,6 +217,7 @@ class FuncMetadata(BaseModel):
         if isinstance(result, CallToolResult):
             if output_model is not None and not result.is_error:
                 self._output_adapter(output_model).validate_python(result.structured_content)
+                _reject_non_finite_floats(result.structured_content)
             return result
 
         unstructured_content = _convert_to_content(result)
@@ -231,8 +233,10 @@ class FuncMetadata(BaseModel):
         validated = adapter.validate_python(result, by_alias=True, by_name=True)
         if isinstance(validated, BaseModel):
             # Dump via the instance so a returned subclass keeps its own fields.
+            _reject_non_finite_floats(validated.model_dump(mode="python", by_alias=True))
             structured_content = validated.model_dump(mode="json", by_alias=True)
         else:
+            _reject_non_finite_floats(adapter.dump_python(validated, mode="python", by_alias=True))
             structured_content = adapter.dump_python(validated, mode="json", by_alias=True)
 
         return CallToolResult(content=unstructured_content, structured_content=structured_content)
@@ -632,6 +636,26 @@ def _create_wrapped_model(func_name: str, annotation: Any) -> type[BaseModel]:
     model_name = f"{func_name}Output"
 
     return create_model(model_name, result=annotation)
+
+
+def _reject_non_finite_floats(value: Any, path: str = "") -> None:
+    """Raise `ToolError` if `value` contains `nan`, `inf`, or `-inf` floats.
+
+    Pydantic's JSON dump turns non-finite floats into `null`, which fails client-side
+    `outputSchema` validation (`"type": "number"`) and surfaces as a client `RuntimeError`.
+    """
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            loc = f" at {path}" if path else ""
+            raise ToolError(
+                f"Tool returned non-finite float {value!r}{loc}, which cannot be represented in JSON structured output"
+            )
+    elif isinstance(value, dict):
+        for k, v in cast("dict[Any, Any]", value).items():
+            _reject_non_finite_floats(v, f"{path}.{k}" if path else str(k))
+    elif isinstance(value, list | tuple):
+        for i, item in enumerate(cast("list[Any] | tuple[Any, ...]", value)):
+            _reject_non_finite_floats(item, f"{path}[{i}]")
 
 
 def _convert_to_content(result: Any) -> list[ContentBlock]:

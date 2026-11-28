@@ -4,7 +4,7 @@ from typing import Annotated
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from mcp import Client
 from mcp.server.mcpserver import Context, MCPServer
@@ -147,3 +147,27 @@ async def test_tool_with_valid_x_mcp_header_annotations_is_registered():
         raise NotImplementedError
 
     assert [tool.name for tool in await mcp.list_tools()] == ["fetch"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")], ids=["nan", "inf", "neg_inf"])
+async def test_tool_returning_non_finite_float_returns_is_error_instead_of_client_crash(bad_value: float):
+    """Non-finite floats (nan, inf, -inf) cannot be represented in JSON structured output;
+    the server must return CallToolResult(isError=True) naming the value instead of
+    silently serializing null and causing a client-side schema validation RuntimeError."""
+    mcp = MCPServer(name="nan-demo")
+
+    class Metrics(BaseModel):
+        accuracy: float
+        auc: float
+
+    @mcp.tool()
+    def evaluate() -> Metrics:
+        return Metrics(accuracy=0.9, auc=bad_value)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("evaluate", {})
+
+    assert result.is_error is True
+    assert isinstance(result.content[0], types.TextContent)
+    assert str(bad_value) in result.content[0].text
