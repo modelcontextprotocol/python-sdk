@@ -354,3 +354,47 @@ def test_validate_directory_result_rejects_a_uri_outside_the_directory() -> None
     result = ReadDirectoryResult(resources=[Resource(uri="skill://other/file.md", name="file.md")])
     with pytest.raises(ValueError, match="not a child"):
         validate_directory_result("skill://pdf/templates", result)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "skill://org/../my-skill/SKILL.md",
+        "skill://org/./my-skill/SKILL.md",
+        "skill://org/%2e%2e/my-skill/SKILL.md",
+        "skill://my-skill/SKILL.md?",
+        "skill://my-skill/SKILL.md#",
+    ],
+)
+def test_skill_uri_rejects_traversal_or_trailing_delimiters(uri: str) -> None:
+    with pytest.raises(ValueError, match="traversal|absolute resource URI"):
+        skill_name_from_uri(uri)
+
+    with pytest.raises(ValueError, match="traversal|absolute resource URI"):
+        Skill(
+            uri=uri,
+            frontmatter={"name": "my-skill", "description": "example"},
+            resources="dynamic",
+        )
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "skill://org/../../etc",
+        "skill://org/./etc",
+        "skill://org/%2e%2e/etc",
+        "skill://my-skill?",
+        "skill://my-skill#",
+    ],
+)
+def test_parse_directory_uri_rejects_traversal_or_trailing_delimiters(uri: str) -> None:
+    with pytest.raises(ValueError, match="traversal|absolute resource URI"):
+        parse_directory_uri(uri)
+
+
+@pytest.mark.parametrize("suffix", ["?", "#"])
+def test_validate_directory_result_rejects_child_trailing_delimiters(suffix: str) -> None:
+    result = ReadDirectoryResult(resources=[Resource(uri=f"skill://pdf/templates/x.md{suffix}", name="x.md")])
+    with pytest.raises(ValueError, match="invalid URI"):
+        validate_directory_result("skill://pdf/templates", result)
