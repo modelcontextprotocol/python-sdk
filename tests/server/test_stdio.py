@@ -13,8 +13,10 @@ import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
+    JSONRPCError,
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -692,3 +694,52 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     # resultType is modern-only: proves the request was served at the discovered version.
     assert responses[1].result["tools"] == []
     assert responses[1].result["resultType"] == "complete"
+
+
+def _serve_raw_stdio_and_collect(
+    monkeypatch: pytest.MonkeyPatch, server: MCPServer, lines: list[bytes], responses: int
+) -> list[JSONRPCMessage]:
+    """Serve raw wire lines over process stdio and return parsed response lines."""
+    payload = b"".join(line + b"\n" for line in lines)
+    stdin = _GatedStdin(payload)
+    stdout = _NotifyingStdout()
+    monkeypatch.setattr(sys, "stdin", TextIOWrapper(stdin, encoding="utf-8"))
+    monkeypatch.setattr(sys, "stdout", TextIOWrapper(stdout, encoding="utf-8"))
+
+    thread = threading.Thread(target=lambda: server.run("stdio"), daemon=True)
+    thread.start()
+    arrived = stdout.wait_for_lines(responses, timeout=2.0)
+    stdin.release()
+    thread.join(5)
+    assert not thread.is_alive(), 'run("stdio") did not return after stdin EOF'
+    assert arrived, f"expected {responses} response line(s); stdout carried: {stdout.getvalue()!r}"
+    return [jsonrpc_message_adapter.validate_json(line) for line in stdout.getvalue().decode().splitlines()]
+
+
+def test_mcpserver_run_stdio_replies_to_lone_surrogate_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A request line with a lone UTF-16 surrogate escape receives a JSON-RPC error instead of hanging (#3894)."""
+    bad_line = (
+        b'{"jsonrpc":"2.0","id":3,"method":"tools/call",'
+        b'"params":{"name":"echo","arguments":{"text":"bad \\ud83d bad"}}}'
+    )
+    ping = JSONRPCRequest(jsonrpc="2.0", id=4, method="ping").model_dump_json(by_alias=True, exclude_none=True).encode()
+
+    responses = _serve_raw_stdio_and_collect(monkeypatch, MCPServer(name="SurrogateStdioServer"), [bad_line, ping], 2)
+
+    assert isinstance(responses[0], JSONRPCError)
+    assert responses[0].id == 3
+    assert responses[0].error.code == PARSE_ERROR
+    assert responses[1] == JSONRPCResponse(jsonrpc="2.0", id=4, result={})
+
+
+def test_mcpserver_run_stdio_replies_parse_error_on_malformed_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A malformed JSON line on stdin receives a PARSE_ERROR with id=None and does not stall later requests."""
+    bad_line = b"{not valid json"
+    ping = JSONRPCRequest(jsonrpc="2.0", id=2, method="ping").model_dump_json(by_alias=True, exclude_none=True).encode()
+
+    responses = _serve_raw_stdio_and_collect(monkeypatch, MCPServer(name="MalformedStdioServer"), [bad_line, ping], 2)
+
+    assert isinstance(responses[0], JSONRPCError)
+    assert responses[0].id is None
+    assert responses[0].error.code == PARSE_ERROR
+    assert responses[1] == JSONRPCResponse(jsonrpc="2.0", id=2, result={})

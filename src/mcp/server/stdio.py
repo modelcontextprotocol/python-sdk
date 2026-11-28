@@ -11,6 +11,7 @@ Example:
     ```
 """
 
+import json
 import os
 import sys
 import threading
@@ -18,11 +19,12 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from io import TextIOWrapper
-from typing import BinaryIO, Literal, TextIO
+from typing import Any, BinaryIO, Literal, TextIO, cast
 
 import anyio
 import anyio.lowlevel
 import mcp_types as types
+from pydantic import ValidationError
 
 from mcp.os.win32.utilities import rebind_std_handle_to_fd
 from mcp.shared._context_streams import create_context_streams
@@ -158,6 +160,35 @@ def _claim_fd(
     return os.fdopen(private_fd, mode, closefd=False), release
 
 
+def _validation_error_response(line: str, exc: Exception) -> types.JSONRPCError | None:
+    """Build a JSON-RPC error response for a stdin line that failed validation."""
+    try:
+        decoded: Any = json.loads(line)
+    except (ValueError, RecursionError):
+        return types.JSONRPCError(
+            jsonrpc="2.0",
+            id=None,
+            error=types.ErrorData(code=types.PARSE_ERROR, message="Parse error"),
+        )
+
+    if isinstance(decoded, dict):
+        obj = cast(dict[str, Any], decoded)
+        if "id" not in obj and "method" in obj:
+            # Notifications must not receive a JSON-RPC reply.
+            return None
+        raw_id = obj.get("id")
+        req_id: types.RequestId | None = (
+            raw_id if isinstance(raw_id, str | int) and not isinstance(raw_id, bool) else None
+        )
+    else:
+        req_id = None
+
+    is_json_error = isinstance(exc, ValidationError) and any(err.get("type") == "json_invalid" for err in exc.errors())
+    code = types.PARSE_ERROR if is_json_error else types.INVALID_REQUEST
+    message = "Parse error" if is_json_error else "Invalid request"
+    return types.JSONRPCError(jsonrpc="2.0", id=req_id, error=types.ErrorData(code=code, message=message))
+
+
 @asynccontextmanager
 async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
     """Serve MCP over the process's stdin and stdout.
@@ -189,6 +220,10 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                             message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
                         except Exception as exc:
                             await read_stream_writer.send(exc)
+                            error_response = _validation_error_response(line, exc)
+                            if error_response is not None:
+                                with suppress(anyio.ClosedResourceError, anyio.BrokenResourceError):
+                                    await write_stream.send(SessionMessage(error_response))
                             continue
 
                         session_message = SessionMessage(message)
