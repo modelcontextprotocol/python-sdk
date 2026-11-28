@@ -3,8 +3,15 @@ import inspect
 import json
 import sys
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import is_dataclass
+from datetime import date, time, timedelta
+from decimal import Decimal
+from enum import Enum
+from ipaddress import IPv4Address, IPv4Interface, IPv4Network, IPv6Address, IPv6Interface, IPv6Network
 from itertools import chain
+from pathlib import PurePath
 from typing import Annotated, Any, NotRequired, Union, cast, get_args, get_origin
+from uuid import UUID
 
 import anyio
 import anyio.to_thread
@@ -41,6 +48,24 @@ logger = get_logger(__name__)
 
 def _is_input_required_type(obj: Any) -> bool:
     return isinstance(obj, type) and issubclass(obj, InputRequiredResult)
+
+
+_WRAPPED_SCALAR_EXACT_TYPES = (str, int, float, bool, bytes, type(None), list, tuple, set, frozenset)
+_WRAPPED_SCALAR_BASE_TYPES = (
+    Enum,
+    date,
+    time,
+    timedelta,
+    Decimal,
+    UUID,
+    PurePath,
+    IPv4Address,
+    IPv6Address,
+    IPv4Interface,
+    IPv6Interface,
+    IPv4Network,
+    IPv6Network,
+)
 
 
 _CONTENT_TYPES = (*get_args(ContentBlock), Image, Audio)
@@ -545,8 +570,13 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         elif type_annotation is dict:
             model = dict[str, Any]
 
-        # Case 4: Primitive types and bare collections that need wrapping
-        elif type_annotation in (str, int, float, bool, bytes, type(None), list, tuple, set, frozenset):
+        # Case 4: Primitive types, bare collections, stdlib scalar/enum types, and Pydantic scalar types
+        # (e.g. AnyUrl/AnyHttpUrl implementing __get_pydantic_core_schema__) that need wrapping
+        elif (
+            type_annotation in _WRAPPED_SCALAR_EXACT_TYPES
+            or issubclass(type_annotation, _WRAPPED_SCALAR_BASE_TYPES)
+            or (hasattr(type_annotation, "__get_pydantic_core_schema__") and not is_dataclass(type_annotation))
+        ):
             model = _create_wrapped_model(func_name, original_annotation)
             wrap_output = True
 

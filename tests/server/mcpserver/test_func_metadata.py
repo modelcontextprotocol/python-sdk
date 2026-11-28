@@ -5,17 +5,23 @@
 # pyright: reportUnknownLambdaType=false
 # pyright: reportMissingTypeArgument=false
 # pyright: reportUnknownVariableType=false
+import datetime as dt
+import decimal
+import ipaddress
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum, IntEnum, StrEnum
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, NotRequired, Required, TypedDict
+from uuid import UUID
 
 import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
 from inline_snapshot import snapshot
 from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequiredResult, TextContent
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, ValidationError
 from typing_extensions import ReadOnly
 
 from mcp import MCPDeprecationWarning
@@ -1647,3 +1653,60 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+class _SampleEnum(Enum):
+    A = "a"
+
+
+class _SampleStrEnum(StrEnum):
+    RED = "red"
+
+
+class _SampleIntEnum(IntEnum):
+    ONE = 1
+
+
+@pytest.mark.parametrize(
+    ("ret_type", "sample", "expected_json"),
+    [
+        pytest.param(AnyUrl, AnyUrl("https://example.com/a"), "https://example.com/a", id="AnyUrl"),
+        pytest.param(AnyHttpUrl, AnyHttpUrl("https://example.com"), "https://example.com/", id="AnyHttpUrl"),
+        pytest.param(_SampleEnum, _SampleEnum.A, "a", id="Enum"),
+        pytest.param(_SampleStrEnum, _SampleStrEnum.RED, "red", id="StrEnum"),
+        pytest.param(_SampleIntEnum, _SampleIntEnum.ONE, 1, id="IntEnum"),
+        pytest.param(
+            UUID,
+            UUID("12345678-1234-5678-1234-567812345678"),
+            "12345678-1234-5678-1234-567812345678",
+            id="UUID",
+        ),
+        pytest.param(dt.datetime, dt.datetime(2026, 1, 2, 3, 4, 5), "2026-01-02T03:04:05", id="datetime"),
+        pytest.param(dt.date, dt.date(2026, 1, 2), "2026-01-02", id="date"),
+        pytest.param(dt.time, dt.time(3, 4, 5), "03:04:05", id="time"),
+        pytest.param(dt.timedelta, dt.timedelta(seconds=90), "PT1M30S", id="timedelta"),
+        pytest.param(decimal.Decimal, decimal.Decimal("12.34"), "12.34", id="Decimal"),
+        pytest.param(Path, Path("foo/bar.txt"), str(Path("foo/bar.txt")), id="Path"),
+        pytest.param(PurePath, PurePath("foo/bar.txt"), str(PurePath("foo/bar.txt")), id="PurePath"),
+        pytest.param(ipaddress.IPv4Address, ipaddress.IPv4Address("192.0.2.1"), "192.0.2.1", id="IPv4Address"),
+        pytest.param(ipaddress.IPv6Address, ipaddress.IPv6Address("2001:db8::1"), "2001:db8::1", id="IPv6Address"),
+        pytest.param(ipaddress.IPv4Interface, ipaddress.IPv4Interface("192.0.2.1/24"), "192.0.2.1/24", id="IPv4Interface"),
+        pytest.param(ipaddress.IPv6Interface, ipaddress.IPv6Interface("2001:db8::1/64"), "2001:db8::1/64", id="IPv6Interface"),
+        pytest.param(ipaddress.IPv4Network, ipaddress.IPv4Network("192.0.2.0/24"), "192.0.2.0/24", id="IPv4Network"),
+        pytest.param(ipaddress.IPv6Network, ipaddress.IPv6Network("2001:db8::/32"), "2001:db8::/32", id="IPv6Network"),
+    ],
+)
+def test_structured_output_scalar_enum_and_pydantic_url_types(ret_type: type[Any], sample: Any, expected_json: Any):
+    def fn() -> Any:
+        return sample
+
+    fn.__annotations__ = {"return": ret_type}
+
+    meta = func_metadata(fn, structured_output=True)
+    assert meta.wrap_output is True
+    assert meta.output_schema is not None
+    assert "result" in meta.output_schema["properties"]
+
+    converted = meta.convert_result(sample)
+    assert isinstance(converted, CallToolResult)
+    assert converted.structured_content == {"result": expected_json}
